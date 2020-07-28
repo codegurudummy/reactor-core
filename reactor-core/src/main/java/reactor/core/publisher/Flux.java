@@ -3751,6 +3751,16 @@ public abstract class Flux<T> implements CorePublisher<T> {
 		return concat(this, other);
 	}
 
+	//FIXME javadoc
+	public final Flux<T> contextWrite(ContextView contextToAppend) {
+		return contextWrite(c -> c.putAll(contextToAppend));
+	}
+
+	//FIXME javadoc
+	public final Flux<T> contextWrite(Function<Context, Context> contextModifier) {
+		return new FluxContextWrite<>(this, contextModifier);
+	}
+
 	/**
 	 * Counts the number of values in this {@link Flux}.
 	 * The count will be emitted when onComplete is observed.
@@ -7926,7 +7936,9 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 *
 	 * @return a contextualized {@link Flux}
 	 * @see Context
+	 * @deprecated Use {@link #contextWrite(ContextView)} instead. To be removed in 3.5.0.
 	 */
+	@Deprecated
 	public final Flux<T> subscriberContext(Context mergeContext) {
 		return subscriberContext(c -> c.putAll(mergeContext));
 	}
@@ -7948,9 +7960,11 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 *
 	 * @return a contextualized {@link Flux}
 	 * @see Context
+	 * @deprecated Use {@link #contextWrite(Function)} instead. To be removed in 3.5.0.
 	 */
+	@Deprecated
 	public final Flux<T> subscriberContext(Function<Context, Context> doOnContext) {
-		return new FluxContextStart<>(this, doOnContext);
+		return contextWrite(doOnContext);
 	}
 
 	/**
@@ -8801,8 +8815,8 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * <blockquote><pre>
 	 * Flux&lt;T> fluxLogged = flux.transformDeferred((original, ctx) -> original.log("for RequestID" + ctx.get("RequestID"))
 	 * //...later subscribe. Each subscriber has its Context with a RequestID entry
-	 * fluxLogged.subscriberContext(Context.of("RequestID", "requestA").subscribe();
-	 * fluxLogged.subscriberContext(Context.of("RequestID", "requestB").subscribe();
+	 * fluxLogged.contextWrite(Context.of("RequestID", "requestA").subscribe();
+	 * fluxLogged.contextWrite(Context.of("RequestID", "requestB").subscribe();
 	 * </pre></blockquote>
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/transformDeferredForFlux.svg" alt="">
