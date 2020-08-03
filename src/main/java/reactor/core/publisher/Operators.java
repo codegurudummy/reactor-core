@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -42,7 +42,7 @@ import reactor.util.Loggers;
  * to cap concurrent additive operations to Long.MAX_VALUE,
  * which is generic to {@link Subscription#request(long)} handling.
  *
- * Combine utils available to operator implementations, @see http://github.com/reactor/reactive-streams-commons
+ * Combine utils available to operator implementations, @see https://github.com/reactor/reactive-streams-commons
  *
  */
 public abstract class Operators {
