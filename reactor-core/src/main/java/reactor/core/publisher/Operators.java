@@ -45,7 +45,7 @@ import reactor.util.context.Context;
 import static reactor.core.Fuseable.NONE;
 
 /**
- * An helper to support "Operator" writing, handle noop subscriptions, validate request
+ * A helper to support "Operator" writing, handle noop subscriptions, validate request
  * size and to cap concurrent additive operations to Long.MAX_VALUE,
  * which is generic to {@link Subscription#request(long)} handling.
  *
@@ -760,7 +760,7 @@ public abstract class Operators {
 	 * terminal and cancelled the subscription, null if not.
 	 */
 	@Nullable
-	public static <T> RuntimeException onNextPollError(T value, Throwable error, Context context) {
+	public static <T> RuntimeException onNextPollError(@Nullable T value, Throwable error, Context context) {
 		error = unwrapOnNextError(error);
 		OnNextFailureStrategy strategy = onNextErrorStrategy(context);
 		if (strategy.test(error, value)) {
@@ -786,13 +786,11 @@ public abstract class Operators {
 	@SuppressWarnings("unchecked")
 	public static <T> CorePublisher<T> onLastAssembly(CorePublisher<T> source) {
 		Function<Publisher, Publisher> hook = Hooks.onLastOperatorHook;
-		final Publisher<T> publisher;
 		if (hook == null) {
 			return source;
 		}
-		else {
-			publisher = Objects.requireNonNull(hook.apply(source),"LastOperator hook returned null");
-		}
+
+		Publisher<T> publisher = Objects.requireNonNull(hook.apply(source),"LastOperator hook returned null");
 
 		if (publisher instanceof CorePublisher) {
 			return (CorePublisher<T>) publisher;
