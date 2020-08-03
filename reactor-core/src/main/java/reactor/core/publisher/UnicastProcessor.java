@@ -22,13 +22,12 @@ import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.function.Consumer;
 
-import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.core.Exceptions;
 import reactor.core.Fuseable;
-import reactor.core.Scannable;
 import reactor.util.annotation.Nullable;
 import reactor.util.concurrent.Queues;
 import reactor.util.context.Context;
@@ -84,9 +83,10 @@ import reactor.util.context.Context;
  * </p>
  *
  * @param <T> the input and output type
+ * @deprecated Prefer clear cut usage of either {@link Processors} or {@link Sinks}, to be removed in 3.5
  */
-public final class UnicastProcessor<T>
-		extends FluxProcessor<T, T>
+@Deprecated
+public final class UnicastProcessor<T> extends FluxIdentityProcessor<T>
 		implements Fuseable.QueueSubscription<T>, Fuseable, InnerOperator<T, T> {
 
 	/**
@@ -179,7 +179,7 @@ public final class UnicastProcessor<T>
 	static final AtomicLongFieldUpdater<UnicastProcessor> REQUESTED =
 			AtomicLongFieldUpdater.newUpdater(UnicastProcessor.class, "requested");
 
-	volatile boolean outputFused;
+	boolean outputFused;
 
 	public UnicastProcessor(Queue<T> queue) {
 		this.queue = Objects.requireNonNull(queue, "queue");
@@ -208,6 +208,7 @@ public final class UnicastProcessor<T>
 
 	@Override
 	public Object scanUnsafe(Attr key) {
+		if (Attr.ACTUAL == key) return actual();
 		if (Attr.BUFFERED == key) return queue.size();
 		if (Attr.PREFETCH == key) return Integer.MAX_VALUE;
 		return super.scanUnsafe(key);

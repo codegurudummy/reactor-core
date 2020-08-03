@@ -34,7 +34,7 @@ import reactor.util.annotation.Nullable;
  *
  * @param <T> the value type
  */
-final class MonoSubscribeOn<T> extends MonoOperator<T, T> {
+final class MonoSubscribeOn<T> extends InternalMonoOperator<T, T> {
 
 	final Scheduler scheduler;
 
@@ -44,7 +44,7 @@ final class MonoSubscribeOn<T> extends MonoOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		Scheduler.Worker worker = scheduler.createWorker();
 
 		SubscribeOnSubscriber<T> parent = new SubscribeOnSubscriber<>(source,
@@ -60,11 +60,13 @@ final class MonoSubscribeOn<T> extends MonoOperator<T, T> {
 						actual.currentContext()));
 			}
 		}
+		return null;
 	}
 
 	@Override
 	public Object scanUnsafe(Attr key) {
 		if (key == Attr.RUN_ON) return scheduler;
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.ASYNC;
 
 		return super.scanUnsafe(key);
 	}
@@ -113,6 +115,7 @@ final class MonoSubscribeOn<T> extends MonoOperator<T, T> {
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return requested;
 			if (key == Attr.RUN_ON) return worker;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.ASYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

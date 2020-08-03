@@ -16,6 +16,7 @@
 
 package reactor.core.publisher;
 
+import java.time.Duration;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
@@ -25,6 +26,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.Scannable;
@@ -68,10 +70,40 @@ public class FluxOnBackpressureBufferStrategyTest implements Consumer<String>,
 		Hooks.resetOnOperatorError();
 	}
 
+	@Test
+	public void bufferOverflowOverflowDelayedWithErrorStrategy() {
+		TestPublisher<String> tp1 = TestPublisher.createNoncompliant(TestPublisher.Violation.REQUEST_OVERFLOW);
+		TestPublisher<String> tp2 = TestPublisher.createNoncompliant(TestPublisher.Violation.REQUEST_OVERFLOW);
+
+		final Flux<String> test1 = tp1.flux().onBackpressureBuffer(3, ERROR);
+		final Flux<String> test2 = tp2.flux().onBackpressureBuffer(3, s -> { }, ERROR);
+
+		StepVerifier.create(test1, StepVerifierOptions.create()
+		                                              .scenarioName("without consumer")
+		                                              .initialRequest(0))
+		            .expectSubscription()
+		            .then(() -> tp1.next("A", "B", "C", "D"))
+		            .expectNoEvent(Duration.ofMillis(100))
+		            .thenRequest(3)
+		            .expectNext("A", "B", "C")
+		            .expectErrorMatches(Exceptions::isOverflow)
+		            .verify(Duration.ofSeconds(5));
+
+		StepVerifier.create(test2, StepVerifierOptions.create()
+		                                              .scenarioName("with consumer")
+		                                              .initialRequest(0))
+		            .expectSubscription()
+		            .then(() -> tp2.next("A", "B", "C", "D"))
+		            .expectNoEvent(Duration.ofMillis(100))
+		            .thenRequest(3)
+		            .expectNext("A", "B", "C")
+		            .expectErrorMatches(Exceptions::isOverflow)
+		            .verify(Duration.ofSeconds(5));
+	}
 
 	@Test
 	public void drop() {
-		DirectProcessor<String> processor = DirectProcessor.create();
+		FluxIdentityProcessor<String> processor = Processors.more().multicastNoBackpressure();
 
 		FluxOnBackpressureBufferStrategy<String> flux = new FluxOnBackpressureBufferStrategy<>(
 				processor, 2, this, DROP_LATEST);
@@ -99,7 +131,7 @@ public class FluxOnBackpressureBufferStrategyTest implements Consumer<String>,
 
 	@Test
 	public void dropOldest() {
-		DirectProcessor<String> processor = DirectProcessor.create();
+		FluxIdentityProcessor<String> processor = Processors.more().multicastNoBackpressure();
 
 		FluxOnBackpressureBufferStrategy<String> flux = new FluxOnBackpressureBufferStrategy<>(
 				processor, 2, this, DROP_OLDEST);
@@ -127,7 +159,7 @@ public class FluxOnBackpressureBufferStrategyTest implements Consumer<String>,
 
 	@Test
 	public void error() {
-		DirectProcessor<String> processor = DirectProcessor.create();
+		FluxIdentityProcessor<String> processor = Processors.more().multicastNoBackpressure();
 
 		FluxOnBackpressureBufferStrategy<String> flux = new FluxOnBackpressureBufferStrategy<>(
 				processor, 2, this, ERROR);
@@ -232,7 +264,7 @@ public class FluxOnBackpressureBufferStrategyTest implements Consumer<String>,
 
 	@Test
 	public void dropCallbackError() {
-		DirectProcessor<String> processor = DirectProcessor.create();
+		FluxIdentityProcessor<String> processor = Processors.more().multicastNoBackpressure();
 
 		FluxOnBackpressureBufferStrategy<String> flux = new FluxOnBackpressureBufferStrategy<>(
 				processor, 2, v -> { throw new IllegalArgumentException("boom"); },
@@ -262,7 +294,7 @@ public class FluxOnBackpressureBufferStrategyTest implements Consumer<String>,
 
 	@Test
 	public void dropOldestCallbackError() {
-		DirectProcessor<String> processor = DirectProcessor.create();
+		FluxIdentityProcessor<String> processor = Processors.more().multicastNoBackpressure();
 
 		FluxOnBackpressureBufferStrategy<String> flux = new FluxOnBackpressureBufferStrategy<>(
 				processor, 2, v -> { throw new IllegalArgumentException("boom"); },
@@ -292,7 +324,7 @@ public class FluxOnBackpressureBufferStrategyTest implements Consumer<String>,
 
 	@Test
 	public void errorCallbackError() {
-		DirectProcessor<String> processor = DirectProcessor.create();
+		FluxIdentityProcessor<String> processor = Processors.more().multicastNoBackpressure();
 
 		FluxOnBackpressureBufferStrategy<String> flux = new FluxOnBackpressureBufferStrategy<>(
 				processor, 2, v -> { throw new IllegalArgumentException("boom"); },
@@ -321,8 +353,8 @@ public class FluxOnBackpressureBufferStrategyTest implements Consumer<String>,
 	}
 
 	@Test
-	public void noCallbackWithErrorStrategyOnErrorImmediately() {
-		DirectProcessor<String> processor = DirectProcessor.create();
+	public void noCallbackWithErrorStrategyOverflowsAfterDrain() {
+		FluxIdentityProcessor<String> processor = Processors.more().multicastNoBackpressure();
 
 		FluxOnBackpressureBufferStrategy<String> flux = new FluxOnBackpressureBufferStrategy<>(
 				processor, 2, null, ERROR);
@@ -334,12 +366,14 @@ public class FluxOnBackpressureBufferStrategyTest implements Consumer<String>,
 			            processor.onNext("over1");
 			            processor.onNext("over2");
 			            processor.onNext("over3");
+			            processor.onNext("over4");
 			            processor.onComplete();
 		            })
 		            .expectNext("normal")
 		            .thenAwait()
-		            .thenRequest(1)
-		            .expectErrorMessage("The receiver is overrun by more signals than expected (bounded queue...)")
+		            .thenRequest(2)
+		            .expectNext("over1", "over2")
+		            .expectErrorMatches(Exceptions::isOverflow)
 		            .verify();
 
 		assertNull("unexpected droppedValue", droppedValue);
@@ -350,7 +384,7 @@ public class FluxOnBackpressureBufferStrategyTest implements Consumer<String>,
 
 	@Test
 	public void noCallbackWithDropStrategyNoError() {
-		DirectProcessor<String> processor = DirectProcessor.create();
+		FluxIdentityProcessor<String> processor = Processors.more().multicastNoBackpressure();
 
 		FluxOnBackpressureBufferStrategy<String> flux = new FluxOnBackpressureBufferStrategy<>(
 				processor, 2, null, DROP_LATEST);
@@ -378,7 +412,7 @@ public class FluxOnBackpressureBufferStrategyTest implements Consumer<String>,
 
 	@Test
 	public void noCallbackWithDropOldestStrategyNoError() {
-		DirectProcessor<String> processor = DirectProcessor.create();
+		FluxIdentityProcessor<String> processor = Processors.more().multicastNoBackpressure();
 
 		FluxOnBackpressureBufferStrategy<String> flux = new FluxOnBackpressureBufferStrategy<>(
 				processor, 2, null, DROP_OLDEST);
@@ -406,7 +440,7 @@ public class FluxOnBackpressureBufferStrategyTest implements Consumer<String>,
 
 	@Test
 	public void fluxOnBackpressureBufferStrategyNoCallback() {
-		DirectProcessor<String> processor = DirectProcessor.create();
+		FluxIdentityProcessor<String> processor = Processors.more().multicastNoBackpressure();
 
 		StepVerifier.create(processor.onBackpressureBuffer(2, DROP_OLDEST), 0)
 		            .thenRequest(1)
@@ -456,6 +490,15 @@ public class FluxOnBackpressureBufferStrategyTest implements Consumer<String>,
 	}
 
 	@Test
+	public void scanOperator(){
+		Flux<Integer> parent = Flux.just(1);
+		FluxOnBackpressureBufferStrategy<Integer> test = new FluxOnBackpressureBufferStrategy<>(parent, 3, t -> {}, ERROR);
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
     public void scanSubscriber() {
         CoreSubscriber<Integer> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
         FluxOnBackpressureBufferStrategy.BackpressureBufferDropOldestSubscriber<Integer> test =
@@ -472,6 +515,7 @@ public class FluxOnBackpressureBufferStrategyTest implements Consumer<String>,
         assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(Integer.MAX_VALUE);
         test.offer(9);
         assertThat(test.scan(Scannable.Attr.BUFFERED)).isEqualTo(1);
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
         assertThat(test.scan(Scannable.Attr.ERROR)).isNull();
         assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();

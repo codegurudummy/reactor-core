@@ -28,6 +28,7 @@ import java.util.function.Function;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.util.annotation.Nullable;
@@ -45,7 +46,7 @@ import reactor.util.context.Context;
  * @author Simon Baslé
  */
 //adapted from RxJava2Extensions: https://github.com/akarnokd/RxJava2Extensions/blob/master/src/main/java/hu/akarnokd/rxjava2/operators/FlowableExpand.java
-final class FluxExpand<T> extends FluxOperator<T, T> {
+final class FluxExpand<T> extends InternalFluxOperator<T, T> {
 
 	final boolean                                               breadthFirst;
 	final Function<? super T, ? extends Publisher<? extends T>> expander;
@@ -61,7 +62,7 @@ final class FluxExpand<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> s) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> s) {
 		if (breadthFirst) {
 			ExpandBreathSubscriber<T> parent =
 					new ExpandBreathSubscriber<>(s, expander, capacityHint);
@@ -75,6 +76,13 @@ final class FluxExpand<T> extends FluxOperator<T, T> {
 			parent.source = source;
 			s.onSubscribe(parent);
 		}
+		return null;
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class ExpandBreathSubscriber<T>
@@ -181,6 +189,7 @@ final class FluxExpand<T> extends FluxOperator<T, T> {
 		@Override
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.BUFFERED) return queue != null ? queue.size() : 0;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return super.scanUnsafe(key);
 		}
@@ -215,8 +224,8 @@ final class FluxExpand<T> extends FluxOperator<T, T> {
 
 		volatile boolean cancelled;
 
-		Publisher<? extends T> source;
-		long                   consumed;
+		CorePublisher<? extends T> source;
+		long                       consumed;
 
 		ExpandDepthSubscription(CoreSubscriber<? super T> actual,
 				Function<? super T, ? extends Publisher<? extends T>> expander,
@@ -490,6 +499,7 @@ final class FluxExpand<T> extends FluxOperator<T, T> {
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.ACTUAL) return parent.actual;
 			if (key == Attr.TERMINATED) return this.done;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}

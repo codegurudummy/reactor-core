@@ -15,6 +15,7 @@
  */
 package reactor.core.publisher;
 
+import java.util.Arrays;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -26,8 +27,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
@@ -47,11 +49,12 @@ import reactor.test.util.RaceTestUtils;
 import reactor.util.context.Context;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
-public class FluxCreateTest {
+class FluxCreateTest {
 
 	@Test
-	public void normalBuffered() {
+	void normalBuffered() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 		Flux<Integer> source = Flux.<Signal<Integer>>create(e -> {
 			e.next(Signal.next(1));
@@ -68,7 +71,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void gh613() {
+	void gh613() {
 		AtomicBoolean cancelled = new AtomicBoolean();
 		AtomicBoolean completed = new AtomicBoolean();
 		AtomicBoolean errored = new AtomicBoolean();
@@ -113,7 +116,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateBuffered() {
+	void fluxCreateBuffered() {
 		AtomicInteger onDispose = new AtomicInteger();
 		AtomicInteger onCancel = new AtomicInteger();
 		Flux<String> created = Flux.create(s -> {
@@ -136,7 +139,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateBuffered2() {
+	void fluxCreateBuffered2() {
 		AtomicInteger cancellation = new AtomicInteger();
 		AtomicInteger onCancel = new AtomicInteger();
 		StepVerifier.create(Flux.create(s -> {
@@ -155,7 +158,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateBufferedError() {
+	void fluxCreateBufferedError() {
 		Flux<String> created = Flux.create(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -169,7 +172,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateBufferedError2() {
+	void fluxCreateBufferedError2() {
 		Flux<String> created = Flux.create(s -> {
 			s.error(new Exception("test"));
 		});
@@ -179,7 +182,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateBufferedEmpty() {
+	void fluxCreateBufferedEmpty() {
 		Flux<String> created = Flux.create(FluxSink::complete);
 
 		StepVerifier.create(created)
@@ -187,7 +190,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateDisposables() {
+	void fluxCreateDisposables() {
 		AtomicInteger dispose1 = new AtomicInteger();
 		AtomicInteger dispose2 = new AtomicInteger();
 		AtomicInteger cancel1 = new AtomicInteger();
@@ -217,7 +220,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateBufferedCancelled() {
+	void fluxCreateBufferedCancelled() {
 		AtomicInteger onDispose = new AtomicInteger();
 		AtomicInteger onCancel = new AtomicInteger();
 		Flux<String> created = Flux.create(s -> {
@@ -245,15 +248,15 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateOnDispose() {
+	void fluxCreateOnDispose() {
 		int count = 5;
 		AtomicInteger onDispose = new AtomicInteger();
 		AtomicInteger onCancel = new AtomicInteger();
 		class Emitter {
 
-			final FluxSink<Integer> sink;
+			private final FluxSink<Integer> sink;
 
-			Emitter(FluxSink<Integer> sink) {
+			private Emitter(FluxSink<Integer> sink) {
 				this.sink = sink;
 			}
 
@@ -293,7 +296,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void monoFirstCancelThenOnCancel() {
+	void monoFirstCancelThenOnCancel() {
 		AtomicInteger onCancel = new AtomicInteger();
 		AtomicReference<FluxSink<Object>> sink = new AtomicReference<>();
 		StepVerifier.create(Flux.create(sink::set))
@@ -306,7 +309,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void monoFirstCancelThenOnDispose() {
+	void monoFirstCancelThenOnDispose() {
 		AtomicInteger onDispose = new AtomicInteger();
 		AtomicReference<FluxSink<Object>> sink = new AtomicReference<>();
 		StepVerifier.create(Flux.create(sink::set))
@@ -319,7 +322,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateBufferedBackpressured() {
+	void fluxCreateBufferedBackpressured() {
 		Flux<String> created = Flux.create(s -> {
 			assertThat(s.requestedFromDownstream()).isEqualTo(1);
 			s.next("test1");
@@ -337,7 +340,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxPush() {
+	void fluxPush() {
 		Flux<String> created = Flux.push(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -353,7 +356,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateSerialized() {
+	void fluxCreateSerialized() {
 		Flux<String> created = Flux.create(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -369,7 +372,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateSerialized2(){
+	void fluxCreateSerialized2(){
 		StepVerifier.create(Flux.create(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -381,7 +384,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateSerializedError() {
+	void fluxCreateSerializedError() {
 		Flux<String> created = Flux.create(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -395,7 +398,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateSerializedError2() {
+	void fluxCreateSerializedError2() {
 		Flux<String> created = Flux.create(s -> {
 			s.error(new Exception("test"));
 		});
@@ -405,7 +408,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateSerializedEmpty() {
+	void fluxCreateSerializedEmpty() {
 		Flux<String> created = Flux.create(s ->{
 			s.complete();
 		});
@@ -415,7 +418,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateSerializedCancelled() {
+	void fluxCreateSerializedCancelled() {
 		AtomicInteger onDispose = new AtomicInteger();
 		AtomicInteger onCancel = new AtomicInteger();
 		Flux<String> created = Flux.create(s -> {
@@ -438,7 +441,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateSerializedBackpressured() {
+	void fluxCreateSerializedBackpressured() {
 		Flux<String> created = Flux.create(s -> {
 			assertThat(s.requestedFromDownstream()).isEqualTo(1);
 			s.next("test1");
@@ -456,9 +459,9 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateSerializedConcurrent() {
-		Scheduler.Worker w1 = Schedulers.elastic().createWorker();
-		Scheduler.Worker w2 = Schedulers.elastic().createWorker();
+	void fluxCreateSerializedConcurrent() {
+		Scheduler.Worker w1 = Schedulers.boundedElastic().createWorker();
+		Scheduler.Worker w2 = Schedulers.boundedElastic().createWorker();
 		CountDownLatch latch = new CountDownLatch(1);
 		CountDownLatch latch2 = new CountDownLatch(1);
 		AtomicReference<Thread> ref = new AtomicReference<>();
@@ -471,7 +474,7 @@ public class FluxCreateTest {
 				latch2.await();
 			}
 			catch (InterruptedException e) {
-				Assert.fail();
+				fail("unexpected InterruptedException");
 			}
 			w2.schedule(() -> {
 				serialized.next("test2");
@@ -492,7 +495,7 @@ public class FluxCreateTest {
 					            latch.await();
 				            }
 				            catch (InterruptedException e) {
-					            Assert.fail();
+					            fail("Unexpected InterruptedException");
 				            }
 			            })
 			            .assertNext(s -> {
@@ -512,7 +515,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateLatest() {
+	void fluxCreateLatest() {
 		Flux<String> created = Flux.create(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -528,7 +531,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateLatest2(){
+	void fluxCreateLatest2(){
 		StepVerifier.create(Flux.create(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -540,7 +543,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateLatestError() {
+	void fluxCreateLatestError() {
 		Flux<String> created = Flux.create(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -554,7 +557,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateLatestError2() {
+	void fluxCreateLatestError2() {
 		Flux<String> created = Flux.create(s -> {
 			s.error(new Exception("test"));
 		}, FluxSink.OverflowStrategy.LATEST);
@@ -564,7 +567,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateLatestEmpty() {
+	void fluxCreateLatestEmpty() {
 		Flux<String> created =
 				Flux.create(FluxSink::complete, FluxSink.OverflowStrategy.LATEST);
 
@@ -573,7 +576,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateLatestCancelled() {
+	void fluxCreateLatestCancelled() {
 		AtomicInteger onDispose = new AtomicInteger();
 		AtomicInteger onCancel = new AtomicInteger();
 		Flux<String> created = Flux.create(s -> {
@@ -601,7 +604,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateLatestBackpressured() {
+	void fluxCreateLatestBackpressured() {
 		Flux<String> created = Flux.create(s -> {
 			assertThat(s.requestedFromDownstream()).isEqualTo(1);
 			s.next("test1");
@@ -619,7 +622,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateDrop() {
+	void fluxCreateDrop() {
 		Flux<String> created = Flux.create(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -635,7 +638,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateDrop2(){
+	void fluxCreateDrop2(){
 		StepVerifier.create(Flux.create(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -647,7 +650,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateDropError() {
+	void fluxCreateDropError() {
 		Flux<String> created = Flux.create(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -661,7 +664,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateDropError2() {
+	void fluxCreateDropError2() {
 		Flux<String> created = Flux.create(s -> {
 			s.error(new Exception("test"));
 		}, FluxSink.OverflowStrategy.DROP);
@@ -671,7 +674,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateDropEmpty() {
+	void fluxCreateDropEmpty() {
 		Flux<String> created =
 				Flux.create(FluxSink::complete, FluxSink.OverflowStrategy.DROP);
 
@@ -680,7 +683,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateDropCancelled() {
+	void fluxCreateDropCancelled() {
 		AtomicInteger onDispose = new AtomicInteger();
 		AtomicInteger onCancel = new AtomicInteger();
 		Flux<String> created = Flux.create(s -> {
@@ -708,7 +711,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateDropBackpressured() {
+	void fluxCreateDropBackpressured() {
 		Flux<String> created = Flux.create(s -> {
 			assertThat(s.requestedFromDownstream()).isEqualTo(1);
 			s.next("test1");
@@ -725,7 +728,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateError() {
+	void fluxCreateError() {
 		Flux<String> created = Flux.create(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -741,7 +744,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateError2(){
+	void fluxCreateError2(){
 		StepVerifier.create(Flux.create(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -753,7 +756,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateErrorError() {
+	void fluxCreateErrorError() {
 		Flux<String> created = Flux.create(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -767,7 +770,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateErrorError2() {
+	void fluxCreateErrorError2() {
 		Flux<String> created = Flux.create(s -> {
 			s.error(new Exception("test"));
 		}, FluxSink.OverflowStrategy.ERROR);
@@ -777,7 +780,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateErrorEmpty() {
+	void fluxCreateErrorEmpty() {
 		Flux<String> created =
 				Flux.create(FluxSink::complete, FluxSink.OverflowStrategy.ERROR);
 
@@ -786,7 +789,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateErrorCancelled() {
+	void fluxCreateErrorCancelled() {
 		AtomicInteger onDispose = new AtomicInteger();
 		AtomicInteger onCancel = new AtomicInteger();
 		Flux<String> created = Flux.create(s -> {
@@ -814,7 +817,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateErrorBackpressured() {
+	void fluxCreateErrorBackpressured() {
 		Flux<String> created = Flux.create(s -> {
 			assertThat(s.requestedFromDownstream()).isEqualTo(1);
 			s.next("test1");
@@ -831,7 +834,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateIgnore() {
+	void fluxCreateIgnore() {
 		Flux<String> created = Flux.create(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -847,7 +850,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateIgnore2(){
+	void fluxCreateIgnore2(){
 		StepVerifier.create(Flux.create(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -859,7 +862,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateIgnoreError() {
+	void fluxCreateIgnoreError() {
 		Flux<String> created = Flux.create(s -> {
 			s.next("test1");
 			s.next("test2");
@@ -873,7 +876,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateIgnoreError2() {
+	void fluxCreateIgnoreError2() {
 		Flux<String> created = Flux.create(s -> {
 			s.error(new Exception("test"));
 		}, FluxSink.OverflowStrategy.IGNORE);
@@ -883,7 +886,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateIgnoreEmpty() {
+	void fluxCreateIgnoreEmpty() {
 		Flux<String> created =
 				Flux.create(FluxSink::complete, FluxSink.OverflowStrategy.IGNORE);
 
@@ -892,7 +895,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateIgnoreCancelled() {
+	void fluxCreateIgnoreCancelled() {
 		AtomicInteger onDispose = new AtomicInteger();
 		AtomicInteger onCancel = new AtomicInteger();
 		Flux<String> created = Flux.create(s -> {
@@ -920,7 +923,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateIgnoreBackpressured() {
+	void fluxCreateIgnoreBackpressured() {
 		Flux<String> created = Flux.create(s -> {
 			assertThat(s.requestedFromDownstream()).isEqualTo(1);
 			s.next("test1");
@@ -935,7 +938,7 @@ public class FluxCreateTest {
 			            .thenAwait()
 			            .thenRequest(2)
 			            .verifyComplete();
-			Assert.fail();
+			fail("Expected AssertionError here");
 		}
 		catch (AssertionError error){
 			assertThat(error).hasMessageContaining(
@@ -944,7 +947,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxPushOnRequest() {
+	void fluxPushOnRequest() {
 		AtomicInteger index = new AtomicInteger(1);
 		AtomicInteger onRequest = new AtomicInteger();
 		Flux<Integer> created = Flux.push(s -> {
@@ -973,7 +976,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateGenerateOnRequest() {
+	void fluxCreateGenerateOnRequest() {
 		AtomicInteger index = new AtomicInteger(1);
 		Flux<Integer> created = Flux.create(s -> {
 			s.onRequest(n -> {
@@ -995,7 +998,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateOnRequestSingleThread() {
+	void fluxCreateOnRequestSingleThread() {
 		for (OverflowStrategy overflowStrategy : OverflowStrategy.values()) {
 			testFluxCreateOnRequestSingleThread(overflowStrategy);
 		}
@@ -1044,14 +1047,14 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void fluxCreateOnRequestMultipleThreadsSlowProducer() {
+	void fluxCreateOnRequestMultipleThreadsSlowProducer() {
 		for (OverflowStrategy overflowStrategy : OverflowStrategy.values()) {
 			testFluxCreateOnRequestMultipleThreads(overflowStrategy, true);
 		}
 	}
 
 	@Test
-	public void fluxCreateOnRequestMultipleThreadsFastProducer() {
+	void fluxCreateOnRequestMultipleThreadsFastProducer() {
 		for (OverflowStrategy overflowStrategy : OverflowStrategy.values()) {
 			testFluxCreateOnRequestMultipleThreads(overflowStrategy, false);
 		}
@@ -1093,7 +1096,7 @@ public class FluxCreateTest {
 
 		private ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
 
-		public void initialize(FluxSink<Integer> sink) {
+		void initialize(FluxSink<Integer> sink) {
 			this.queue = new ConcurrentLinkedQueue<>();
 			this.sink = sink;
 		}
@@ -1107,7 +1110,7 @@ public class FluxCreateTest {
 			pushToSink();
 		}
 
-		public void generateAsync(int requested, boolean slowProducer) {
+		void generateAsync(int requested, boolean slowProducer) {
 			if (slowProducer) {
 				for (int i = 0; i < 10; i++)
 					executor.schedule(() -> generate(requested / 10), i, TimeUnit.MILLISECONDS);
@@ -1160,7 +1163,14 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void scanBaseSink() {
+	public void scanOperator(){
+		FluxCreate<?> test = new FluxCreate<>(v -> {}, OverflowStrategy.BUFFER, FluxCreate.CreateMode.PUSH_ONLY);
+
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.ASYNC);
+	}
+
+	@Test
+	void scanBaseSink() {
 		CoreSubscriber<String> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
 		FluxCreate.BaseSink<String> test = new FluxCreate.BaseSink<String>(actual) {
 			@Override
@@ -1173,6 +1183,7 @@ public class FluxCreateTest {
 		assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(100L);
 
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.ASYNC);
 
 		assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
 		assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
@@ -1183,7 +1194,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void scanBaseSinkTerminated() {
+	void scanBaseSinkTerminated() {
 		CoreSubscriber<String> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
 		FluxCreate.BaseSink<String> test = new FluxCreate.BaseSink<String>(actual) {
 			@Override
@@ -1197,7 +1208,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void scanBufferAsyncSink() {
+	void scanBufferAsyncSink() {
 		CoreSubscriber<String> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
 		BufferAsyncSink<String> test = new BufferAsyncSink<>(actual, 123);
 		test.queue.offer("foo");
@@ -1213,7 +1224,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void scanLatestAsyncSink() {
+	void scanLatestAsyncSink() {
 		CoreSubscriber<String> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
 		LatestAsyncSink<String> test = new LatestAsyncSink<>(actual);
 
@@ -1230,7 +1241,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void scanSerializedSink() {
+	void scanSerializedSink() {
 		CoreSubscriber<String> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
 		FluxCreate.BaseSink<String> decorated = new LatestAsyncSink<>(actual);
 		SerializedSink<String> test = new SerializedSink<>(decorated);
@@ -1244,6 +1255,7 @@ public class FluxCreateTest {
 		decorated.cancel();
 		assertThat(test.scan(Scannable.Attr.CANCELLED)).isTrue();
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.ASYNC);
 
 		assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
 		assertThat(test.scan(Scannable.Attr.ERROR)).isNull();
@@ -1254,7 +1266,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void contextTest() {
+	void contextTest() {
 		StepVerifier.create(Flux.create(s -> IntStream.range(0, 10).forEach(i -> s.next(s
 				.currentContext()
 		                                                       .get(AtomicInteger.class)
@@ -1267,7 +1279,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void contextTestPush() {
+	void contextTestPush() {
 		StepVerifier.create(Flux.push(s -> IntStream.range(0, 10).forEach(i -> s.next(s
 				.currentContext()
 		                                                       .get(AtomicInteger.class)
@@ -1280,7 +1292,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void bufferSinkToString() {
+	void bufferSinkToString() {
 		StepVerifier.create(Flux.create(sink -> {
 			sink.next(sink.toString());
 			if (sink instanceof  SerializedSink) {
@@ -1297,7 +1309,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void dropSinkToString() {
+	void dropSinkToString() {
 		StepVerifier.create(Flux.create(sink -> {
 			sink.next(sink.toString());
 			if (sink instanceof  SerializedSink) {
@@ -1314,7 +1326,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void ignoreSinkToString() {
+	void ignoreSinkToString() {
 		StepVerifier.create(Flux.create(sink -> {
 			sink.next(sink.toString());
 			if (sink instanceof  SerializedSink) {
@@ -1331,7 +1343,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void errorSinkToString() {
+	void errorSinkToString() {
 		StepVerifier.create(Flux.create(sink -> {
 			sink.next(sink.toString());
 			if (sink instanceof  SerializedSink) {
@@ -1348,7 +1360,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void latestSinkToString() {
+	void latestSinkToString() {
 		StepVerifier.create(Flux.create(sink -> {
 			sink.next(sink.toString());
 			if (sink instanceof  SerializedSink) {
@@ -1365,7 +1377,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void bufferSinkRaceNextCancel() {
+	void bufferSinkRaceNextCancel() {
 		AtomicInteger discarded = new AtomicInteger();
 		final Context context = Operators.discardLocalAdapter(String.class, s -> discarded.incrementAndGet()).apply(Context.empty());
 
@@ -1389,7 +1401,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void bufferSinkRaceNextCancel_loop() {
+	void bufferSinkRaceNextCancel_loop() {
 		int failed = 0;
 		for (int i = 0; i < 10_000; i++) {
 			try {
@@ -1403,7 +1415,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void latestSinkRaceNextCancel() {
+	void latestSinkRaceNextCancel() {
 		AtomicInteger discarded = new AtomicInteger();
 		final Context context = Operators.discardLocalAdapter(String.class, s -> discarded.incrementAndGet()).apply(Context.empty());
 
@@ -1427,7 +1439,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void latestSinkRaceNextCancel_loop() {
+	void latestSinkRaceNextCancel_loop() {
 		int failed = 0;
 		for (int i = 0; i < 10_000; i++) {
 			try {
@@ -1441,7 +1453,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void serializedBufferSinkRaceNextCancel() {
+	void serializedBufferSinkRaceNextCancel() {
 		AtomicInteger discarded = new AtomicInteger();
 		final Context context = Operators.discardLocalAdapter(String.class, s -> discarded.incrementAndGet()).apply(Context.empty());
 
@@ -1467,7 +1479,7 @@ public class FluxCreateTest {
 	}
 
 	@Test
-	public void serializedBufferSinkRaceNextCancel_loop() {
+	void serializedBufferSinkRaceNextCancel_loop() {
 		int failed = 0;
 		for (int i = 0; i < 10_000; i++) {
 			try {
@@ -1478,5 +1490,31 @@ public class FluxCreateTest {
 			}
 		}
 		assertThat(failed).as("failed").isZero();
+	}
+
+	@ParameterizedTest
+	@EnumSource(OverflowStrategy.class)
+	void secondOnCancelHandlerIsDisposedImmediately(OverflowStrategy overflowStrategy) {
+		AtomicInteger firstDisposed = new AtomicInteger();
+		AtomicInteger secondDisposed = new AtomicInteger();
+		Flux.create(sink -> sink.onCancel(firstDisposed::incrementAndGet)
+		                        .onCancel(secondDisposed::incrementAndGet),
+				overflowStrategy).subscribe();
+
+		assertThat(firstDisposed).as("first handler for " + overflowStrategy).hasValue(0);
+		assertThat(secondDisposed).as("second handler for " + overflowStrategy).hasValue(1);
+	}
+
+	@ParameterizedTest
+	@EnumSource(OverflowStrategy.class)
+	void secondOnDisposeHandlerIsDisposedImmediately(OverflowStrategy overflowStrategy) {
+		AtomicInteger firstDisposed = new AtomicInteger();
+		AtomicInteger secondDisposed = new AtomicInteger();
+		Flux.create(sink -> sink.onDispose(firstDisposed::incrementAndGet)
+		                        .onDispose(secondDisposed::incrementAndGet),
+				overflowStrategy).subscribe();
+
+		assertThat(firstDisposed).as("first handler for " + overflowStrategy).hasValue(0);
+		assertThat(secondDisposed).as("second handler for " + overflowStrategy).hasValue(1);
 	}
 }

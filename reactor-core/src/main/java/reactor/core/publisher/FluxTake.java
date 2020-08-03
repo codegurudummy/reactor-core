@@ -33,7 +33,7 @@ import reactor.util.annotation.Nullable;
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxTake<T> extends FluxOperator<T, T> {
+final class FluxTake<T> extends InternalFluxOperator<T, T> {
 
 	final long n;
 
@@ -47,19 +47,24 @@ final class FluxTake<T> extends FluxOperator<T, T> {
 
 	@Override
 	@SuppressWarnings("unchecked")
-	public void subscribe(CoreSubscriber<? super T> actual) {
-			if (actual instanceof ConditionalSubscriber) {
-				source.subscribe(new TakeConditionalSubscriber<>((ConditionalSubscriber<? super T>) actual,
-						n));
-			}
-			else {
-				source.subscribe(new TakeSubscriber<>(actual, n));
-			}
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		if (actual instanceof ConditionalSubscriber) {
+			return new TakeConditionalSubscriber<>((ConditionalSubscriber<? super T>) actual, n);
+		}
+		else {
+			return new TakeSubscriber<>(actual, n);
+		}
 	}
 
 	@Override
 	public int getPrefetch() {
 		return Integer.MAX_VALUE;
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class TakeSubscriber<T>
@@ -171,6 +176,7 @@ final class FluxTake<T> extends FluxOperator<T, T> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.TERMINATED) return done;
 			if (key == Attr.PARENT) return s;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -321,6 +327,7 @@ final class FluxTake<T> extends FluxOperator<T, T> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.TERMINATED) return done;
 			if (key == Attr.PARENT) return s;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -449,6 +456,7 @@ final class FluxTake<T> extends FluxOperator<T, T> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.TERMINATED) return done;
 			if (key == Attr.PARENT) return qs;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
