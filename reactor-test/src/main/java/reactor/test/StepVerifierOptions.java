@@ -19,10 +19,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.function.Supplier;
 
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Signal;
 import reactor.test.ValueFormatters.Extractor;
 import reactor.test.ValueFormatters.ToStringConverter;
@@ -36,7 +34,7 @@ import reactor.util.context.Context;
  *
  * @author Simon Basle
  */
-public class StepVerifierOptions {
+public class StepVerifierOptions implements StepVerifierOptionsBuilder<StepVerifierOptions> {
 
 	@Nullable
 	private String scenarioName = null;
@@ -59,20 +57,9 @@ public class StepVerifierOptions {
 		return new StepVerifierOptions();
 	}
 
-	protected StepVerifierOptions() { } //disable constructor
+	private StepVerifierOptions() { } //disable constructor
 
-
-	public <T> Function<Flux<T>, StepVerifier.FirstStep<T>> test() {
-		return f -> StepVerifier.create(f, this);
-	}
-
-	/**
-	 * Activate or deactivate the {@link StepVerifier} check of request amount
-	 * being too low. Defauts to true.
-	 *
-	 * @param enabled true if the check should be enabled.
-	 * @return this instance, to continue setting the options.
-	 */
+	@Override
 	public StepVerifierOptions checkUnderRequesting(boolean enabled) {
 		this.checkUnderRequesting = enabled;
 		return this;
@@ -86,13 +73,7 @@ public class StepVerifierOptions {
 		return this.checkUnderRequesting;
 	}
 
-	/**
-	 * Set the amount the {@link StepVerifier} should request initially. Defaults to
-	 * unbounded request ({@code Long.MAX_VALUE}).
-	 *
-	 * @param initialRequest the initial request amount.
-	 * @return this instance, to continue setting the options.
-	 */
+	@Override
 	public StepVerifierOptions initialRequest(long initialRequest) {
 		this.initialRequest = initialRequest;
 		return this;
@@ -106,22 +87,7 @@ public class StepVerifierOptions {
 		return this.initialRequest;
 	}
 
-	/**
-	 * Set up a custom value formatter to be used in error messages when presenting
-	 * expected and actual values. This is intended for classes that have obscure {@link #toString()}
-	 * implementation that cannot be overridden.
-	 * <p>
-	 * This is a {@link Function} capable of formatting an arbitrary {@link Object} to
-	 * {@link String}, with the intention of detecting elements from the sequence under
-	 * test and applying customized {@link String} conversion to them (and simply calling
-	 * {@link #toString()} on other objects).
-	 * <p>
-	 * See {@link ValueFormatters} for factories of such functions.
-	 *
-	 * @param valueFormatter the custom value to {@link String} formatter, or null to deactivate
-	 * custom formatting
-	 * @return this instance, to continue setting the options
-	 */
+	@Override
 	public StepVerifierOptions valueFormatter(
 			@Nullable ToStringConverter valueFormatter) {
 		this.objectFormatter = valueFormatter;
@@ -141,19 +107,7 @@ public class StepVerifierOptions {
 		return this.objectFormatter;
 	}
 
-	/**
-	 * Add an {@link Extractor}, replacing any existing {@link Extractor} that targets the
-	 * same {@link Class} (as in {@link Extractor#getTargetClass()}).
-	 * <p>
-	 * Note that by default, default extractors for {@link ValueFormatters#signalExtractor() Signal},
-	 * {@link ValueFormatters#iterableExtractor() Iterable} and
-	 * {@link ValueFormatters#arrayExtractor(Class) Object[]} are in place.
-	 *
-	 *
-	 * @param extractor the extractor to add / set
-	 * @param <T> the type of container considered by this extractor
-	 * @return this instance, to continue setting the options
-	 */
+	@Override
 	public <T> StepVerifierOptions extractor(Extractor<T> extractor) {
 		extractorMap.put(extractor.getTargetClass(), extractor);
 		return this;
@@ -178,13 +132,7 @@ public class StepVerifierOptions {
 		return copy;
 	}
 
-	/**
-	 * Set a supplier for a {@link VirtualTimeScheduler}, which is mandatory for a
-	 * {@link StepVerifier} to work with virtual time. Defaults to null.
-	 *
-	 * @param vtsLookup the supplier of {@link VirtualTimeScheduler} to use.
-	 * @return this instance, to continue setting the options.
-	 */
+	@Override
 	public StepVerifierOptions virtualTimeSchedulerSupplier(Supplier<? extends VirtualTimeScheduler> vtsLookup) {
 		this.vtsLookup = vtsLookup;
 		return this;
@@ -200,13 +148,7 @@ public class StepVerifierOptions {
 		return vtsLookup;
 	}
 
-	/**
-	 * Set an initial {@link Context} to be propagated by the {@link StepVerifier} when it
-	 * subscribes to the sequence under test.
-	 *
-	 * @param context the {@link Context} to propagate.
-	 * @return this instance, to continue setting the options.
-	 */
+	@Override
 	public StepVerifierOptions withInitialContext(Context context) {
 		this.initialContext = context;
 		return this;
@@ -220,15 +162,7 @@ public class StepVerifierOptions {
 		return this.initialContext;
 	}
 
-	/**
-	 * Give a name to the whole scenario tested by the configured {@link StepVerifier}. That
-	 * name would be mentioned in exceptions and assertion errors raised by the StepVerifier,
-	 * allowing to better distinguish error sources in unit tests where multiple StepVerifier
-	 * are used.
-	 *
-	 * @param scenarioName the name of the scenario, null to deactivate
-	 * @return this instance, to continue setting the options.
-	 */
+	@Override
 	public StepVerifierOptions scenarioName(@Nullable String scenarioName) {
 		this.scenarioName = scenarioName;
 		return this;
