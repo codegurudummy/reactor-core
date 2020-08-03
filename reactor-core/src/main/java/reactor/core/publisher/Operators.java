@@ -788,7 +788,7 @@ public abstract class Operators {
 		Function<Publisher, Publisher> hook = Hooks.onLastOperatorHook;
 		final Publisher<T> publisher;
 		if (hook == null) {
-			publisher = source;
+			return source;
 		}
 		else {
 			publisher = Objects.requireNonNull(hook.apply(source),"LastOperator hook returned null");
@@ -1269,7 +1269,7 @@ public abstract class Operators {
 	Operators() {
 	}
 
-	static final class CorePublisherAdapter<T> implements CorePublisher<T>, CoreOperator<T> {
+	static final class CorePublisherAdapter<T> implements CorePublisher<T> {
 
 		final Publisher<T> publisher;
 
@@ -1288,13 +1288,8 @@ public abstract class Operators {
 		}
 
 		@Override
-		public CoreSubscriber subscribeOrReturn(CoreSubscriber<? super T> actual) {
-			return actual;
-		}
-
-		@Override
-		public Publisher getSubscribeTarget() {
-			return publisher;
+		public CoreSubscriber<?> subscribeOrReturn(CoreSubscriber<? super T> subscriber) {
+			return subscriber;
 		}
 	}
 

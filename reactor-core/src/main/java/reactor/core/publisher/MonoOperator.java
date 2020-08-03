@@ -34,7 +34,7 @@ import reactor.util.annotation.Nullable;
  * @param <I> delegate {@link Publisher} type
  * @param <O> produced type
  */
-public abstract class MonoOperator<I, O> extends Mono<O> implements Scannable, CoreOperator<O> {
+public abstract class MonoOperator<I, O> extends Mono<O> implements Scannable {
 
 	protected final Mono<? extends I> source;
 
@@ -48,6 +48,35 @@ public abstract class MonoOperator<I, O> extends Mono<O> implements Scannable, C
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
+	public void subscribe(CoreSubscriber<? super O> subscriber) {
+		CorePublisher publisher = this;
+		CorePublisher next = publisher;
+		CoreSubscriber liftedSubscriber;
+		for(;;) {
+			liftedSubscriber = next.subscribeOrReturn(subscriber);
+
+			if (liftedSubscriber == null) {
+				return;
+			}
+
+			publisher = next;
+			next = publisher.source();
+
+			if (next == null) {
+				publisher.subscribe(subscriber);
+				return;
+			}
+			subscriber = liftedSubscriber;
+		}
+	}
+
+	@Override
+	public final Mono<? extends I> source() {
+		return source;
+	}
+
+	@Override
 	@Nullable
 	public Object scanUnsafe(Attr key) {
 		if (key == Attr.PREFETCH) return Integer.MAX_VALUE;
@@ -55,24 +84,4 @@ public abstract class MonoOperator<I, O> extends Mono<O> implements Scannable, C
 		return null;
 	}
 
-	@Override
-	@SuppressWarnings("unchecked")
-	public void subscribe(CoreSubscriber<? super O> subscriber) {
-		CoreSubscriber nextSubscriber = subscribeOrReturn(subscriber);
-		if (nextSubscriber == null) {
-			return;
-		}
-		getSubscribeTarget().subscribe(nextSubscriber);
-	}
-
-	@Override
-	public CoreSubscriber subscribeOrReturn(CoreSubscriber<? super O> actual) {
-		subscribe(actual);
-		return null;
-	}
-
-	@Override
-	public CorePublisher getSubscribeTarget() {
-		return source;
-	}
 }

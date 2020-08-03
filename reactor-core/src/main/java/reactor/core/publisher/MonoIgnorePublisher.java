@@ -28,7 +28,7 @@ import reactor.util.annotation.Nullable;
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class MonoIgnorePublisher<T> extends Mono<T> implements Scannable, CoreOperator<T> {
+final class MonoIgnorePublisher<T> extends Mono<T> implements Scannable {
 
 	final Publisher<? extends T> source;
 
@@ -42,13 +42,8 @@ final class MonoIgnorePublisher<T> extends Mono<T> implements Scannable, CoreOpe
 	}
 
 	@Override
-	public final CoreSubscriber subscribeOrReturn(CoreSubscriber<? super T> actual) {
+	public final CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		return new MonoIgnoreElements.IgnoreElementsSubscriber<>(actual);
-	}
-
-	@Override
-	public final Publisher getSubscribeTarget() {
-		return source;
 	}
 
 	@Override
