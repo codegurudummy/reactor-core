@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
 import org.reactivestreams.Subscription;
 
@@ -31,6 +32,7 @@ import reactor.core.Disposables;
 import reactor.core.Scannable;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
+import reactor.test.AutoDisposingRule;
 import reactor.test.StepVerifier;
 import reactor.test.subscriber.AssertSubscriber;
 import reactor.test.util.RaceTestUtils;
@@ -38,6 +40,9 @@ import reactor.test.util.RaceTestUtils;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class MonoSubscribeOnTest {
+
+	@Rule
+	public AutoDisposingRule afterTest = new AutoDisposingRule();
 	
 	/*@Test
 	public void constructors() {
@@ -170,7 +175,7 @@ public class MonoSubscribeOnTest {
 		})
 		    .timeout(Duration.ofMillis(100L))
 		    .onErrorResume(t -> Mono.fromCallable(() -> 1))
-		    .subscribeOn(Schedulers.newElastic("timeout"))
+		    .subscribeOn(afterTest.autoDispose(Schedulers.newBoundedElastic(4, 100, "timeout")))
 		    .subscribe(ts);
 
 		ts.request(1);
