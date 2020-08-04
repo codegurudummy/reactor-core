@@ -41,7 +41,7 @@ import reactor.util.context.Context;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxRepeatWhen<T> extends InternalFluxOperator<T, T> {
+final class FluxRepeatWhen<T> extends FluxOperator<T, T> {
 
 	final Function<? super Flux<Long>, ? extends Publisher<?>> whenSourceFactory;
 
@@ -198,7 +198,7 @@ final class FluxRepeatWhen<T> extends InternalFluxOperator<T, T> {
 	}
 
 	static final class RepeatWhenOtherSubscriber extends Flux<Long>
-			implements InnerConsumer<Object>, CoreOperator<Long, Long> {
+			implements InnerConsumer<Object> {
 
 		RepeatWhenMainSubscriber<?> main;
 
@@ -249,7 +249,7 @@ final class FluxRepeatWhen<T> extends InternalFluxOperator<T, T> {
 		}
 
 		@Override
-		public DirectProcessor<Long> getSubscribeTarget() {
+		public DirectProcessor<Long> source() {
 			return completionSignal;
 		}
 	}

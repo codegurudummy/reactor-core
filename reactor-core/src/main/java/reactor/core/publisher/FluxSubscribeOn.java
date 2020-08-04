@@ -34,7 +34,7 @@ import reactor.util.annotation.Nullable;
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxSubscribeOn<T> extends InternalFluxOperator<T, T> {
+final class FluxSubscribeOn<T> extends FluxOperator<T, T> {
 
 	final Scheduler scheduler;
 	final boolean requestOnSeparateThread;

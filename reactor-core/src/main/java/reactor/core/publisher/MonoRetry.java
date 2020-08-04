@@ -26,7 +26,7 @@ import reactor.core.CoreSubscriber;
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class MonoRetry<T> extends InternalMonoOperator<T, T> {
+final class MonoRetry<T> extends MonoOperator<T, T> {
 
 	final long times;
 

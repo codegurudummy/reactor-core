@@ -36,7 +36,7 @@ import reactor.util.context.Context;
  * @author Stephane Maldini
  * @author Simon Baslé
  */
-final class FluxOnBackpressureBufferStrategy<O> extends InternalFluxOperator<O, O> {
+final class FluxOnBackpressureBufferStrategy<O> extends FluxOperator<O, O> {
 
 	final Consumer<? super O>    onBufferOverflow;
 	final int                    bufferSize;
@@ -51,7 +51,7 @@ final class FluxOnBackpressureBufferStrategy<O> extends InternalFluxOperator<O, 
 		this.bufferSize = bufferSize;
 		this.onBufferOverflow = onBufferOverflow;
 		this.bufferOverflowStrategy = bufferOverflowStrategy;
-		this.delayError = onBufferOverflow != null;
+		this.delayError = onBufferOverflow != null || bufferOverflowStrategy == BufferOverflowStrategy.ERROR;
 	}
 
 	@Override

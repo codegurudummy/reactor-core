@@ -29,7 +29,7 @@ import reactor.core.CoreSubscriber;
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxRepeatPredicate<T> extends InternalFluxOperator<T, T> {
+final class FluxRepeatPredicate<T> extends FluxOperator<T, T> {
 
 	final BooleanSupplier predicate;
 

@@ -33,7 +33,7 @@ import reactor.core.CoreSubscriber;
  * @param <T> the source value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class MonoRetryWhen<T> extends InternalMonoOperator<T, T> {
+final class MonoRetryWhen<T> extends MonoOperator<T, T> {
 
 	final Function<? super Flux<Throwable>, ? extends Publisher<?>>
 			whenSourceFactory;

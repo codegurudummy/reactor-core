@@ -15,6 +15,7 @@
  */
 package reactor.core.publisher;
 
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.function.Supplier;
@@ -47,7 +48,7 @@ import reactor.util.function.Tuples;
  * @param <T> the value type passing through
  * @see <a href="https://github.com/reactor/reactive-streams-commons">https://github.com/reactor/reactive-streams-commons</a>
  */
-final class FluxOnAssembly<T> extends InternalFluxOperator<T, T> implements Fuseable,
+final class FluxOnAssembly<T> extends FluxOperator<T, T> implements Fuseable,
                                                                     AssemblyOp {
 
 	final AssemblySnapshot snapshotStack;
@@ -317,6 +318,7 @@ final class FluxOnAssembly<T> extends InternalFluxOperator<T, T> implements Fuse
 					sb.append(message);
 					sb.append("\n");
 				}
+				sb.append("Stack trace:");
 				return sb.toString();
 			}
 		}
@@ -424,6 +426,27 @@ final class FluxOnAssembly<T> extends InternalFluxOperator<T, T> implements Fuse
 				}
 
 				t = Exceptions.addSuppressed(t, onAssemblyException);
+				final StackTraceElement[] stackTrace = t.getStackTrace();
+				if (stackTrace.length > 0) {
+					StackTraceElement[] newStackTrace = new StackTraceElement[stackTrace.length];
+					int i = 0;
+					for (StackTraceElement stackTraceElement : stackTrace) {
+						String className = stackTraceElement.getClassName();
+
+						if (className.startsWith("reactor.core.publisher.") && className.contains("OnAssembly")) {
+							continue;
+						}
+
+						newStackTrace[i] = stackTraceElement;
+						i++;
+					}
+					newStackTrace = Arrays.copyOf(newStackTrace, i);
+
+					onAssemblyException.setStackTrace(newStackTrace);
+					t.setStackTrace(new StackTraceElement[] {
+							stackTrace[0]
+					});
+				}
 			}
 
 			onAssemblyException.add(parent, snapshotStack);

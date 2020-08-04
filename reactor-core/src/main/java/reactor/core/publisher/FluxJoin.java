@@ -46,8 +46,7 @@ import reactor.util.concurrent.Queues;
  * @see <a href="https://github.com/reactor/reactive-streams-commons">https://github.com/reactor/reactive-streams-commons</a>
  * @since 3.0
  */
-final class FluxJoin<TLeft, TRight, TLeftEnd, TRightEnd, R> extends
-		InternalFluxOperator<TLeft, R> {
+final class FluxJoin<TLeft, TRight, TLeftEnd, TRightEnd, R> extends FluxOperator<TLeft, R> {
 
 	final Publisher<? extends TRight> other;
 

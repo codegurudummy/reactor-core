@@ -49,7 +49,7 @@ import reactor.util.context.Context;
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
 final class FluxBufferWhen<T, OPEN, CLOSE, BUFFER extends Collection<? super T>>
-		extends InternalFluxOperator<T, BUFFER> {
+		extends FluxOperator<T, BUFFER> {
 
 	final Publisher<OPEN> start;
 

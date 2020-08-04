@@ -40,7 +40,7 @@ import reactor.util.context.Context;
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
 final class FluxBufferBoundary<T, U, C extends Collection<? super T>>
-		extends InternalFluxOperator<T, C> {
+		extends FluxOperator<T, C> {
 
 	final Publisher<U> other;
 

@@ -30,7 +30,7 @@ import reactor.core.CoreSubscriber;
  * @param <U> the other source type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class MonoDelaySubscription<T, U> extends InternalMonoOperator<T, T>
+final class MonoDelaySubscription<T, U> extends MonoOperator<T, T>
 		implements Consumer<FluxDelaySubscription.DelaySubscriptionOtherSubscriber<T, U>> {
 
 	final Publisher<U> other;

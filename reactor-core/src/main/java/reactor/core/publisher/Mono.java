@@ -195,9 +195,27 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 * @param supplier a {@link Mono} factory
 	 * @param <T> the element type of the returned Mono instance
 	 * @return a new {@link Mono} factory
+	 * @see #deferWithContext(Function)
 	 */
 	public static <T> Mono<T> defer(Supplier<? extends Mono<? extends T>> supplier) {
 		return onAssembly(new MonoDefer<>(supplier));
+	}
+
+	/**
+	 * Create a {@link Mono} provider that will {@link Function#apply supply} a target {@link Mono}
+	 * to subscribe to for each {@link Subscriber} downstream.
+	 * This operator behaves the same way as {@link #defer(Supplier)},
+	 * but accepts a {@link Function} that will receive the current {@link Context} as an argument.
+	 *
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/deferForMono.svg" alt="">
+	 * <p>
+	 * @param supplier a {@link Mono} factory
+	 * @param <T> the element type of the returned Mono instance
+	 * @return a new {@link Mono} factory
+	 */
+	public static <T> Mono<T> deferWithContext(Function<Context, ? extends Mono<? extends T>> supplier) {
+		return onAssembly(new MonoDeferWithContext<>(supplier));
 	}
 
 	/**
@@ -275,7 +293,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 *
 	 * @return a failing {@link Mono}
 	 */
-	public static <T> Mono<T> error(Supplier<Throwable> errorSupplier) {
+	public static <T> Mono<T> error(Supplier<? extends Throwable> errorSupplier) {
 		return onAssembly(new MonoErrorSupplied<>(errorSupplier));
 	}
 
@@ -1501,7 +1519,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 * received or a timeout expires. Returns that value, or null if the Mono completes
 	 * empty. In case the Mono errors, the original exception is thrown (wrapped in a
 	 * {@link RuntimeException} if it was a checked exception).
-	 * If the provided timeout expires,a {@link RuntimeException} is thrown.
+	 * If the provided timeout expires, a {@link RuntimeException} is thrown.
 	 *
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/blockWithTimeout.svg" alt="">
@@ -1631,14 +1649,18 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 * Turn this {@link Mono} into a hot source and cache last emitted signal for further
 	 * {@link Subscriber}, with an expiry timeout (TTL) that depends on said signal.
 	 * <p>
-	 * Empty completion and Error will also be replayed according to their respective TTL.
+	 * Empty completion and Error will also be replayed according to their respective TTL,
+	 * so transient errors can be "retried" by letting the {@link Function} return
+	 * {@link Duration#ZERO}. Such a transient exception would then be propagated to the first
+	 * subscriber but the following subscribers would trigger a new source subscription.
 	 * <p>
-	 * If the relevant TTL generator throws any {@link Exception}, that exception will be
-	 * propagated to the {@link Subscriber} that encountered the cache miss, but the cache
-	 * will be immediately cleared, so further Subscribers might re-populate the cache in
-	 * case the error was transient. In case the source was emitting an error, that error
-	 * is {@link Hooks#onErrorDropped(Consumer) dropped} and added as a suppressed exception.
-	 * In case the source was emitting a value, that value is {@link Hooks#onNextDropped(Consumer) dropped}.
+	 * Exceptions in the TTL generators themselves are processed like the {@link Duration#ZERO}
+	 * case, except the original signal is {@link Exceptions#addSuppressed(Throwable, Throwable)  suppressed}
+	 * (in case of onError) or {@link Hooks#onNextDropped(Consumer) dropped}
+	 * (in case of onNext).
+	 * <p>
+	 * Note that subscribers that come in perfectly simultaneously could receive the same
+	 * cached signal even if the TTL is set to zero.
 	 *
 	 * @param ttlForValue the TTL-generating {@link Function} invoked when source is valued
 	 * @param ttlForError the TTL-generating {@link Function} invoked when source is erroring
@@ -1750,7 +1772,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 * mono.compose(original -> original.log());
 	 * </pre></blockquote>
 	 * <p>
-	 * <img class="marble" src="doc-files/marbles/composeForMono.svg" alt="">
+	 * <img class="marble" src="doc-files/marbles/transformDeferredForMono.svg" alt="">
 	 *
 	 * @param transformer the {@link Function} to lazily map this {@link Mono} into a target {@link Mono}
 	 * instance upon subscription.
@@ -1759,9 +1781,11 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 * @return a new {@link Mono}
 	 * @see #as as() for a loose conversion to an arbitrary type
 	 * @see #transform(Function)
+	 * @deprecated will be removed in 3.4.0, use {@link #transformDeferred(Function)} instead
 	 */
+	@Deprecated
 	public final <V> Mono<V> compose(Function<? super Mono<T>, ? extends Publisher<V>> transformer) {
-		return defer(() -> from(transformer.apply(this)));
+		return transformDeferred(transformer);
 	}
 
 	/**
@@ -3848,24 +3872,25 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	@Override
 	@SuppressWarnings("unchecked")
 	public final void subscribe(Subscriber<? super T> actual) {
-		Publisher publisher = Operators.onLastAssembly(this);
+		CorePublisher publisher = Operators.onLastAssembly(this);
 		CoreSubscriber subscriber = Operators.toCoreSubscriber(actual);
+		CorePublisher next = publisher;
+		CoreSubscriber liftedSubscriber;
+		for(;;) {
+			liftedSubscriber = next.subscribeOrReturn(subscriber);
 
-		while (publisher instanceof CoreOperator) {
-			CoreOperator operator = (CoreOperator) publisher;
-
-			subscriber = operator.subscribeOrReturn(subscriber);
-			if (subscriber == null) {
-				// null means "I will subscribe myself", returning...
+			if (liftedSubscriber == null) {
 				return;
 			}
-			publisher = operator.getSubscribeTarget();
-		}
-		if (publisher instanceof CorePublisher) {
-			((CorePublisher) publisher).subscribe(subscriber);
-		}
-		else {
-			publisher.subscribe(subscriber);
+
+			publisher = next;
+			next = publisher.source();
+
+			if (next == null) {
+				publisher.subscribe(subscriber);
+				return;
+			}
+			subscriber = liftedSubscriber;
 		}
 	}
 
@@ -4345,11 +4370,34 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 * @param <V> the item type in the returned {@link Mono}
 	 *
 	 * @return a new {@link Mono}
-	 * @see #compose(Function) compose(Function) for deferred composition of {@link Mono} for each {@link Subscriber}
+	 * @see #transformDeferred(Function) transformDeferred(Function) for deferred composition of {@link Mono} for each {@link Subscriber}
 	 * @see #as(Function) as(Function) for a loose conversion to an arbitrary type
 	 */
 	public final <V> Mono<V> transform(Function<? super Mono<T>, ? extends Publisher<V>> transformer) {
 		return onAssembly(from(transformer.apply(this)));
+	}
+
+	/**
+	 * Defer the given transformation to this {@link Mono} in order to generate a
+	 * target {@link Mono} type. A transformation will occur for each
+	 * {@link Subscriber}. For instance:
+	 *
+	 * <blockquote><pre>
+	 * mono.transformDeferred(original -> original.log());
+	 * </pre></blockquote>
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/transformDeferredForMono.svg" alt="">
+	 *
+	 * @param transformer the {@link Function} to lazily map this {@link Mono} into a target {@link Mono}
+	 * instance upon subscription.
+	 * @param <V> the item type in the returned {@link Publisher}
+	 *
+	 * @return a new {@link Mono}
+	 * @see #as as() for a loose conversion to an arbitrary type
+	 * @see #transform(Function)
+	 */
+	public final <V> Mono<V> transformDeferred(Function<? super Mono<T>, ? extends Publisher<V>> transformer) {
+		return defer(() -> from(transformer.apply(this)));
 	}
 
 	/**

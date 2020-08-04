@@ -60,7 +60,7 @@ import reactor.util.context.Context;
  * @since 3.0
  */
 final class FluxGroupJoin<TLeft, TRight, TLeftEnd, TRightEnd, R>
-		extends InternalFluxOperator<TLeft, R> {
+		extends FluxOperator<TLeft, R> {
 
 	final Publisher<? extends TRight> other;
 

@@ -44,7 +44,7 @@ import reactor.util.annotation.Nullable;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxScanSeed<T, R> extends InternalFluxOperator<T, R> {
+final class FluxScanSeed<T, R> extends FluxOperator<T, R> {
 
 	final BiFunction<R, ? super T, R> accumulator;
 

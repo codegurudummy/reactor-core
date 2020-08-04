@@ -801,9 +801,31 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * @param <T>      the type of values passing through the {@link Flux}
 	 *
 	 * @return a deferred {@link Flux}
+	 * @see #deferWithContext(Function)
 	 */
 	public static <T> Flux<T> defer(Supplier<? extends Publisher<T>> supplier) {
 		return onAssembly(new FluxDefer<>(supplier));
+	}
+
+	/**
+	 * Lazily supply a {@link Publisher} every time a {@link Subscription} is made on the
+	 * resulting {@link Flux}, so the actual source instantiation is deferred until each
+	 * subscribe and the {@link Function} can create a subscriber-specific instance.
+	 * This operator behaves the same way as {@link #defer(Supplier)},
+	 * but accepts a {@link Function} that will receive the current {@link Context} as an argument.
+	 * If the supplier doesn't generate a new instance however, this operator will
+	 * effectively behave like {@link #from(Publisher)}.
+	 *
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/deferForFlux.svg" alt="">
+	 *
+	 * @param supplier the {@link Publisher} {@link Function} to call on subscribe
+	 * @param <T>      the type of values passing through the {@link Flux}
+	 *
+	 * @return a deferred {@link Flux}
+	 */
+	public static <T> Flux<T> deferWithContext(Function<Context, ? extends Publisher<T>> supplier) {
+		return onAssembly(new FluxDeferWithContext<>(supplier));
 	}
 
 	/**
@@ -846,7 +868,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 *
 	 * @return a new failing {@link Flux}
 	 */
-	public static <T> Flux<T> error(Supplier<Throwable> errorSupplier) {
+	public static <T> Flux<T> error(Supplier<? extends Throwable> errorSupplier) {
 		return onAssembly(new FluxErrorSupplied<>(errorSupplier));
 	}
 
@@ -2350,7 +2372,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * signals its first value, completes or a timeout expires. Returns that value,
 	 * or null if the Flux completes empty. In case the Flux errors, the original
 	 * exception is thrown (wrapped in a {@link RuntimeException} if it was a checked
-	 * exception). If the provided timeout expires,a {@link RuntimeException} is thrown.
+	 * exception). If the provided timeout expires, a {@link RuntimeException} is thrown.
 	 * <p>
 	 * Note that each blockFirst() will trigger a new subscription: in other words,
 	 * the result might miss signal from hot publishers.
@@ -2396,7 +2418,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * signals its last value, completes or a timeout expires. Returns that value,
 	 * or null if the Flux completes empty. In case the Flux errors, the original
 	 * exception is thrown (wrapped in a {@link RuntimeException} if it was a checked
-	 * exception). If the provided timeout expires,a {@link RuntimeException} is thrown.
+	 * exception). If the provided timeout expires, a {@link RuntimeException} is thrown.
 	 * <p>
 	 * Note that each blockLast() will trigger a new subscription: in other words,
 	 * the result might miss signal from hot publishers.
@@ -3397,7 +3419,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * flux.compose(original -> original.log());
 	 * </pre></blockquote>
 	 * <p>
-	 * <img class="marble" src="doc-files/marbles/composeForFlux.svg" alt="">
+	 * <img class="marble" src="doc-files/marbles/transformDeferredForFlux.svg" alt="">
 	 *
 	 * @param transformer the {@link Function} to lazily map this {@link Flux} into a target {@link Publisher}
 	 * instance for each new subscriber
@@ -3406,7 +3428,9 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * @return a new {@link Flux}
 	 * @see #transform  transform() for immmediate transformation of {@link Flux}
 	 * @see #as as() for a loose conversion to an arbitrary type
+	 * @deprecated will be removed in 3.4.0, use {@link #transformDeferred(Function)} instead
 	 */
+	@Deprecated
 	public final <V> Flux<V> compose(Function<? super Flux<T>, ? extends Publisher<V>> transformer) {
 		return defer(() -> transformer.apply(this));
 	}
@@ -5894,13 +5918,15 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * The first element past this buffer to arrive out of sync with the downstream
 	 * subscriber's demand (the "overflowing" element) immediately triggers an overflow
 	 * error and cancels the source.
+	 * The {@link Flux} is going to terminate with an overflow error, but this error is
+	 * delayed, which lets the subscriber make more requests for the content of the buffer.
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/onBackpressureBufferWithMaxSize.svg" alt="">
 	 *
 	 * @reactor.discard This operator discards the buffered overflow elements upon cancellation or error triggered by a data signal,
 	 * as well as elements that are rejected by the buffer due to {@code maxSize}.
 	 *
-	 * @param maxSize maximum buffer backlog size before immediate error
+	 * @param maxSize maximum number of elements overflowing request before the source is cancelled
 	 *
 	 * @return a backpressured {@link Flux} that buffers with bounded capacity
 	 *
@@ -5927,7 +5953,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * as well as elements that are rejected by the buffer due to {@code maxSize} (even though
 	 * they are passed to the {@code onOverflow} {@link Consumer} first).
 	 *
-	 * @param maxSize maximum buffer backlog size before overflow callback is called and source is cancelled
+	 * @param maxSize maximum number of elements overflowing request before callback is called and source is cancelled
 	 * @param onOverflow callback to invoke on overflow
 	 *
 	 * @return a backpressured {@link Flux} that buffers with a bounded capacity
@@ -7919,24 +7945,25 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	@Override
 	@SuppressWarnings("unchecked")
 	public final void subscribe(Subscriber<? super T> actual) {
-		Publisher publisher = Operators.onLastAssembly(this);
+		CorePublisher publisher = Operators.onLastAssembly(this);
 		CoreSubscriber subscriber = Operators.toCoreSubscriber(actual);
+		CorePublisher next = publisher;
+		CoreSubscriber liftedSubscriber;
+		for(;;) {
+			liftedSubscriber = next.subscribeOrReturn(subscriber);
 
-		while (publisher instanceof CoreOperator) {
-			CoreOperator operator = (CoreOperator) publisher;
-
-			subscriber = operator.subscribeOrReturn(subscriber);
-			if (subscriber == null) {
-				// null means "I will subscribe myself", returning...
+			if (liftedSubscriber == null) {
 				return;
 			}
-			publisher = operator.getSubscribeTarget();
-		}
-		if (publisher instanceof CorePublisher) {
-			((CorePublisher) publisher).subscribe(subscriber);
-		}
-		else {
-			publisher.subscribe(subscriber);
+
+			publisher = next;
+			next = publisher.source();
+
+			if (next == null) {
+				publisher.subscribe(subscriber);
+				return;
+			}
+			subscriber = liftedSubscriber;
 		}
 	}
 
@@ -8741,11 +8768,32 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * @param <V> the item type in the returned {@link Flux}
 	 *
 	 * @return a new {@link Flux}
-	 * @see #compose(Function) for deferred composition of {@link Flux} for each {@link Subscriber}
+	 * @see #transformDeferred(Function) for deferred composition of {@link Flux} for each {@link Subscriber}
 	 * @see #as for a loose conversion to an arbitrary type
 	 */
 	public final <V> Flux<V> transform(Function<? super Flux<T>, ? extends Publisher<V>> transformer) {
 		return onAssembly(from(transformer.apply(this)));
+	}
+
+	/**
+	 * Defer the transformation of this {@link Flux} in order to generate a target {@link Flux} type.
+	 * A transformation will occur for each {@link Subscriber}. For instance:
+	 * <blockquote><pre>
+	 * flux.transformDeferred(original -> original.log());
+	 * </pre></blockquote>
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/transformDeferredForFlux.svg" alt="">
+	 *
+	 * @param transformer the {@link Function} to lazily map this {@link Flux} into a target {@link Publisher}
+	 * instance for each new subscriber
+	 * @param <V> the item type in the returned {@link Publisher}
+	 *
+	 * @return a new {@link Flux}
+	 * @see #transform(Function) transform() for immmediate transformation of {@link Flux}
+	 * @see #as as() for a loose conversion to an arbitrary type
+	 */
+	public final <V> Flux<V> transformDeferred(Function<? super Flux<T>, ? extends Publisher<V>> transformer) {
+		return defer(() -> transformer.apply(this));
 	}
 
 	/**

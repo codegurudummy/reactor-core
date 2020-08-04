@@ -26,7 +26,7 @@ import reactor.util.annotation.Nullable;
 /**
  * @author Stephane Maldini
  */
-final class MonoSourceFuseable<I> extends Mono<I> implements Fuseable, Scannable, CoreOperator<I, I> {
+final class MonoSourceFuseable<I> extends Mono<I> implements Fuseable, Scannable {
 
 	final Publisher<? extends I> source;
 
@@ -43,16 +43,6 @@ final class MonoSourceFuseable<I> extends Mono<I> implements Fuseable, Scannable
 	@SuppressWarnings("unchecked")
 	public void subscribe(CoreSubscriber<? super I> actual) {
 		source.subscribe(actual);
-	}
-
-	@Override
-	public final CoreSubscriber<? super I> subscribeOrReturn(CoreSubscriber<? super I> actual) {
-		return actual;
-	}
-
-	@Override
-	public final Publisher<? extends I> getSubscribeTarget() {
-		return source;
 	}
 
 	@Override

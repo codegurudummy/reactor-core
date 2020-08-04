@@ -20,7 +20,7 @@ import reactor.core.CoreSubscriber;
 /**
  * @author Stephane Maldini
  */
-final class MonoDematerialize<T> extends InternalMonoOperator<Signal<T>, T> {
+final class MonoDematerialize<T> extends MonoOperator<Signal<T>, T> {
 
 	MonoDematerialize(Mono<Signal<T>> source) {
 		super(source);
@@ -28,6 +28,6 @@ final class MonoDematerialize<T> extends InternalMonoOperator<Signal<T>, T> {
 
 	@Override
 	public CoreSubscriber<? super Signal<T>> subscribeOrReturn(CoreSubscriber<? super T> actual) {
-		return new FluxDematerialize.DematerializeSubscriber<>(actual);
+		return new FluxDematerialize.DematerializeSubscriber<>(actual, true);
 	}
 }
