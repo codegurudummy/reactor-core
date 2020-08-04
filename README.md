@@ -31,8 +31,8 @@ With Gradle from repo.spring.io or Maven Central repositories (stable releases o
     dependencies {
       //compile "io.projectreactor:reactor-core:3.3.0.BUILD-SNAPSHOT"
       //testCompile("io.projectreactor:reactor-test:3.3.0.BUILD-SNAPSHOT")
-      compile "io.projectreactor:reactor-core:3.3.0.M2"
-      testCompile("io.projectreactor:reactor-test:3.3.0.M2")
+      compile "io.projectreactor:reactor-core:3.3.0.RC1"
+      testCompile("io.projectreactor:reactor-test:3.3.0.RC1")
     }
 ```
 
@@ -56,7 +56,7 @@ https://www.infoq.com/articles/reactor-by-example !
 
 A Reactive Streams Publisher with basic flow operators.
 - Static factories on Flux allow for source generation from arbitrary callbacks types.
-- Instance methods allows operational building, materialized on each _Flux#subscribe()_, _Flux#subscribe()_ or multicasting operations such as _Flux#publish_ and _Flux#publishNext_.
+- Instance methods allows operational building, materialized on each subscription (_Flux#subscribe()_, ...) or multicasting operations (such as _Flux#publish_ and _Flux#publishNext_).
 
 [<img src="https://raw.githubusercontent.com/reactor/reactor-core/v3.1.3.RELEASE/src/docs/marble/flux.png" width="500">](https://projectreactor.io/docs/core/release/api/reactor/core/publisher/Flux.html)
 
@@ -166,7 +166,7 @@ Most of this cool stuff uses bounded ring buffer implementation under the hood t
 
 ## What's more in it ?
 
-"Operator Fusion" (flow optimizers), health state observers, helpers to build custom reactive components, bounded queue generator, hash-wheel timer, converters from/to Java 9 Flow, Publisher and Java 8 CompletableFuture. The repository contains a `reactor-test` project with test features like the [`StepVerifier`](https://projectreactor.io/docs/test/release/api/index.html?reactor/test/StepVerifier.html).
+"Operator Fusion" (flow optimizers), health state observers, helpers to build custom reactive components, bounded queue generator, converters from/to Java 9 Flow, Publisher and Java 8 CompletableFuture. The repository contains a `reactor-test` project with test features like the [`StepVerifier`](https://projectreactor.io/docs/test/release/api/index.html?reactor/test/StepVerifier.html).
 
 -------------------------------------
 
