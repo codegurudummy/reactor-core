@@ -5,13 +5,15 @@
 
 [![Download](https://api.bintray.com/packages/spring/jars/io.projectreactor/images/download.svg)](https://bintray.com/spring/jars/io.projectreactor/_latestVersion)
 
-[![Travis CI](https://travis-ci.org/reactor/reactor-core.svg?branch=3.2.x)](https://travis-ci.org/reactor/reactor-core)
+[![Travis CI](https://travis-ci.org/reactor/reactor-core.svg?branch=master)](https://travis-ci.org/reactor/reactor-core)
 [![Codecov](https://img.shields.io/codecov/c/github/reactor/reactor-core.svg)]()
 [![Code Quality: Java](https://img.shields.io/lgtm/grade/java/g/reactor/reactor-core.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/reactor/reactor-core/context:java)
 [![Total Alerts](https://img.shields.io/lgtm/alerts/g/reactor/reactor-core.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/reactor/reactor-core/alerts)
 
 
-Non-Blocking [Reactive Streams](https://reactive-streams.org) Foundation for the JVM both implementing a [Reactive Extensions](https://reactivex.io) inspired API and efficient event streaming support.
+Non-Blocking [Reactive Streams](https://www.reactive-streams.org/) Foundation for the JVM both implementing a [Reactive Extensions](https://reactivex.io) inspired API and efficient event streaming support.
+
+The `master` branch is now dedicated to development of the `3.3.x` line.
 
 ## Getting it
    
@@ -29,12 +31,12 @@ repositories {
 }
 
 dependencies {
-    compile "io.projectreactor:reactor-core:3.2.19.RELEASE"
-    testCompile "io.projectreactor:reactor-test:3.2.19.RELEASE"
+    compile "io.projectreactor:reactor-core:3.3.8.RELEASE"
+    testCompile "io.projectreactor:reactor-test:3.3.8.RELEASE"
 
     // Snapshots
-    // compile "io.projectreactor:reactor-core:3.2.20.BUILD-SNAPSHOT"
-    // testCompile "io.projectreactor:reactor-test:3.2.20.BUILD-SNAPSHOT"
+    // compile "io.projectreactor:reactor-core:3.3.9.BUILD-SNAPSHOT"
+    // testCompile "io.projectreactor:reactor-test:3.3.9.BUILD-SNAPSHOT"
 }
 ```
 
@@ -46,6 +48,21 @@ However it should work fine with Android SDK 26 (Android O) and above. See the
 [complete note](https://projectreactor.io/docs/core/release/reference/docs/index.html#prerequisites)
 in the reference guide.
 
+## Trouble importing the project in IDE?
+Since the introduction of Java 9 stubs in order to optimize the performance of debug backtraces, one can sometimes
+encounter cryptic messages from the build system when importing or re-importing the project in their IDE.
+
+For example: 
+
+ - `package StackWalker does not exist`: probably building under JDK8 but `java9stubs` was not added to sources
+ - `cannot find symbol @CallerSensitive`: probably building with JDK11+ and importing using JDK8
+
+When encountering these issues, one need to ensure that:
+
+ - Gradle JVM matches the JDK used by the IDE for the modules (in IntelliJ, `Modules Settings` JDK). Preferably, 1.8.
+ - The IDE is configured to delegate build to Gradle (in IntelliJ: `Build Tools > Gradle > Runner` and project setting uses that default)
+ 
+Then rebuild the project and the errors should disappear.
 
 ## Getting Started
 
@@ -168,7 +185,7 @@ Most of this cool stuff uses bounded ring buffer implementation under the hood t
 
 ## What's more in it ?
 
-"Operator Fusion" (flow optimizers), health state observers, helpers to build custom reactive components, bounded queue generator, hash-wheel timer, converters from/to Java 9 Flow, Publisher and Java 8 CompletableFuture. The repository contains a `reactor-test` project with test features like the [`StepVerifier`](https://projectreactor.io/docs/test/release/api/index.html?reactor/test/StepVerifier.html).
+"Operator Fusion" (flow optimizers), health state observers, helpers to build custom reactive components, bounded queue generator, converters from/to Java 9 Flow, Publisher and Java 8 CompletableFuture. The repository contains a `reactor-test` project with test features like the [`StepVerifier`](https://projectreactor.io/docs/test/release/api/index.html?reactor/test/StepVerifier.html).
 
 -------------------------------------
 

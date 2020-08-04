@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2017 Pivotal Software Inc, All Rights Reserved.
+ * Copyright (c) 2011-2019 Pivotal Software Inc, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,17 +23,12 @@ import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
 
-
 /**
  * Strategy employed to wait for specific {@link LongSupplier} values with various spinning strategies.
+ * @deprecated Has been moved to io.projectreactor.addons:reactor-extra:3.3.0+ and will be removed in 3.4.0
  */
+@Deprecated
 public abstract class WaitStrategy {
-
-    /**
-     * A no-op {@link Runnable} that can be used as a placeholder spin observer  with
-     * {@link #waitFor(long, LongSupplier, Runnable)}
-     */
-    public static final Runnable NOOP_SPIN_OBSERVER = () -> { };
 
     /**
      * Blocking strategy that uses a lock and condition variable for consumer waiting on a barrier.
@@ -286,7 +281,8 @@ public abstract class WaitStrategy {
 
     final static class BusySpin extends WaitStrategy {
 
-	    static final BusySpin INSTANCE = new BusySpin();
+	    static final WaitStrategy.BusySpin
+			    INSTANCE = new WaitStrategy.BusySpin();
 
         @Override
         public long waitFor(final long sequence, LongSupplier cursor, final Runnable barrier)
@@ -305,7 +301,8 @@ public abstract class WaitStrategy {
 
     final static class Sleeping extends WaitStrategy {
 
-	    static final Sleeping INSTANCE = new Sleeping();
+	    static final WaitStrategy.Sleeping
+			    INSTANCE = new WaitStrategy.Sleeping();
 
         @Override
         public long waitFor(final long sequence,
@@ -389,8 +386,8 @@ public abstract class WaitStrategy {
 
     final static class PhasedOff extends WaitStrategy {
 
-        private final long spinTimeoutNanos;
-        private final long yieldTimeoutNanos;
+        private final long                                 spinTimeoutNanos;
+        private final long                                 yieldTimeoutNanos;
         private final WaitStrategy fallbackStrategy;
         PhasedOff(long spinTimeout, long yieldTimeout,
                                          TimeUnit units,
@@ -451,7 +448,8 @@ public abstract class WaitStrategy {
 
     final static class Parking extends WaitStrategy {
 
-	    static final Parking INSTANCE = new Parking();
+	    static final WaitStrategy.Parking
+			    INSTANCE = new WaitStrategy.Parking();
 
         private final int retries;
 
@@ -504,7 +502,8 @@ public abstract class WaitStrategy {
 
     final static class Yielding extends WaitStrategy {
 
-	    static final Yielding INSTANCE = new Yielding();
+	    static final WaitStrategy.Yielding
+			    INSTANCE = new WaitStrategy.Yielding();
 
 	    @Override
 	    public long waitFor(final long sequence, LongSupplier cursor, final Runnable barrier)

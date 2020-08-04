@@ -19,7 +19,6 @@ package reactor.core.publisher;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -50,6 +49,8 @@ import java.util.stream.Stream;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+
+import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.core.Exceptions;
@@ -74,6 +75,7 @@ import reactor.util.function.Tuple6;
 import reactor.util.function.Tuple7;
 import reactor.util.function.Tuple8;
 import reactor.util.function.Tuples;
+import reactor.util.retry.Retry;
 
 /**
  * A Reactive Streams {@link Publisher} with rx operators that emits 0 to N elements, and then completes
@@ -100,7 +102,7 @@ import reactor.util.function.Tuples;
  * {@link #subscribe(Subscriber)} used internally for {@link Context} passing. User
  * provided {@link Subscriber} may
  * be passed to this "subscribe" extension but will loose the available
- * per-subscribe @link Hooks#onLastOperator}.
+ * per-subscribe {@link Hooks#onLastOperator}.
  *
  * @param <T> the element type of this Reactive Streams {@link Publisher}
  *
@@ -111,7 +113,7 @@ import reactor.util.function.Tuples;
  *
  * @see Mono
  */
-public abstract class Flux<T> implements Publisher<T> {
+public abstract class Flux<T> implements CorePublisher<T> {
 
 //	 ==============================================================================================================
 //	 Static Generators
@@ -801,9 +803,31 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * @param <T>      the type of values passing through the {@link Flux}
 	 *
 	 * @return a deferred {@link Flux}
+	 * @see #deferWithContext(Function)
 	 */
 	public static <T> Flux<T> defer(Supplier<? extends Publisher<T>> supplier) {
 		return onAssembly(new FluxDefer<>(supplier));
+	}
+
+	/**
+	 * Lazily supply a {@link Publisher} every time a {@link Subscription} is made on the
+	 * resulting {@link Flux}, so the actual source instantiation is deferred until each
+	 * subscribe and the {@link Function} can create a subscriber-specific instance.
+	 * This operator behaves the same way as {@link #defer(Supplier)},
+	 * but accepts a {@link Function} that will receive the current {@link Context} as an argument.
+	 * If the supplier doesn't generate a new instance however, this operator will
+	 * effectively behave like {@link #from(Publisher)}.
+	 *
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/deferForFlux.svg" alt="">
+	 *
+	 * @param supplier the {@link Publisher} {@link Function} to call on subscribe
+	 * @param <T>      the type of values passing through the {@link Flux}
+	 *
+	 * @return a deferred {@link Flux}
+	 */
+	public static <T> Flux<T> deferWithContext(Function<Context, ? extends Publisher<T>> supplier) {
+		return onAssembly(new FluxDeferWithContext<>(supplier));
 	}
 
 	/**
@@ -846,7 +870,7 @@ public abstract class Flux<T> implements Publisher<T> {
 	 *
 	 * @return a new failing {@link Flux}
 	 */
-	public static <T> Flux<T> error(Supplier<Throwable> errorSupplier) {
+	public static <T> Flux<T> error(Supplier<? extends Throwable> errorSupplier) {
 		return onAssembly(new FluxErrorSupplied<>(errorSupplier));
 	}
 
@@ -955,9 +979,20 @@ public abstract class Flux<T> implements Publisher<T> {
 
 	/**
 	 * Create a {@link Flux} that emits the items contained in the provided {@link Iterable}.
-	 * A new iterator will be created for each subscriber.
+	 * The {@link Iterable#iterator()} method will be invoked at least once and at most twice
+	 * for each subscriber.
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/fromIterable.svg" alt="">
+	 * <p>
+	 * This operator inspects the {@link Iterable}'s {@link Spliterator} to assess if the iteration
+	 * can be guaranteed to be finite (see {@link Operators#onDiscardMultiple(Iterator, boolean, Context)}).
+	 * Since the default Spliterator wraps the Iterator we can have two {@link Iterable#iterator()}
+	 * calls. This second invocation is skipped on a {@link Collection} however, a type which is
+	 * assumed to be always finite.
+	 *
+	 * @reactor.discard Upon cancellation, this operator attempts to discard the remainder of the
+	 * {@link Iterable} if it can safely ensure the iterator is finite.
+	 * Note that this means the {@link Iterable#iterator()} method could be invoked twice.
 	 *
 	 * @param it the {@link Iterable} to read data from
 	 * @param <T> The type of values in the source {@link Iterable} and resulting Flux
@@ -977,6 +1012,10 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/fromStream.svg" alt="">
 	 *
+	 * @reactor.discard Upon cancellation, this operator attempts to discard remainder of the
+	 * {@link Stream} through its open {@link Spliterator}, if it can safely ensure it is finite
+	 * (see {@link Operators#onDiscardMultiple(Iterator, boolean, Context)}).
+	 *
 	 * @param s the {@link Stream} to read data from
 	 * @param <T> The type of values in the source {@link Stream} and resulting Flux
 	 *
@@ -994,6 +1033,10 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * or completion.
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/fromStream.svg" alt="">
+	 *
+	 * @reactor.discard Upon cancellation, this operator attempts to discard remainder of the
+	 * {@link Stream} through its open {@link Spliterator}, if it can safely ensure it is finite
+	 * (see {@link Operators#onDiscardMultiple(Iterator, boolean, Context)}).
 	 *
 	 * @param streamSupplier the {@link Supplier} that generates the {@link Stream} from
 	 * which to read data
@@ -1664,12 +1707,12 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * the Subscriber cancels.
 	 * <p>
 	 * Eager resource cleanup happens just before the source termination and exceptions raised by the cleanup Consumer
-	 * may override the terminal even.
+	 * may override the terminal event.
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/usingForFlux.svg" alt="">
 	 * <p>
 	 * For an asynchronous version of the cleanup, with distinct path for onComplete, onError
-	 * and cancel terminations, see {@link #usingWhen(Publisher, Function, Function, Function, Function)}.
+	 * and cancel terminations, see {@link #usingWhen(Publisher, Function, Function, BiFunction, Function)}.
 	 *
 	 * @param resourceSupplier a {@link Callable} that is called on subscribe to generate the resource
 	 * @param sourceSupplier a factory to derive a {@link Publisher} from the supplied resource
@@ -1678,7 +1721,7 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * @param <D> resource type
 	 *
 	 * @return a new {@link Flux} built around a disposable resource
-	 * @see #usingWhen(Publisher, Function, Function, Function, Function)
+	 * @see #usingWhen(Publisher, Function, Function, BiFunction, Function)
 	 * @see #usingWhen(Publisher, Function, Function)
 	 */
 	public static <T, D> Flux<T> using(Callable<? extends D> resourceSupplier, Function<? super D, ? extends
@@ -1692,12 +1735,12 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * the Subscriber cancels.
 	 * <p>
 	 * <ul> <li>Eager resource cleanup happens just before the source termination and exceptions raised by the cleanup
-	 * Consumer may override the terminal even.</li> <li>Non-eager cleanup will drop any exception.</li> </ul>
+	 * Consumer may override the terminal event.</li> <li>Non-eager cleanup will drop any exception.</li> </ul>
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/usingForFlux.svg" alt="">
 	 * <p>
 	 * For an asynchronous version of the cleanup, with distinct path for onComplete, onError
-	 * and cancel terminations, see {@link #usingWhen(Publisher, Function, Function, Function, Function)}.
+	 * and cancel terminations, see {@link #usingWhen(Publisher, Function, Function, BiFunction, Function)}.
 	 *
 	 * @param resourceSupplier a {@link Callable} that is called on subscribe to generate the resource
 	 * @param sourceSupplier a factory to derive a {@link Publisher} from the supplied resource
@@ -1707,7 +1750,7 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * @param <D> resource type
 	 *
 	 * @return a new {@link Flux} built around a disposable resource
-	 * @see #usingWhen(Publisher, Function, Function, Function, Function)
+	 * @see #usingWhen(Publisher, Function, Function, BiFunction, Function)
 	 * @see #usingWhen(Publisher, Function, Function)
 	 */
 	public static <T, D> Flux<T> using(Callable<? extends D> resourceSupplier, Function<? super D, ? extends
@@ -1721,6 +1764,44 @@ public abstract class Flux<T> implements Publisher<T> {
 	/**
 	 * Uses a resource, generated by a {@link Publisher} for each individual {@link Subscriber},
 	 * while streaming the values from a {@link Publisher} derived from the same resource.
+	 * Whenever the resulting sequence terminates, a provided {@link Function} generates
+	 * a "cleanup" {@link Publisher} that is invoked but doesn't change the content of the
+	 * main sequence. Instead it just defers the termination (unless it errors, in which case
+	 * the error suppresses the original termination signal).
+	 * <p>
+	 * Note that if the resource supplying {@link Publisher} emits more than one resource, the
+	 * subsequent resources are dropped ({@link Operators#onNextDropped(Object, Context)}). If
+	 * the publisher errors AFTER having emitted one resource, the error is also silently dropped
+	 * ({@link Operators#onErrorDropped(Throwable, Context)}).
+	 * An empty completion or error without at least one onNext signal triggers a short-circuit
+	 * of the main sequence with the same terminal signal (no resource is established, no
+	 * cleanup is invoked).
+	 *
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/usingWhenSuccessForFlux.svg" alt="">
+	 *
+	 * @param resourceSupplier a {@link Publisher} that "generates" the resource,
+	 * subscribed for each subscription to the main sequence
+	 * @param resourceClosure a factory to derive a {@link Publisher} from the supplied resource
+	 * @param asyncCleanup an asynchronous resource cleanup invoked when the resource
+	 * closure terminates (with onComplete, onError or cancel)
+	 * @param <T> the type of elements emitted by the resource closure, and thus the main sequence
+	 * @param <D> the type of the resource object
+	 * @return a new {@link Flux} built around a "transactional" resource, with asynchronous
+	 * cleanup on all terminations (onComplete, onError, cancel)
+	 */
+	public static <T, D> Flux<T> usingWhen(Publisher<D> resourceSupplier,
+			Function<? super D, ? extends Publisher<? extends T>> resourceClosure,
+			Function<? super D, ? extends Publisher<?>> asyncCleanup) {
+		return usingWhen(resourceSupplier, resourceClosure, asyncCleanup, (resource, error) -> asyncCleanup.apply(resource), asyncCleanup);
+	}
+
+	/**
+	 * Uses a resource, generated by a {@link Publisher} for each individual {@link Subscriber},
+	 * while streaming the values from a {@link Publisher} derived from the same resource.
+	 * Note that all steps of the operator chain that would need the resource to be in an open
+	 * stable state need to be described inside the {@code resourceClosure} {@link Function}.
+	 * <p>
 	 * Whenever the resulting sequence terminates, the relevant {@link Function} generates
 	 * a "cleanup" {@link Publisher} that is invoked but doesn't change the content of the
 	 * main sequence. Instead it just defers the termination (unless it errors, in which case
@@ -1755,25 +1836,30 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * subscribed for each subscription to the main sequence
 	 * @param resourceClosure a factory to derive a {@link Publisher} from the supplied resource
 	 * @param asyncComplete an asynchronous resource cleanup invoked if the resource closure terminates with onComplete or is cancelled
-	 * @param asyncError an asynchronous resource cleanup invoked if the resource closure terminates with onError
+	 * @param asyncError an asynchronous resource cleanup invoked if the resource closure terminates with onError.
 	 * @param <T> the type of elements emitted by the resource closure, and thus the main sequence
 	 * @param <D> the type of the resource object
 	 * @return a new {@link Flux} built around a "transactional" resource, with several
 	 * termination path triggering asynchronous cleanup sequences
-	 * @see #usingWhen(Publisher, Function, Function, Function, Function)
+	 * @deprecated prefer using the {@link #usingWhen(Publisher, Function, Function, BiFunction, Function)} version which is more explicit about all termination cases,
+	 * will be removed in 3.4.0
 	 */
+	@Deprecated
 	public static <T, D> Flux<T> usingWhen(Publisher<D> resourceSupplier,
 			Function<? super D, ? extends Publisher<? extends T>> resourceClosure,
 			Function<? super D, ? extends Publisher<?>> asyncComplete,
 			Function<? super D, ? extends Publisher<?>> asyncError) {
 		//null asyncCancel translates to using the `asyncComplete` function in the operator
 		return onAssembly(new FluxUsingWhen<>(resourceSupplier, resourceClosure,
-				asyncComplete, asyncError, null));
+				asyncComplete, (res, err) -> asyncError.apply(res), null));
 	}
 
 	/**
 	 * Uses a resource, generated by a {@link Publisher} for each individual {@link Subscriber},
 	 * while streaming the values from a {@link Publisher} derived from the same resource.
+	 * Note that all steps of the operator chain that would need the resource to be in an open
+	 * stable state need to be described inside the {@code resourceClosure} {@link Function}.
+	 * <p>
 	 * Whenever the resulting sequence terminates, the relevant {@link Function} generates
 	 * a "cleanup" {@link Publisher} that is invoked but doesn't change the content of the
 	 * main sequence. Instead it just defers the termination (unless it errors, in which case
@@ -1807,7 +1893,69 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * subscribed for each subscription to the main sequence
 	 * @param resourceClosure a factory to derive a {@link Publisher} from the supplied resource
 	 * @param asyncComplete an asynchronous resource cleanup invoked if the resource closure terminates with onComplete
-	 * @param asyncError an asynchronous resource cleanup invoked if the resource closure terminates with onError
+	 * @param asyncError an asynchronous resource cleanup invoked if the resource closure terminates with onError.
+	 * @param asyncCancel an asynchronous resource cleanup invoked if the resource closure is cancelled.
+	 * When {@code null}, the {@code asyncComplete} path is used instead.
+	 * @param <T> the type of elements emitted by the resource closure, and thus the main sequence
+	 * @param <D> the type of the resource object
+	 * @return a new {@link Flux} built around a "transactional" resource, with several
+	 * termination path triggering asynchronous cleanup sequences
+	 * @deprecated prefer using the {@link #usingWhen(Publisher, Function, Function, BiFunction, Function)} version which is more explicit about all termination cases,
+	 * will be removed in 3.4.0
+	 */
+	@Deprecated
+	public static <T, D> Flux<T> usingWhen(Publisher<D> resourceSupplier,
+			Function<? super D, ? extends Publisher<? extends T>> resourceClosure,
+			Function<? super D, ? extends Publisher<?>> asyncComplete,
+			Function<? super D, ? extends Publisher<?>> asyncError,
+			//the operator itself accepts null for asyncCancel, but we won't in the public API
+			Function<? super D, ? extends Publisher<?>> asyncCancel) {
+		return onAssembly(new FluxUsingWhen<>(resourceSupplier, resourceClosure,
+				asyncComplete, (res, err) -> asyncError.apply(res), asyncCancel));
+	}
+
+	/**
+	 * Uses a resource, generated by a {@link Publisher} for each individual {@link Subscriber},
+	 * while streaming the values from a {@link Publisher} derived from the same resource.
+	 * Note that all steps of the operator chain that would need the resource to be in an open
+	 * stable state need to be described inside the {@code resourceClosure} {@link Function}.
+	 * <p>
+	 * Whenever the resulting sequence terminates, the relevant {@link Function} generates
+	 * a "cleanup" {@link Publisher} that is invoked but doesn't change the content of the
+	 * main sequence. Instead it just defers the termination (unless it errors, in which case
+	 * the error suppresses the original termination signal).
+	 *
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/usingWhenSuccessForFlux.svg" alt="">
+	 * <p>
+	 * Individual cleanups can also be associated with main sequence cancellation and
+	 * error terminations:
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/usingWhenFailureForFlux.svg" alt="">
+	 * <p>
+	 * Note that if the resource supplying {@link Publisher} emits more than one resource, the
+	 * subsequent resources are dropped ({@link Operators#onNextDropped(Object, Context)}). If
+	 * the publisher errors AFTER having emitted one resource, the error is also silently dropped
+	 * ({@link Operators#onErrorDropped(Throwable, Context)}).
+	 * An empty completion or error without at least one onNext signal triggers a short-circuit
+	 * of the main sequence with the same terminal signal (no resource is established, no
+	 * cleanup is invoked).
+	 * <p>
+	 * Additionally, the terminal signal is replaced by any error that might have happened
+	 * in the terminating {@link Publisher}:
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/usingWhenCleanupErrorForFlux.svg" alt="">
+	 * <p>
+	 * Finally, early cancellations will cancel the resource supplying {@link Publisher}:
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/usingWhenEarlyCancelForFlux.svg" alt="">
+	 *
+	 * @param resourceSupplier a {@link Publisher} that "generates" the resource,
+	 * subscribed for each subscription to the main sequence
+	 * @param resourceClosure a factory to derive a {@link Publisher} from the supplied resource
+	 * @param asyncComplete an asynchronous resource cleanup invoked if the resource closure terminates with onComplete
+	 * @param asyncError an asynchronous resource cleanup invoked if the resource closure terminates with onError.
+	 * The terminating error is provided to the {@link BiFunction}
 	 * @param asyncCancel an asynchronous resource cleanup invoked if the resource closure is cancelled.
 	 * When {@code null}, the {@code asyncComplete} path is used instead.
 	 * @param <T> the type of elements emitted by the resource closure, and thus the main sequence
@@ -1819,47 +1967,11 @@ public abstract class Flux<T> implements Publisher<T> {
 	public static <T, D> Flux<T> usingWhen(Publisher<D> resourceSupplier,
 			Function<? super D, ? extends Publisher<? extends T>> resourceClosure,
 			Function<? super D, ? extends Publisher<?>> asyncComplete,
-			Function<? super D, ? extends Publisher<?>> asyncError,
+			BiFunction<? super D, ? super Throwable, ? extends Publisher<?>> asyncError,
 			//the operator itself accepts null for asyncCancel, but we won't in the public API
 			Function<? super D, ? extends Publisher<?>> asyncCancel) {
 		return onAssembly(new FluxUsingWhen<>(resourceSupplier, resourceClosure,
 				asyncComplete, asyncError, asyncCancel));
-	}
-
-	/**
-	 * Uses a resource, generated by a {@link Publisher} for each individual {@link Subscriber},
-	 * while streaming the values from a {@link Publisher} derived from the same resource.
-	 * Whenever the resulting sequence terminates, a provided {@link Function} generates
-	 * a "cleanup" {@link Publisher} that is invoked but doesn't change the content of the
-	 * main sequence. Instead it just defers the termination (unless it errors, in which case
-	 * the error suppresses the original termination signal).
-	 * <p>
-	 * Note that if the resource supplying {@link Publisher} emits more than one resource, the
-	 * subsequent resources are dropped ({@link Operators#onNextDropped(Object, Context)}). If
-	 * the publisher errors AFTER having emitted one resource, the error is also silently dropped
-	 * ({@link Operators#onErrorDropped(Throwable, Context)}).
-	 * An empty completion or error without at least one onNext signal triggers a short-circuit
-	 * of the main sequence with the same terminal signal (no resource is established, no
-	 * cleanup is invoked).
-	 *
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/usingWhenSuccessForFlux.svg" alt="">
-	 *
-	 * @param resourceSupplier a {@link Publisher} that "generates" the resource,
-	 * subscribed for each subscription to the main sequence
-	 * @param resourceClosure a factory to derive a {@link Publisher} from the supplied resource
-	 * @param asyncCleanup an asynchronous resource cleanup invoked when the resource
-	 * closure terminates (with onComplete, onError or cancel)
-	 * @param <T> the type of elements emitted by the resource closure, and thus the main sequence
-	 * @param <D> the type of the resource object
-	 * @return a new {@link Flux} built around a "transactional" resource, with asynchronous
-	 * cleanup on all terminations (onComplete, onError, cancel)
-	 * @see #usingWhen(Publisher, Function, Function, Function, Function)
-	 */
-	public static <T, D> Flux<T> usingWhen(Publisher<D> resourceSupplier,
-			Function<? super D, ? extends Publisher<? extends T>> resourceClosure,
-			Function<? super D, ? extends Publisher<?>> asyncCleanup) {
-		return usingWhen(resourceSupplier, resourceClosure, asyncCleanup, asyncCleanup);
 	}
 
 	/**
@@ -2336,7 +2448,7 @@ public abstract class Flux<T> implements Publisher<T> {
 	@Nullable
 	public final T blockFirst() {
 		BlockingFirstSubscriber<T> subscriber = new BlockingFirstSubscriber<>();
-		onLastAssembly(this).subscribe(Operators.toCoreSubscriber(subscriber));
+		subscribe((Subscriber<T>) subscriber);
 		return subscriber.blockingGet();
 	}
 
@@ -2345,7 +2457,7 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * signals its first value, completes or a timeout expires. Returns that value,
 	 * or null if the Flux completes empty. In case the Flux errors, the original
 	 * exception is thrown (wrapped in a {@link RuntimeException} if it was a checked
-	 * exception). If the provided timeout expires,a {@link RuntimeException} is thrown.
+	 * exception). If the provided timeout expires, a {@link RuntimeException} is thrown.
 	 * <p>
 	 * Note that each blockFirst() will trigger a new subscription: in other words,
 	 * the result might miss signal from hot publishers.
@@ -2359,7 +2471,7 @@ public abstract class Flux<T> implements Publisher<T> {
 	@Nullable
 	public final T blockFirst(Duration timeout) {
 		BlockingFirstSubscriber<T> subscriber = new BlockingFirstSubscriber<>();
-		onLastAssembly(this).subscribe(Operators.toCoreSubscriber(subscriber));
+		subscribe((Subscriber<T>) subscriber);
 		return subscriber.blockingGet(timeout.toMillis(), TimeUnit.MILLISECONDS);
 	}
 
@@ -2381,7 +2493,7 @@ public abstract class Flux<T> implements Publisher<T> {
 	@Nullable
 	public final T blockLast() {
 		BlockingLastSubscriber<T> subscriber = new BlockingLastSubscriber<>();
-		onLastAssembly(this).subscribe(Operators.toCoreSubscriber(subscriber));
+		subscribe((Subscriber<T>) subscriber);
 		return subscriber.blockingGet();
 	}
 
@@ -2391,7 +2503,7 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * signals its last value, completes or a timeout expires. Returns that value,
 	 * or null if the Flux completes empty. In case the Flux errors, the original
 	 * exception is thrown (wrapped in a {@link RuntimeException} if it was a checked
-	 * exception). If the provided timeout expires,a {@link RuntimeException} is thrown.
+	 * exception). If the provided timeout expires, a {@link RuntimeException} is thrown.
 	 * <p>
 	 * Note that each blockLast() will trigger a new subscription: in other words,
 	 * the result might miss signal from hot publishers.
@@ -2405,7 +2517,7 @@ public abstract class Flux<T> implements Publisher<T> {
 	@Nullable
 	public final T blockLast(Duration timeout) {
 		BlockingLastSubscriber<T> subscriber = new BlockingLastSubscriber<>();
-		onLastAssembly(this).subscribe(Operators.toCoreSubscriber(subscriber));
+		subscribe((Subscriber<T>) subscriber);
 		return subscriber.blockingGet(timeout.toMillis(), TimeUnit.MILLISECONDS);
 	}
 
@@ -2788,6 +2900,58 @@ public abstract class Flux<T> implements Publisher<T> {
 		return onAssembly(new FluxBufferPredicate<>(this, predicate, listSupplier(),
 				cutBefore ? FluxBufferPredicate.Mode.UNTIL_CUT_BEFORE
 						  : FluxBufferPredicate.Mode.UNTIL));
+	}
+
+	/**
+	 * Collect subsequent repetitions of an element (that is, if they arrive right after
+	 * one another) into multiple {@link List} buffers that will be emitted by the
+	 * resulting {@link Flux}.
+	 *
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/bufferUntilChanged.svg" alt="">
+	 * <p>
+	 *
+	 * @return a microbatched {@link Flux} of {@link List}
+	 */
+	public final <V> Flux<List<T>> bufferUntilChanged() {
+		return bufferUntilChanged(identityFunction());
+	}
+
+	/**
+	 * Collect subsequent repetitions of an element (that is, if they arrive right after
+	 * one another), as compared by a key extracted through the user provided {@link
+	 * Function}, into multiple {@link List} buffers that will be emitted by the
+	 * resulting {@link Flux}.
+	 *
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/bufferUntilChangedWithKey.svg" alt="">
+	 * <p>
+	 *
+	 * @param keySelector function to compute comparison key for each element
+	 * @return a microbatched {@link Flux} of {@link List}
+	 */
+	public final <V> Flux<List<T>> bufferUntilChanged(Function<? super T, ? extends V> keySelector) {
+		return bufferUntilChanged(keySelector, equalPredicate());
+	}
+
+	/**
+	 * Collect subsequent repetitions of an element (that is, if they arrive right after
+	 * one another), as compared by a key extracted through the user provided {@link
+	 * Function} and compared using a supplied {@link BiPredicate}, into multiple
+	 * {@link List} buffers that will be emitted by the resulting {@link Flux}.
+	 *
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/bufferUntilChangedWithKey.svg" alt="">
+	 * <p>
+	 *
+	 * @param keySelector function to compute comparison key for each element
+	 * @param keyComparator predicate used to compare keys
+	 * @return a microbatched {@link Flux} of {@link List}
+	 */
+	public final <V> Flux<List<T>> bufferUntilChanged(Function<? super T, ? extends V> keySelector,
+			BiPredicate<? super V, ? super V> keyComparator) {
+		return Flux.defer(() -> bufferUntil(new FluxBufferPredicate.ChangedPredicate<T, V>(keySelector,
+				keyComparator), true));
 	}
 
 	/**
@@ -3176,7 +3340,7 @@ public abstract class Flux<T> implements Publisher<T> {
 					v = scalarCallable.call();
 				}
 				catch (Exception e) {
-					return Mono.error(e);
+					return Mono.error(Exceptions.unwrap(e));
 				}
 				return Mono.onAssembly(new MonoCallable<>(() -> {
 					List<T> list = Flux.<T>listSupplier().get();
@@ -3408,16 +3572,9 @@ public abstract class Flux<T> implements Publisher<T> {
 	 */
 	@SuppressWarnings({ "unchecked", "rawtypes" })
 	public final Mono<List<T>> collectSortedList(@Nullable Comparator<? super T> comparator) {
-		return collectList().map(list -> {
+		return collectList().doOnNext(list -> {
 			// Note: this assumes the list emitted by buffer() is mutable
-			if (comparator != null) {
-				list.sort(comparator);
-			} else {
-
-				List<Comparable> l = (List<Comparable>)list;
-				Collections.sort(l);
-			}
-			return list;
+			list.sort(comparator);
 		});
 	}
 
@@ -3428,7 +3585,7 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * flux.compose(original -> original.log());
 	 * </pre></blockquote>
 	 * <p>
-	 * <img class="marble" src="doc-files/marbles/composeForFlux.svg" alt="">
+	 * <img class="marble" src="doc-files/marbles/transformDeferredForFlux.svg" alt="">
 	 *
 	 * @param transformer the {@link Function} to lazily map this {@link Flux} into a target {@link Publisher}
 	 * instance for each new subscriber
@@ -3437,7 +3594,9 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * @return a new {@link Flux}
 	 * @see #transform  transform() for immmediate transformation of {@link Flux}
 	 * @see #as as() for a loose conversion to an arbitrary type
+	 * @deprecated will be removed in 3.4.0, use {@link #transformDeferred(Function)} instead
 	 */
+	@Deprecated
 	public final <V> Flux<V> compose(Function<? super Flux<T>, ? extends Publisher<V>> transformer) {
 		return defer(() -> transformer.apply(this));
 	}
@@ -3638,10 +3797,17 @@ public abstract class Flux<T> implements Publisher<T> {
 
 	/**
 	 * Transform the items emitted by this {@link Flux} into {@link Iterable}, then flatten the elements from those by
-	 * concatenating them into a single {@link Flux}.
+	 * concatenating them into a single {@link Flux}. For each iterable, {@link Iterable#iterator()} will be called
+	 * at least once and at most twice.
 	 *
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/concatMapIterable.svg" alt="">
+	 * <p>
+	 * This operator inspects each {@link Iterable}'s {@link Spliterator} to assess if the iteration
+	 * can be guaranteed to be finite (see {@link Operators#onDiscardMultiple(Iterator, boolean, Context)}).
+	 * Since the default Spliterator wraps the Iterator we can have two {@link Iterable#iterator()}
+	 * calls per iterable. This second invocation is skipped on a {@link Collection} however, a type which is
+	 * assumed to be always finite.
 	 * <p>
 	 * Note that unlike {@link #flatMap(Function)} and {@link #concatMap(Function)}, with Iterable there is
 	 * no notion of eager vs lazy inner subscription. The content of the Iterables are all played sequentially.
@@ -3650,7 +3816,14 @@ public abstract class Flux<T> implements Publisher<T> {
 	 *
 	 * @reactor.discard Upon cancellation, this operator discards {@code T} elements it prefetched and, in
 	 * some cases, attempts to discard remainder of the currently processed {@link Iterable} (if it can
-	 * safely assume the iterator is not infinite, see {@link Spliterator#getExactSizeIfKnown()}).
+	 * safely ensure the iterator is finite). Note that this means each {@link Iterable}'s {@link Iterable#iterator()}
+	 * method could be invoked twice.
+	 *
+	 * @reactor.errorMode This operator supports {@link #onErrorContinue(BiConsumer) resuming on errors}
+	 * (including when fusion is enabled). Exceptions thrown by the consumer are passed to
+	 * the {@link #onErrorContinue(BiConsumer)} error consumer (the value consumer
+	 * is not invoked, as the source element will be part of the sequence). The onNext
+	 * signal is then propagated as normal.
 	 *
 	 * @param mapper the {@link Function} to transform input sequence into N {@link Iterable}
 	 * @param <R> the merged output sequence type
@@ -3664,9 +3837,16 @@ public abstract class Flux<T> implements Publisher<T> {
 	/**
 	 * Transform the items emitted by this {@link Flux} into {@link Iterable}, then flatten the emissions from those by
 	 * concatenating them into a single {@link Flux}. The prefetch argument allows to give an arbitrary prefetch size to the merged {@link Iterable}.
+	 * For each iterable, {@link Iterable#iterator()} will be called at least once and at most twice.
 	 *
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/concatMapIterable.svg" alt="">
+	 * <p>
+	 * This operator inspects each {@link Iterable}'s {@link Spliterator} to assess if the iteration
+	 * can be guaranteed to be finite (see {@link Operators#onDiscardMultiple(Iterator, boolean, Context)}).
+	 * Since the default Spliterator wraps the Iterator we can have two {@link Iterable#iterator()}
+	 * calls per iterable. This second invocation is skipped on a {@link Collection} however, a type which is
+	 * assumed to be always finite.
 	 * <p>
 	 * Note that unlike {@link #flatMap(Function)} and {@link #concatMap(Function)}, with Iterable there is
 	 * no notion of eager vs lazy inner subscription. The content of the Iterables are all played sequentially.
@@ -3675,7 +3855,14 @@ public abstract class Flux<T> implements Publisher<T> {
 	 *
 	 * @reactor.discard Upon cancellation, this operator discards {@code T} elements it prefetched and, in
 	 * some cases, attempts to discard remainder of the currently processed {@link Iterable} (if it can
-	 * safely assume the iterator is not infinite, see {@link Spliterator#getExactSizeIfKnown()}).
+	 * safely ensure the iterator is finite). Note that this means each {@link Iterable}'s {@link Iterable#iterator()}
+	 * method could be invoked twice.
+	 *
+	 * @reactor.errorMode This operator supports {@link #onErrorContinue(BiConsumer) resuming on errors}
+	 * (including when fusion is enabled). Exceptions thrown by the consumer are passed to
+	 * the {@link #onErrorContinue(BiConsumer)} error consumer (the value consumer
+	 * is not invoked, as the source element will be part of the sequence). The onNext
+	 * signal is then propagated as normal.
 	 *
 	 * @param mapper the {@link Function} to transform input sequence into N {@link Iterable}
 	 * @param prefetch the maximum in-flight elements from each inner {@link Iterable} sequence
@@ -4919,10 +5106,17 @@ public abstract class Flux<T> implements Publisher<T> {
 
 	/**
 	 * Transform the items emitted by this {@link Flux} into {@link Iterable}, then flatten the elements from those by
-	 * merging them into a single {@link Flux}.
+	 * merging them into a single {@link Flux}. For each iterable, {@link Iterable#iterator()} will be called at least
+	 * once and at most twice.
 	 *
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/flatMapIterableForFlux.svg" alt="">
+	 * <p>
+	 * This operator inspects each {@link Iterable}'s {@link Spliterator} to assess if the iteration
+	 * can be guaranteed to be finite (see {@link Operators#onDiscardMultiple(Iterator, boolean, Context)}).
+	 * Since the default Spliterator wraps the Iterator we can have two {@link Iterable#iterator()}
+	 * calls per iterable. This second invocation is skipped on a {@link Collection} however, a type which is
+	 * assumed to be always finite.
 	 * <p>
 	 * Note that unlike {@link #flatMap(Function)} and {@link #concatMap(Function)}, with Iterable there is
 	 * no notion of eager vs lazy inner subscription. The content of the Iterables are all played sequentially.
@@ -4931,11 +5125,17 @@ public abstract class Flux<T> implements Publisher<T> {
 	 *
 	 * @reactor.discard Upon cancellation, this operator discards {@code T} elements it prefetched and, in
 	 * some cases, attempts to discard remainder of the currently processed {@link Iterable} (if it can
-	 * safely assume iterator is not infinite, see {@link Spliterator#getExactSizeIfKnown()}).
+	 * safely ensure the iterator is finite). Note that this means each {@link Iterable}'s {@link Iterable#iterator()}
+	 * method could be invoked twice.
+	 *
+	 * @reactor.errorMode This operator supports {@link #onErrorContinue(BiConsumer) resuming on errors}
+	 * (including when fusion is enabled). Exceptions thrown by the consumer are passed to
+	 * the {@link #onErrorContinue(BiConsumer)} error consumer (the value consumer
+	 * is not invoked, as the source element will be part of the sequence). The onNext
+	 * signal is then propagated as normal.
 	 *
 	 * @param mapper the {@link Function} to transform input sequence into N {@link Iterable}
 	 * @param <R> the merged output sequence type
-	 *
 	 * @return a concatenation of the values from the Iterables obtained from each element in this {@link Flux}
 	 */
 	public final <R> Flux<R> flatMapIterable(Function<? super T, ? extends Iterable<? extends R>> mapper) {
@@ -4946,9 +5146,16 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * Transform the items emitted by this {@link Flux} into {@link Iterable}, then flatten the emissions from those by
 	 * merging them into a single {@link Flux}. The prefetch argument allows to give an
 	 * arbitrary prefetch size to the merged {@link Iterable}.
+	 * For each iterable, {@link Iterable#iterator()} will be called at least once and at most twice.
 	 *
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/flatMapIterableForFlux.svg" alt="">
+	 * <p>
+	 * This operator inspects each {@link Iterable}'s {@link Spliterator} to assess if the iteration
+	 * can be guaranteed to be finite (see {@link Operators#onDiscardMultiple(Iterator, boolean, Context)}).
+	 * Since the default Spliterator wraps the Iterator we can have two {@link Iterable#iterator()}
+	 * calls per iterable. This second invocation is skipped on a {@link Collection} however, a type which is
+	 * assumed to be always finite.
 	 * <p>
 	 * Note that unlike {@link #flatMap(Function)} and {@link #concatMap(Function)}, with Iterable there is
 	 * no notion of eager vs lazy inner subscription. The content of the Iterables are all played sequentially.
@@ -4957,12 +5164,18 @@ public abstract class Flux<T> implements Publisher<T> {
 	 *
 	 * @reactor.discard Upon cancellation, this operator discards {@code T} elements it prefetched and, in
 	 * some cases, attempts to discard remainder of the currently processed {@link Iterable} (if it can
-	 * safely assume the iterator is not infinite, see {@link Spliterator#getExactSizeIfKnown()}).
+	 * safely ensure the iterator is finite).
+	 * Note that this means each {@link Iterable}'s {@link Iterable#iterator()} method could be invoked twice.
+	 *
+	 * @reactor.errorMode This operator supports {@link #onErrorContinue(BiConsumer) resuming on errors}
+	 * (including when fusion is enabled). Exceptions thrown by the consumer are passed to
+	 * the {@link #onErrorContinue(BiConsumer)} error consumer (the value consumer
+	 * is not invoked, as the source element will be part of the sequence). The onNext
+	 * signal is then propagated as normal.
 	 *
 	 * @param mapper the {@link Function} to transform input sequence into N {@link Iterable}
-	 * @param prefetch the maximum in-flight elements from each inner {@link Iterable} sequence
+	 * @param prefetch the number of values to request from the source upon subscription, to be transformed to {@link Iterable}
 	 * @param <R> the merged output sequence type
-	 *
 	 * @return a concatenation of the values from the Iterables obtained from each element in this {@link Flux}
 	 */
 	public final <R> Flux<R> flatMapIterable(Function<? super T, ? extends Iterable<? extends R>> mapper, int prefetch) {
@@ -5364,7 +5577,7 @@ public abstract class Flux<T> implements Publisher<T> {
 	 *
 	 * @return a new {@link Flux} preventing {@link Publisher} / {@link Subscription} based Reactor optimizations
 	 */
-	public final Flux<T> hide() {
+	public Flux<T> hide() {
 		return new FluxHide<>(this);
 	}
 
@@ -5420,8 +5633,10 @@ public abstract class Flux<T> implements Publisher<T> {
 	}
 
 	/**
-	 * Map values from two Publishers into time windows and emit combination of values
-	 * in case their windows overlap. The emitted elements are obtained by passing the
+	 * Combine values from two Publishers in case their windows overlap. Each incoming
+	 * value triggers a creation of a new Publisher via the given {@link Function}. If the
+	 * Publisher signals its first value or completes, the time windows for the original
+	 * element is immediately closed. The emitted elements are obtained by passing the
 	 * values from this {@link Flux} and the other {@link Publisher} to a {@link BiFunction}.
 	 * <p>
 	 * There are no guarantees in what order the items get combined when multiple items from
@@ -5506,7 +5721,7 @@ public abstract class Flux<T> implements Publisher<T> {
 				    v = c.call();
 			    }
 			    catch (Exception e) {
-				    return Mono.error(e);
+				    return Mono.error(Exceptions.unwrap(e));
 			    }
 			    if(v == null){
 			    	return Mono.just(defaultValue);
@@ -5537,6 +5752,8 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * Note that the {@code prefetchRate} is an upper bound, and that this operator uses a
 	 * prefetch-and-replenish strategy, requesting a replenishing amount when 75% of the
 	 * prefetch amount has been emitted.
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/limitRate.svg" alt="">
 	 *
 	 * @param prefetchRate the limit to apply to downstream's backpressure
 	 *
@@ -5569,10 +5786,13 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * between request and data production. And thus the more extraneous replenishment
 	 * requests this operator could make. For example, for a global downstream
 	 * request of 14, with a highTide of 10 and a lowTide of 2, the operator would perform
-	 * 7 low tide requests, whereas with the default lowTide of 8 it would only perform one.
+	 * low tide requests ({@code request(2)}) seven times in a row, whereas with the default
+	 * lowTide of 8 it would only perform one low tide request ({@code request(8)}).
 	 * Using a {@code lowTide} equal to {@code highTide} reverts to the default 75% strategy,
 	 * while using a {@code lowTide} of {@literal 0} disables the lowTide, resulting in
 	 * all requests strictly adhering to the highTide.
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/limitRateWithHighAndLowTide.svg" alt="">
 	 *
 	 * @param highTide the initial request amount
 	 * @param lowTide the subsequent (or replenishing) request amount, {@literal 0} to
@@ -5884,6 +6104,7 @@ public abstract class Flux<T> implements Publisher<T> {
 
 	/**
 	 * Emit only the first item emitted by this {@link Flux}, into a new {@link Mono}.
+	 * If called on an empty {@link Flux}, emits an empty {@link Mono}.
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/next.svg" alt="">
 	 *
@@ -5939,13 +6160,15 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * The first element past this buffer to arrive out of sync with the downstream
 	 * subscriber's demand (the "overflowing" element) immediately triggers an overflow
 	 * error and cancels the source.
+	 * The {@link Flux} is going to terminate with an overflow error, but this error is
+	 * delayed, which lets the subscriber make more requests for the content of the buffer.
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/onBackpressureBufferWithMaxSize.svg" alt="">
 	 *
 	 * @reactor.discard This operator discards the buffered overflow elements upon cancellation or error triggered by a data signal,
 	 * as well as elements that are rejected by the buffer due to {@code maxSize}.
 	 *
-	 * @param maxSize maximum buffer backlog size before immediate error
+	 * @param maxSize maximum number of elements overflowing request before the source is cancelled
 	 *
 	 * @return a backpressured {@link Flux} that buffers with bounded capacity
 	 *
@@ -5972,7 +6195,7 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * as well as elements that are rejected by the buffer due to {@code maxSize} (even though
 	 * they are passed to the {@code onOverflow} {@link Consumer} first).
 	 *
-	 * @param maxSize maximum buffer backlog size before overflow callback is called and source is cancelled
+	 * @param maxSize maximum number of elements overflowing request before callback is called and source is cancelled
 	 * @param onOverflow callback to invoke on overflow
 	 *
 	 * @return a backpressured {@link Flux} that buffers with a bounded capacity
@@ -6052,7 +6275,7 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * Request an unbounded demand and push to the returned {@link Flux}, or park the observed
 	 * elements if not enough demand is requested downstream, within a {@code maxSize}
 	 * limit and for a maximum {@link Duration} of {@code ttl} (as measured on the
-	 * {@link Schedulers#elastic() elastic Scheduler}). Over that limit, oldest
+	 * {@link Schedulers#parallel() parallel Scheduler}). Over that limit, oldest
 	 * elements from the source are dropped.
 	 * <p>
 	 * Elements evicted based on the TTL are passed to a cleanup {@link Consumer}, which
@@ -6463,8 +6686,7 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * @return a new {@link ParallelFlux} instance
 	 */
 	public final ParallelFlux<T> parallel() {
-		return parallel(Runtime.getRuntime()
-		                       .availableProcessors());
+		return parallel(Schedulers.DEFAULT_POOL_SIZE);
 	}
 
 	/**
@@ -6836,29 +7058,21 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * <img class="marble" src="doc-files/marbles/repeatWhenForFlux.svg" alt="">
 	 * <p>
 	 * Note that if the companion {@link Publisher} created by the {@code repeatFactory}
-	 * emits {@link Context} as trigger objects, these {@link Context} will REPLACE the
-	 * operator's own Context. <strong>Please be careful there</strong>: replacing the
-	 * Context means that some keys you don't own could be removed, breaking libraries
-	 * that depend on them. As a result, the recommended approach is to always create such
-	 * a {@link Context} trigger by starting from the original Context (ensuring the trigger
-	 * contains all the keys from the original, unless you absolutely know you want to
-	 * remove one of these keys):
+	 * emits {@link Context} as trigger objects, these {@link Context} will be merged with
+	 * the previous Context:
 	 * <pre><code>
-	 * .repeatWhen(emittedEachAttempt -> emittedEachAttempt
-	 *     .flatMap(e -> Mono.subscriberContext().map(ctx -> Tuples.of(e, ctx)))
-	 *     .flatMap(t2 -> {
-	 * 	    long lastEmitted = t2.getT1();
-	 * 	    Context ctx = t2.getT2();
+	 * .repeatWhen(emittedEachAttempt -> emittedEachAttempt.handle((lastEmitted, sink) -> {
+	 * 	    Context ctx = sink.currentContext();
 	 * 	    int rl = ctx.getOrDefault("repeatsLeft", 0);
 	 * 	    if (rl > 0) {
-	 *		    // /!\ THE ctx.put HERE IS THE ESSENTIAL PART /!\
-	 * 		    return Mono.just(ctx.put("repeatsLeft", rl - 1)
-	 * 				    .put("emitted", lastEmitted));
+	 *		    sink.next(Context.of(
+	 *		        "repeatsLeft", rl - 1,
+	 *		        "emitted", lastEmitted
+	 *		    ));
 	 * 	    } else {
-	 * 		    return Mono.<Context>error(new IllegalStateException("repeats exhausted"));
+	 * 	        sink.error(new IllegalStateException("repeats exhausted"));
 	 * 	    }
-	 *     })
-	 * )
+	 * }))
 	 * </code></pre>
 	 *
 	 * @param repeatFactory the {@link Function} that returns the associated {@link Publisher}
@@ -7024,7 +7238,9 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * @param retryMatcher the predicate to evaluate if retry should occur based on a given error signal
 	 *
 	 * @return a {@link Flux} that retries on onError if the predicates matches.
+	 * @deprecated use {@link #retryWhen(Retry)} instead, to be removed in 3.4
 	 */
+	@Deprecated
 	public final Flux<T> retry(Predicate<? super Throwable> retryMatcher) {
 		return onAssembly(new FluxRetryPredicate<>(this, retryMatcher));
 	}
@@ -7041,7 +7257,9 @@ public abstract class Flux<T> implements Publisher<T> {
 	 *
 	 * @return a {@link Flux} that retries on onError up to the specified number of retry
 	 * attempts, only if the predicate matches.
+	 * @deprecated use {@link #retryWhen(Retry)} instead, to be removed in 3.4
 	 */
+	@Deprecated
 	public final Flux<T> retry(long numRetries, Predicate<? super Throwable> retryMatcher) {
 		return defer(() -> retry(countingPredicate(retryMatcher, numRetries)));
 	}
@@ -7057,39 +7275,97 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * <img class="marble" src="doc-files/marbles/retryWhenForFlux.svg" alt="">
 	 * <p>
 	 * Note that if the companion {@link Publisher} created by the {@code whenFactory}
-	 * emits {@link Context} as trigger objects, these {@link Context} will REPLACE the
-	 * operator's own Context. <strong>Please be careful there</strong>: replacing the
-	 * Context means that some keys you don't own could be removed, breaking libraries
-	 * that depend on them. As a result, the recommended approach is to always create such
-	 * a {@link Context} trigger by starting from the original Context (ensuring the trigger
-	 * contains all the keys from the original, unless you absolutely know you want to
-	 * remove one of these keys):
-	 * <pre><code>
-	 * .retryWhen(errorCurrentAttempt -> errorCurrentAttempt
-	 *     .flatMap(e -> Mono.subscriberContext().map(ctx -> Tuples.of(e, ctx)))
-	 *     .flatMap(t2 -> {
-	 * 	    Throwable lastError = t2.getT1();
-	 * 	    Context ctx = t2.getT2();
+	 * emits {@link Context} as trigger objects, these {@link Context} will be merged with
+	 * the previous Context:
+	 * <blockquote>
+	 * <pre>{@code
+	 * Function<Flux<Throwable>, Publisher<?>> customFunction = errorCurrentAttempt -> errorCurrentAttempt.handle((lastError, sink) -> {
+	 * 	    Context ctx = sink.currentContext();
 	 * 	    int rl = ctx.getOrDefault("retriesLeft", 0);
 	 * 	    if (rl > 0) {
-	 *		    // /!\ THE ctx.put HERE IS THE ESSENTIAL PART /!\
-	 * 		    return Mono.just(ctx.put("retriesLeft", rl - 1)
-	 * 				    .put("lastError", lastError));
+	 *		    sink.next(Context.of(
+	 *		        "retriesLeft", rl - 1,
+	 *		        "lastError", lastError
+	 *		    ));
 	 * 	    } else {
-	 * 		    return Mono.<Context>error(new IllegalStateException("retries exhausted", lastError));
+	 * 	        sink.error(Exceptions.retryExhausted("retries exhausted", lastError));
 	 * 	    }
-	 *     })
-	 * )
-	 * </code></pre>
+	 * });
+	 * Flux<T> retried = originalFlux.retryWhen(customFunction);
+	 * }</pre>
+	 * </blockquote>
 	 *
 	 * @param whenFactory the {@link Function} that returns the associated {@link Publisher}
 	 * companion, given a {@link Flux} that signals each onError as a {@link Throwable}.
 	 *
 	 * @return a {@link Flux} that retries on onError when the companion {@link Publisher} produces an
 	 * onNext signal
+	 * @deprecated use {@link #retryWhen(Retry)} instead, to be removed in 3.4. Lambda Functions that don't make
+	 * use of the error can simply be converted by wrapping via {@link Retry#from(Function)}.
+	 * Functions that do use the error will additionally need to map the {@link reactor.util.retry.Retry.RetrySignal}
+	 * emitted by the companion to its {@link Retry.RetrySignal#failure()}.
 	 */
+	@Deprecated
 	public final Flux<T> retryWhen(Function<Flux<Throwable>, ? extends Publisher<?>> whenFactory) {
-		return onAssembly(new FluxRetryWhen<>(this, whenFactory));
+		Objects.requireNonNull(whenFactory, "whenFactory");
+		return onAssembly(new FluxRetryWhen<>(this, Retry.from(fluxRetryWhenState -> fluxRetryWhenState
+				.map(Retry.RetrySignal::failure)
+				.as(whenFactory)))
+		);
+	}
+
+	/**
+	 * Retries this {@link Flux} in response to signals emitted by a companion {@link Publisher}.
+	 * The companion is generated by the provided {@link Retry} instance, see {@link Retry#max(long)}, {@link Retry#maxInARow(long)}
+	 * and {@link Retry#backoff(long, Duration)} for readily available strategy builders.
+	 * <p>
+	 * The operator generates a base for the companion, a {@link Flux} of {@link reactor.util.retry.Retry.RetrySignal}
+	 * which each give metadata about each retryable failure whenever this {@link Flux} signals an error. The final companion
+	 * should be derived from that base companion and emit data in response to incoming onNext (although it can emit less
+	 * elements, or delay the emissions).
+	 * <p>
+	 * Terminal signals in the companion terminate the sequence with the same signal, so emitting an {@link Subscriber#onError(Throwable)}
+	 * will fail the resulting {@link Flux} with that same error.
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/retryWhenSpecForFlux.svg" alt="">
+	 * <p>
+	 * Note that the {@link Retry.RetrySignal} state can be transient and change between each source
+	 * {@link org.reactivestreams.Subscriber#onError(Throwable) onError} or
+	 * {@link org.reactivestreams.Subscriber#onNext(Object) onNext}. If processed with a delay,
+	 * this could lead to the represented state being out of sync with the state at which the retry
+	 * was evaluated. Map it to {@link Retry.RetrySignal#copy()} right away to mediate this.
+	 * <p>
+	 * Note that if the companion {@link Publisher} created by the {@code whenFactory}
+	 * emits {@link Context} as trigger objects, these {@link Context} will be merged with
+	 * the previous Context:
+	 * <blockquote><pre>
+	 * {@code
+	 * Retry customStrategy = Retry.from(companion -> companion.handle((retrySignal, sink) -> {
+	 * 	    Context ctx = sink.currentContext();
+	 * 	    int rl = ctx.getOrDefault("retriesLeft", 0);
+	 * 	    if (rl > 0) {
+	 *		    sink.next(Context.of(
+	 *		        "retriesLeft", rl - 1,
+	 *		        "lastError", retrySignal.failure()
+	 *		    ));
+	 * 	    } else {
+	 * 	        sink.error(Exceptions.retryExhausted("retries exhausted", retrySignal.failure()));
+	 * 	    }
+	 * }));
+	 * Flux<T> retried = originalFlux.retryWhen(customStrategy);
+	 * }</pre>
+	 * </blockquote>
+	 *
+	 * @param retrySpec the {@link Retry} strategy that will generate the companion {@link Publisher},
+	 * given a {@link Flux} that signals each onError as a {@link reactor.util.retry.Retry.RetrySignal}.
+	 *
+	 * @return a {@link Flux} that retries on onError when a companion {@link Publisher} produces an onNext signal
+	 * @see Retry#max(long)
+	 * @see Retry#maxInARow(long)
+	 * @see Retry#backoff(long, Duration)
+	 */
+	public final Flux<T> retryWhen(Retry retrySpec) {
+		return onAssembly(new FluxRetryWhen<>(this, retrySpec));
 	}
 
 	/**
@@ -7121,9 +7397,11 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * @param firstBackoff the first backoff delay to apply then grow exponentially. Also
 	 * minimum delay even taking jitter into account.
 	 * @return a {@link Flux} that retries on onError with exponentially growing randomized delays between retries.
+	 * @deprecated use {@link #retryWhen(Retry)} with a {@link Retry#backoff(long, Duration)} base, to be removed in 3.4
 	 */
+	@Deprecated
 	public final Flux<T> retryBackoff(long numRetries, Duration firstBackoff) {
-		return retryBackoff(numRetries, firstBackoff, FluxRetryWhen.MAX_BACKOFF, 0.5d);
+		return retryWhen(Retry.backoff(numRetries, firstBackoff));
 	}
 
 	/**
@@ -7157,9 +7435,13 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * minimum delay even taking jitter into account.
 	 * @param maxBackoff the maximum delay to apply despite exponential growth and jitter.
 	 * @return a {@link Flux} that retries on onError with exponentially growing randomized delays between retries.
+	 * @deprecated use {@link #retryWhen(Retry)} with a {@link Retry#backoff(long, Duration)} base, to be removed in 3.4
 	 */
+	@Deprecated
 	public final Flux<T> retryBackoff(long numRetries, Duration firstBackoff, Duration maxBackoff) {
-		return retryBackoff(numRetries, firstBackoff, maxBackoff, 0.5d);
+		return retryWhen(Retry
+				.backoff(numRetries, firstBackoff)
+				.maxBackoff(maxBackoff));
 	}
 
 	/**
@@ -7195,9 +7477,14 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * @param maxBackoff the maximum delay to apply despite exponential growth and jitter.
 	 * @param backoffScheduler the {@link Scheduler} on which the delays and subsequent attempts are executed.
 	 * @return a {@link Flux} that retries on onError with exponentially growing randomized delays between retries.
+	 * @deprecated use {@link #retryWhen(Retry)} with a {@link Retry#backoff(long, Duration)} base, to be removed in 3.4
 	 */
+	@Deprecated
 	public final Flux<T> retryBackoff(long numRetries, Duration firstBackoff, Duration maxBackoff, Scheduler backoffScheduler) {
-		return retryBackoff(numRetries, firstBackoff, maxBackoff, 0.5d, backoffScheduler);
+		return retryWhen(Retry
+				.backoff(numRetries, firstBackoff)
+				.maxBackoff(maxBackoff)
+				.scheduler(backoffScheduler));
 	}
 
 	/**
@@ -7233,9 +7520,14 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * @param maxBackoff the maximum delay to apply despite exponential growth and jitter.
 	 * @param jitterFactor the jitter percentage (as a double between 0.0 and 1.0).
 	 * @return a {@link Flux} that retries on onError with exponentially growing randomized delays between retries.
+	 * @deprecated use {@link #retryWhen(Retry)} with a {@link Retry#backoff(long, Duration)} base
 	 */
+	@Deprecated
 	public final Flux<T> retryBackoff(long numRetries, Duration firstBackoff, Duration maxBackoff, double jitterFactor) {
-		return retryBackoff(numRetries, firstBackoff, maxBackoff, jitterFactor, Schedulers.parallel());
+		return retryWhen(Retry
+				.backoff(numRetries, firstBackoff)
+				.maxBackoff(maxBackoff)
+				.jitter(jitterFactor));
 	}
 
 	/**
@@ -7274,9 +7566,15 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * @param backoffScheduler the {@link Scheduler} on which the delays and subsequent attempts are executed.
 	 * @param jitterFactor the jitter percentage (as a double between 0.0 and 1.0).
 	 * @return a {@link Flux} that retries on onError with exponentially growing randomized delays between retries.
+	 * @deprecated use {@link #retryWhen(Retry)} with a {@link Retry#backoff(long, Duration)} base
 	 */
+	@Deprecated
 	public final Flux<T> retryBackoff(long numRetries, Duration firstBackoff, Duration maxBackoff, double jitterFactor, Scheduler backoffScheduler) {
-		return retryWhen(FluxRetryWhen.randomExponentialBackoffFunction(numRetries, firstBackoff, maxBackoff, jitterFactor, backoffScheduler));
+		return retryWhen(Retry
+				.backoff(numRetries, firstBackoff)
+				.maxBackoff(maxBackoff)
+				.jitter(jitterFactor)
+				.scheduler(backoffScheduler));
 	}
 
 	/**
@@ -7539,7 +7837,7 @@ public abstract class Flux<T> implements Publisher<T> {
 			        v = scalarCallable.call();
 		        }
 		        catch (Exception e) {
-			        return Mono.error(e);
+			        return Mono.error(Exceptions.unwrap(e));
 		        }
 		        if (v == null) {
                     return Mono.error(new NoSuchElementException("Source was a (constant) empty"));
@@ -7577,7 +7875,7 @@ public abstract class Flux<T> implements Publisher<T> {
 		            v = scalarCallable.call();
 	            }
 	            catch (Exception e) {
-		            return Mono.error(e);
+		            return Mono.error(Exceptions.unwrap(e));
 	            }
 	            if (v == null) {
 	                return Mono.just(defaultValue);
@@ -7921,7 +8219,7 @@ public abstract class Flux<T> implements Publisher<T> {
 			@Nullable Consumer<? super T> consumer,
 			@Nullable Consumer<? super Throwable> errorConsumer,
 			@Nullable Runnable completeConsumer) {
-		return subscribe(consumer, errorConsumer, completeConsumer, null);
+		return subscribe(consumer, errorConsumer, completeConsumer, (Context) null);
 	}
 
 	/**
@@ -7951,7 +8249,7 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * for the initial {@link Subscription#request(long) request}, or null for max request
 	 *
 	 * @return a new {@link Disposable} that can be used to cancel the underlying {@link Subscription}
-	 */
+	 */ //TODO maybe deprecate in 3.4, provided there is at least an alternative for tests
 	public final Disposable subscribe(
 			@Nullable Consumer<? super T> consumer,
 			@Nullable Consumer<? super Throwable> errorConsumer,
@@ -7959,12 +8257,77 @@ public abstract class Flux<T> implements Publisher<T> {
 			@Nullable Consumer<? super Subscription> subscriptionConsumer) {
 		return subscribeWith(new LambdaSubscriber<>(consumer, errorConsumer,
 				completeConsumer,
-				subscriptionConsumer));
+				subscriptionConsumer,
+				null));
+	}
+
+	/**
+	 * Subscribe {@link Consumer} to this {@link Flux} that will respectively consume all the
+	 * elements in the sequence, handle errors and react to completion. Additionally, a {@link Context}
+	 * is tied to the subscription. At subscription, an unbounded request is implicitly made.
+	 * <p>
+	 * For a passive version that observe and forward incoming data see {@link #doOnNext(java.util.function.Consumer)},
+	 * {@link #doOnError(java.util.function.Consumer)}, {@link #doOnComplete(Runnable)}
+	 * and {@link #doOnSubscribe(Consumer)}.
+	 * <p>For a version that gives you more control over backpressure and the request, see
+	 * {@link #subscribe(Subscriber)} with a {@link BaseSubscriber}.
+	 * <p>
+	 * Keep in mind that since the sequence can be asynchronous, this will immediately
+	 * return control to the calling thread. This can give the impression the consumer is
+	 * not invoked when executing in a main thread or a unit test for instance.
+	 *
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/subscribeForFlux.svg" alt="">
+	 *
+	 * @param consumer the consumer to invoke on each value
+	 * @param errorConsumer the consumer to invoke on error signal
+	 * @param completeConsumer the consumer to invoke on complete signal
+	 * @param initialContext the base {@link Context} tied to the subscription that will
+	 * be visible to operators upstream
+	 *
+	 * @return a new {@link Disposable} that can be used to cancel the underlying {@link Subscription}
+	 */
+	public final Disposable subscribe(
+			@Nullable Consumer<? super T> consumer,
+			@Nullable Consumer<? super Throwable> errorConsumer,
+			@Nullable Runnable completeConsumer,
+			@Nullable Context initialContext) {
+		return subscribeWith(new LambdaSubscriber<>(consumer, errorConsumer,
+				completeConsumer,
+				null,
+				initialContext));
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
 	public final void subscribe(Subscriber<? super T> actual) {
-		onLastAssembly(this).subscribe(Operators.toCoreSubscriber(actual));
+		CorePublisher publisher = Operators.onLastAssembly(this);
+		CoreSubscriber subscriber = Operators.toCoreSubscriber(actual);
+
+		try {
+			if (publisher instanceof OptimizableOperator) {
+				OptimizableOperator operator = (OptimizableOperator) publisher;
+				while (true) {
+					subscriber = operator.subscribeOrReturn(subscriber);
+					if (subscriber == null) {
+						// null means "I will subscribe myself", returning...
+						return;
+					}
+					OptimizableOperator newSource = operator.nextOptimizableSource();
+					if (newSource == null) {
+						publisher = operator.source();
+						break;
+					}
+					operator = newSource;
+				}
+			}
+
+			publisher.subscribe(subscriber);
+		}
+		catch (Throwable e) {
+			Operators.reportThrowInSubscribe(subscriber, e);
+			return;
+		}
 	}
 
 	/**
@@ -8117,7 +8480,7 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * {@link Subscriber} (eg. a {@link FluxProcessor}).
 	 *
 	 * <blockquote><pre>
-	 * {@code flux.subscribeWith(WorkQueueProcessor.create()).subscribe() }
+	 * {@code flux.subscribeWith(EmitterProcessor.create()).subscribe() }
 	 * </pre></blockquote>
 	 *
 	 * If you need more control over backpressure and the request, use a {@link BaseSubscriber}.
@@ -8177,7 +8540,56 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * @return a new {@link Flux} that transform the upstream once a signal is available
 	 */
 	public final <V> Flux<V> switchOnFirst(BiFunction<Signal<? extends T>, Flux<T>, Publisher<? extends V>> transformer) {
-		return onAssembly(new FluxSwitchOnFirst<>(this, transformer));
+		return switchOnFirst(transformer, true);
+	}
+
+	/**
+	 * Transform the current {@link Flux<T>} once it emits its first element, making a
+	 * conditional transformation possible. This operator first requests one element
+	 * from the source then applies a transformation derived from the first {@link Signal}
+	 * and the source. The whole source (including the first signal) is passed as second
+	 * argument to the {@link BiFunction} and it is very strongly advised to always build
+	 * upon with operators (see below).
+	 * <p>
+	 * Note that the source might complete or error immediately instead of emitting,
+	 * in which case the {@link Signal} would be onComplete or onError. It is NOT
+	 * necessarily an onNext Signal, and must be checked accordingly.
+	 * <p>
+	 * For example, this operator could be used to define a dynamic transformation that depends
+	 * on the first element (which could contain routing metadata for instance):
+	 *
+	 * <blockquote><pre>
+	 * {@code
+	 *  fluxOfIntegers.switchOnFirst((signal, flux) -> {
+	 *      if (signal.hasValue()) {
+	 *          ColoredShape firstColor = signal.get();
+	 *          return flux.filter(v -> !v.hasSameColorAs(firstColor))
+	 *      }
+	 *      return flux; //either early complete or error, this forwards the termination in any case
+	 *      //`return flux.onErrorResume(t -> Mono.empty());` instead would suppress an early error
+	 *      //`return Flux.just(1,2,3);` instead would suppress an early error and return 1, 2, 3.
+	 *      //It would also only cancel the original `flux` at the completion of `just`.
+	 *  })
+	 * }
+	 * </pre></blockquote>
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/switchOnFirst.svg" alt="">
+	 * <p>
+	 * It is advised to return a {@link Publisher} derived from the original {@link Flux}
+	 * in all cases, as not doing so would keep the original {@link Publisher} open and
+	 * hanging with a single request. In case the value of the {@code cancelSourceOnComplete} parameter is {@code true} the original publisher until the inner {@link Publisher} terminates or
+	 * the whole {@link Flux} is cancelled. Otherwise the original publisher will hang forever.
+	 *
+	 * @param transformer A {@link BiFunction} executed once the first signal is
+	 * available and used to transform the source conditionally. The whole source (including
+	 * first signal) is passed as second argument to the BiFunction.
+	 * @param <V> the item type in the returned {@link Flux}
+	 * @param cancelSourceOnComplete specify whether original publisher should be cancelled on {@code onComplete} from the derived one
+	 *
+	 * @return a new {@link Flux} that transform the upstream once a signal is available
+	 */
+	public final <V> Flux<V> switchOnFirst(BiFunction<Signal<? extends T>, Flux<T>, Publisher<? extends V>> transformer, boolean cancelSourceOnComplete) {
+		return onAssembly(new FluxSwitchOnFirst<>(this, transformer, cancelSourceOnComplete));
 	}
 
 	/**
@@ -8754,10 +9166,10 @@ public abstract class Flux<T> implements Publisher<T> {
 	}
 
 	/**
-	 * Transform this {@link Flux} in order to generate a target {@link Flux}. Unlike {@link #compose(Function)}, the
+	 * Transform this {@link Flux} in order to generate a target {@link Flux}. Unlike {@link #transformDeferred(Function)}, the
 	 * provided function is executed as part of assembly.
 	 * <blockquote><pre>
-	 * Function<Flux, Flux> applySchedulers = flux -> flux.subscribeOn(Schedulers.elastic())
+	 * Function<Flux, Flux> applySchedulers = flux -> flux.subscribeOn(Schedulers.boundedElastic())
 	 *                                                    .publishOn(Schedulers.parallel());
 	 * flux.transform(applySchedulers).map(v -> v * v).subscribe();
 	 * </pre></blockquote>
@@ -8769,11 +9181,42 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * @param <V> the item type in the returned {@link Flux}
 	 *
 	 * @return a new {@link Flux}
-	 * @see #compose(Function) for deferred composition of {@link Flux} for each {@link Subscriber}
+	 * @see #transformDeferred(Function) for deferred composition of {@link Flux} for each {@link Subscriber}
 	 * @see #as for a loose conversion to an arbitrary type
 	 */
+	@SuppressWarnings({"unchecked", "rawtypes"})
 	public final <V> Flux<V> transform(Function<? super Flux<T>, ? extends Publisher<V>> transformer) {
+		if (Hooks.DETECT_CONTEXT_LOSS) {
+			transformer = new ContextTrackingFunctionWrapper(transformer);
+		}
 		return onAssembly(from(transformer.apply(this)));
+	}
+
+	/**
+	 * Defer the transformation of this {@link Flux} in order to generate a target {@link Flux} type.
+	 * A transformation will occur for each {@link Subscriber}. For instance:
+	 * <blockquote><pre>
+	 * flux.transformDeferred(original -> original.log());
+	 * </pre></blockquote>
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/transformDeferredForFlux.svg" alt="">
+	 *
+	 * @param transformer the {@link Function} to lazily map this {@link Flux} into a target {@link Publisher}
+	 * instance for each new subscriber
+	 * @param <V> the item type in the returned {@link Publisher}
+	 *
+	 * @return a new {@link Flux}
+	 * @see #transform(Function) transform() for immmediate transformation of {@link Flux}
+	 * @see #as as() for a loose conversion to an arbitrary type
+	 */
+	@SuppressWarnings({"rawtypes", "unchecked"})
+	public final <V> Flux<V> transformDeferred(Function<? super Flux<T>, ? extends Publisher<V>> transformer) {
+		return defer(() -> {
+			if (Hooks.DETECT_CONTEXT_LOSS) {
+				return new ContextTrackingFunctionWrapper<T, V>((Function) transformer).apply(this);
+			}
+			return transformer.apply(this);
+		});
 	}
 
 	/**
@@ -9094,6 +9537,65 @@ public abstract class Flux<T> implements Publisher<T> {
 	}
 
 	/**
+	 * Collect subsequent repetitions of an element (that is, if they arrive right after
+	 * one another) into multiple {@link Flux} windows.
+	 *
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/windowUntilChanged.svg" alt="">
+	 * <p>
+	 *
+	 * @reactor.discard This operator discards elements it internally queued for backpressure
+	 * upon cancellation or error triggered by a data signal.
+	 *
+	 * @return a microbatched {@link Flux} of {@link Flux} windows.
+	 */
+	public final <V> Flux<Flux<T>> windowUntilChanged() {
+		return windowUntilChanged(identityFunction());
+	}
+
+	/**
+	 * Collect subsequent repetitions of an element (that is, if they arrive right after
+	 * one another), as compared by a key extracted through the user provided {@link
+	 * Function}, into multiple {@link Flux} windows.
+	 *
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/windowUntilChangedWithKeySelector.svg" alt="">
+	 * <p>
+	 *
+	 * @reactor.discard This operator discards elements it internally queued for backpressure
+	 * upon cancellation or error triggered by a data signal.
+	 *
+	 * @param keySelector function to compute comparison key for each element
+	 * @return a microbatched {@link Flux} of {@link Flux} windows.
+	 */
+	public final <V> Flux<Flux<T>> windowUntilChanged(Function<? super T, ? super V> keySelector) {
+		return windowUntilChanged(keySelector, equalPredicate());
+	}
+
+	/**
+	 * Collect subsequent repetitions of an element (that is, if they arrive right after
+	 * one another), as compared by a key extracted through the user provided {@link
+	 * Function} and compared using a supplied {@link BiPredicate}, into multiple
+	 * {@link Flux} windows.
+	 *
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/windowUntilChangedWithKeySelector.svg" alt="">
+	 * <p>
+	 *
+	 * @reactor.discard This operator discards elements it internally queued for backpressure
+	 * upon cancellation or error triggered by a data signal.
+	 *
+	 * @param keySelector function to compute comparison key for each element
+	 * @param keyComparator predicate used to compare keys
+	 * @return a microbatched {@link Flux} of {@link Flux} windows.
+	 */
+	public final <V> Flux<Flux<T>> windowUntilChanged(Function<? super T, ? extends V> keySelector,
+			BiPredicate<? super V, ? super V> keyComparator) {
+		return Flux.defer(() -> windowUntil(new FluxBufferPredicate.ChangedPredicate<T, V>
+				(keySelector, keyComparator), true));
+	}
+
+	/**
 	 * Split this {@link Flux} sequence into multiple {@link Flux} windows that stay open
 	 * while a given predicate matches the source elements. Once the predicate returns
 	 * false, the window closes with an onComplete and the triggering element is discarded.
@@ -9381,8 +9883,10 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * @param source the source to apply assembly hooks onto
 	 *
 	 * @return the source, potentially wrapped with assembly time cross-cutting behavior
+	 * @deprecated use {@link Operators#onLastAssembly(CorePublisher)}
 	 */
 	@SuppressWarnings("unchecked")
+	@Deprecated
 	protected static <T> Flux<T> onLastAssembly(Flux<T> source) {
 		Function<Publisher, Publisher> hook = Hooks.onLastOperatorHook;
 		if(hook == null) {
@@ -9488,7 +9992,7 @@ public abstract class Flux<T> implements Publisher<T> {
 				v = scalarCallable.call();
 			}
 			catch (Exception e) {
-				return new MonoError<>(e);
+				return new MonoError<>(Exceptions.unwrap(e));
 			}
 			if (v == null) {
 				return MonoEmpty.instance();
@@ -9622,7 +10126,7 @@ public abstract class Flux<T> implements Publisher<T> {
 				return FluxEmpty.instance();
 			}
 			catch (Exception e) {
-				return new FluxError<>(e);
+				return new FluxError<>(Exceptions.unwrap(e));
 			}
 		}
 

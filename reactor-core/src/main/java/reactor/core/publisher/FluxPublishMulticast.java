@@ -43,7 +43,7 @@ import reactor.util.context.Context;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxPublishMulticast<T, R> extends FluxOperator<T, R> implements Fuseable {
+final class FluxPublishMulticast<T, R> extends InternalFluxOperator<T, R> implements Fuseable {
 
 	final Function<? super Flux<T>, ? extends Publisher<? extends R>> transform;
 
@@ -70,23 +70,13 @@ final class FluxPublishMulticast<T, R> extends FluxOperator<T, R> implements Fus
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super R> actual) {
-
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super R> actual) {
 		FluxPublishMulticaster<T> multicast = new FluxPublishMulticaster<>(prefetch,
 				queueSupplier,
 				actual.currentContext());
 
-		Publisher<? extends R> out;
-
-		try {
-			out = Objects.requireNonNull(transform.apply(multicast),
-					"The transform returned a null Publisher");
-		}
-		catch (Throwable ex) {
-			Operators.error(actual,
-					Operators.onOperatorError(ex, actual.currentContext()));
-			return;
-		}
+		Publisher<? extends R> out = Objects.requireNonNull(transform.apply(multicast),
+				"The transform returned a null Publisher");
 
 		if (out instanceof Fuseable) {
 			out.subscribe(new CancelFuseableMulticaster<>(actual, multicast));
@@ -95,7 +85,7 @@ final class FluxPublishMulticast<T, R> extends FluxOperator<T, R> implements Fus
 			out.subscribe(new CancelMulticaster<>(actual, multicast));
 		}
 
-		source.subscribe(multicast);
+		return multicast;
 	}
 
 	static final class FluxPublishMulticaster<T> extends Flux<T>
