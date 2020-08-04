@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,152 +22,115 @@ import java.util.List;
 
 import org.junit.Assert;
 import org.junit.Test;
-import org.reactivestreams.Publisher;
 import reactor.test.StepVerifier;
 import reactor.test.subscriber.AssertSubscriber;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class FluxWindowStartEndTest {
-
-	static <T> AssertSubscriber<T> toList(Publisher<T> windows) {
-		AssertSubscriber<T> ts = AssertSubscriber.create();
-		windows.subscribe(ts);
-		return ts;
-	}
-
-	@SafeVarargs
-	static <T> void expect(AssertSubscriber<Flux<T>> ts, int index, T... values) {
-		toList(ts.values()
-		         .get(index)).assertValues(values)
-		                     .assertComplete()
-		                     .assertNoError();
-	}
+public class FluxBufferWhenTest {
 
 	@Test
 	public void normal() {
-		AssertSubscriber<Flux<Integer>> ts = AssertSubscriber.create();
+		AssertSubscriber<List<Integer>> ts = AssertSubscriber.create();
 
 		DirectProcessor<Integer> sp1 = DirectProcessor.create();
 		DirectProcessor<Integer> sp2 = DirectProcessor.create();
 		DirectProcessor<Integer> sp3 = DirectProcessor.create();
 		DirectProcessor<Integer> sp4 = DirectProcessor.create();
 
-		sp1.window(sp2, v -> v == 1 ? sp3 : sp4)
+		sp1.bufferWhen(sp2, v -> v == 1 ? sp3 : sp4)
 		   .subscribe(ts);
 
-		sp1.onNext(1);
-
-		sp2.onNext(1);
-
-		sp1.onNext(2);
-
-		sp2.onNext(2);
-
-		sp1.onNext(3);
-
-		sp3.onNext(1);
-
-		sp1.onNext(4);
-
-		sp4.onNext(1);
-
-		sp1.onComplete();
-
-		ts.assertValueCount(2)
+		ts.assertNoValues()
 		  .assertNoError()
-		  .assertComplete();
-
-		expect(ts, 0, 2, 3);
-		expect(ts, 1, 3, 4);
-
-		Assert.assertFalse("sp1 has subscribers?", sp1.hasDownstreams());
-		Assert.assertFalse("sp2 has subscribers?", sp2.hasDownstreams());
-		Assert.assertFalse("sp3 has subscribers?", sp3.hasDownstreams());
-		Assert.assertFalse("sp4 has subscribers?", sp4.hasDownstreams());
-	}
-
-	@Test
-	public void normalStarterEnds() {
-		AssertSubscriber<Flux<Integer>> ts = AssertSubscriber.create();
-
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
-		DirectProcessor<Integer> sp2 = DirectProcessor.create();
-		DirectProcessor<Integer> sp3 = DirectProcessor.create();
-		DirectProcessor<Integer> sp4 = DirectProcessor.create();
-
-		sp1.window(sp2, v -> v == 1 ? sp3 : sp4)
-		   .subscribe(ts);
+		  .assertNotComplete();
 
 		sp1.onNext(1);
 
-		sp2.onNext(1);
-
-		sp1.onNext(2);
-
-		sp2.onNext(2);
-
-		sp1.onNext(3);
-
-		sp3.onNext(1);
-
-		sp1.onNext(4);
-
-		sp4.onNext(1);
-
-		sp2.onComplete();
-
-		ts.assertValueCount(2)
+		ts.assertNoValues()
 		  .assertNoError()
-		  .assertComplete();
-
-		expect(ts, 0, 2, 3);
-		expect(ts, 1, 3, 4);
-
-		Assert.assertFalse("sp1 has subscribers?", sp1.hasDownstreams());
-		Assert.assertFalse("sp2 has subscribers?", sp2.hasDownstreams());
-		Assert.assertFalse("sp3 has subscribers?", sp3.hasDownstreams());
-		Assert.assertFalse("sp4 has subscribers?", sp4.hasDownstreams());
-	}
-
-	@Test
-	public void oneWindowOnly() {
-		AssertSubscriber<Flux<Integer>> ts = AssertSubscriber.create();
-
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
-		DirectProcessor<Integer> sp2 = DirectProcessor.create();
-		DirectProcessor<Integer> sp3 = DirectProcessor.create();
-		DirectProcessor<Integer> sp4 = DirectProcessor.create();
-
-		sp1.window(sp2, v -> v == 1 ? sp3 : sp4)
-		   .subscribe(ts);
+		  .assertNotComplete();
 
 		sp2.onNext(1);
-		sp2.onComplete();
 
-		sp1.onNext(1);
+		Assert.assertTrue("sp3 has no subscribers?", sp3.hasDownstreams());
+
 		sp1.onNext(2);
 		sp1.onNext(3);
+		sp1.onNext(4);
 
 		sp3.onComplete();
 
-		sp1.onNext(4);
+		ts.assertValues(Arrays.asList(2, 3, 4))
+		  .assertNoError()
+		  .assertNotComplete();
 
-		ts.assertValueCount(1)
+		sp1.onNext(5);
+
+		sp2.onNext(2);
+
+		Assert.assertTrue("sp4 has no subscribers?", sp4.hasDownstreams());
+
+		sp1.onNext(6);
+
+		sp4.onComplete();
+
+		ts.assertValues(Arrays.asList(2, 3, 4), Arrays.asList(6))
+		  .assertNoError()
+		  .assertNotComplete();
+
+		sp1.onComplete();
+
+		ts.assertValues(Arrays.asList(2, 3, 4), Arrays.asList(6))
 		  .assertNoError()
 		  .assertComplete();
+	}
 
-		expect(ts, 0, 1, 2, 3);
+	@Test
+	public void startCompletes() {
+		AssertSubscriber<List<Integer>> ts = AssertSubscriber.create();
+
+		DirectProcessor<Integer> sp1 = DirectProcessor.create();
+		DirectProcessor<Integer> sp2 = DirectProcessor.create();
+		DirectProcessor<Integer> sp3 = DirectProcessor.create();
+
+		sp1.bufferWhen(sp2, v -> sp3)
+		   .subscribe(ts);
+
+		ts.assertNoValues()
+		  .assertNoError()
+		  .assertNotComplete();
+
+		sp1.onNext(1);
+
+		ts.assertNoValues()
+		  .assertNoError()
+		  .assertNotComplete();
+
+		sp2.onNext(1);
+		sp2.onComplete();
+
+		Assert.assertTrue("sp3 has no subscribers?", sp3.hasDownstreams());
+
+		sp1.onNext(2);
+		sp1.onNext(3);
+		sp1.onNext(4);
+
+		sp3.onComplete();
+
+		ts.assertValues(Arrays.asList(2, 3, 4))
+		  .assertNoError()
+		  .assertComplete();
 
 		Assert.assertFalse("sp1 has subscribers?", sp1.hasDownstreams());
 		Assert.assertFalse("sp2 has subscribers?", sp2.hasDownstreams());
 		Assert.assertFalse("sp3 has subscribers?", sp3.hasDownstreams());
-		Assert.assertFalse("sp4 has subscribers?", sp4.hasDownstreams());
+
 	}
 
 
 	@Test
-	public void windowWillAcumulateMultipleListsOfValuesOverlap() {
+	public void bufferWillAcumulateMultipleListsOfValuesOverlap() {
 		//given: "a source and a collected flux"
 		EmitterProcessor<Integer> numbers = EmitterProcessor.create();
 		EmitterProcessor<Integer> bucketOpening = EmitterProcessor.create();
@@ -175,8 +138,7 @@ public class FluxWindowStartEndTest {
 		//"overlapping buffers"
 		EmitterProcessor<Integer> boundaryFlux = EmitterProcessor.create();
 
-		Mono<List<List<Integer>>> res = numbers.window(bucketOpening, u -> boundaryFlux )
-		                                       .flatMap(Flux::buffer)
+		Mono<List<List<Integer>>> res = numbers.bufferWhen(bucketOpening, u -> boundaryFlux )
 		                                       .buffer()
 		                                       .publishNext()
 		                                       .subscribe();
@@ -193,23 +155,20 @@ public class FluxWindowStartEndTest {
 		numbers.onComplete();
 
 		//"the collected overlapping lists are available"
-		assertThat(res.block()).containsExactly(
-				Arrays.asList(3, 5),
-				Arrays.asList(5));
+		assertThat(res.block()).containsExactly(Arrays.asList(3, 5),
+				Arrays.asList(5),
+				Arrays.asList());
 	}
 
-
-
-	Flux<List<Integer>> scenario_windowWillSubdivideAnInputFluxOverlapTime() {
+	Flux<List<Integer>> scenario_bufferWillSubdivideAnInputFluxOverlapTime() {
 		return Flux.just(1, 2, 3, 4, 5, 6, 7, 8)
 		           .delayElements(Duration.ofMillis(99))
-		           .window(Duration.ofMillis(300), Duration.ofMillis(200))
-		           .concatMap(Flux::buffer);
+		           .buffer(Duration.ofMillis(300), Duration.ofMillis(200));
 	}
 
 	@Test
-	public void windowWillSubdivideAnInputFluxOverlapTime() {
-		StepVerifier.withVirtualTime(this::scenario_windowWillSubdivideAnInputFluxOverlapTime)
+	public void bufferWillSubdivideAnInputFluxOverlapTime() {
+		StepVerifier.withVirtualTime(this::scenario_bufferWillSubdivideAnInputFluxOverlapTime)
 		            .thenAwait(Duration.ofSeconds(10))
 		            .assertNext(t -> assertThat(t).containsExactly(1, 2, 3))
 		            .assertNext(t -> assertThat(t).containsExactly(3, 4, 5))
@@ -218,17 +177,32 @@ public class FluxWindowStartEndTest {
 		            .verifyComplete();
 	}
 
-
-	Flux<List<Integer>> scenario_windowWillSubdivideAnInputFluxSameTime() {
+	Flux<List<Integer>> scenario_bufferWillSubdivideAnInputFluxOverlapTime2() {
 		return Flux.just(1, 2, 3, 4, 5, 6, 7, 8)
 		           .delayElements(Duration.ofMillis(99))
-		           .window(Duration.ofMillis(300), Duration.ofMillis(300))
-		           .concatMap(Flux::buffer);
+		           .buffer(Duration.ofMillis(300L), Duration.ofMillis(200L));
 	}
 
 	@Test
-	public void windowWillSubdivideAnInputFluxSameTime() {
-		StepVerifier.withVirtualTime(this::scenario_windowWillSubdivideAnInputFluxSameTime)
+	public void bufferWillSubdivideAnInputFluxOverlapTime2() {
+		StepVerifier.withVirtualTime(this::scenario_bufferWillSubdivideAnInputFluxOverlapTime2)
+		            .thenAwait(Duration.ofSeconds(10))
+		            .assertNext(t -> assertThat(t).containsExactly(1, 2, 3))
+		            .assertNext(t -> assertThat(t).containsExactly(3, 4, 5))
+		            .assertNext(t -> assertThat(t).containsExactly(5, 6, 7))
+		            .assertNext(t -> assertThat(t).containsExactly(7, 8))
+		            .verifyComplete();
+	}
+
+	Flux<List<Integer>> scenario_bufferWillSubdivideAnInputFluxSameTime() {
+		return Flux.just(1, 2, 3, 4, 5, 6, 7, 8)
+		           .delayElements(Duration.ofMillis(99))
+		           .buffer(Duration.ofMillis(300L), Duration.ofMillis(300L));
+	}
+
+	@Test
+	public void bufferWillSubdivideAnInputFluxSameTime() {
+		StepVerifier.withVirtualTime(this::scenario_bufferWillSubdivideAnInputFluxSameTime)
 		            .thenAwait(Duration.ofSeconds(10))
 		            .assertNext(t -> assertThat(t).containsExactly(1, 2, 3))
 		            .assertNext(t -> assertThat(t).containsExactly(4, 5, 6))
@@ -236,16 +210,15 @@ public class FluxWindowStartEndTest {
 		            .verifyComplete();
 	}
 
-	Flux<List<Integer>> scenario_windowWillSubdivideAnInputFluxGapTime() {
+	Flux<List<Integer>> scenario_bufferWillSubdivideAnInputFluxGapTime() {
 		return Flux.just(1, 2, 3, 4, 5, 6, 7, 8)
 		           .delayElements(Duration.ofMillis(99))
-		           .window(Duration.ofMillis(200), Duration.ofMillis(300))
-		           .concatMap(Flux::buffer);
+		           .buffer(Duration.ofMillis(200), Duration.ofMillis(300));
 	}
 
 	@Test
-	public void windowWillSubdivideAnInputFluxGapTime() {
-		StepVerifier.withVirtualTime(this::scenario_windowWillSubdivideAnInputFluxGapTime)
+	public void bufferWillSubdivideAnInputFluxGapTime() {
+		StepVerifier.withVirtualTime(this::scenario_bufferWillSubdivideAnInputFluxGapTime)
 		            .thenAwait(Duration.ofSeconds(10))
 		            .assertNext(t -> assertThat(t).containsExactly(1, 2))
 		            .assertNext(t -> assertThat(t).containsExactly(4, 5))

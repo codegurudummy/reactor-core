@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -62,6 +62,7 @@ import reactor.util.function.Tuple3;
 import reactor.util.function.Tuple4;
 import reactor.util.function.Tuple5;
 import reactor.util.function.Tuple6;
+import reactor.util.function.Tuple8;
 import reactor.util.function.Tuples;
 
 /**
@@ -2199,10 +2200,12 @@ public abstract class Flux<T> implements Publisher<T> {
 	 *
 	 * @return a microbatched {@link Flux} of {@link List} delimited by an opening {@link Publisher} and a relative
 	 * closing {@link Publisher}
+	 * @deprecated will be removed in 3.1.0. Use {@link #bufferWhen(Publisher, Function)} instead.
 	 */
+	@Deprecated
 	public final <U, V> Flux<List<T>> buffer(Publisher<U> bucketOpening,
 			Function<? super U, ? extends Publisher<V>> closeSelector) {
-		return buffer(bucketOpening, closeSelector, listSupplier());
+		return bufferWhen(bucketOpening, closeSelector, listSupplier());
 	}
 
 	/**
@@ -2235,13 +2238,12 @@ public abstract class Flux<T> implements Publisher<T> {
 	 *
 	 * @return a microbatched {@link Flux} of {@link Collection} delimited by an opening {@link Publisher} and a relative
 	 * closing {@link Publisher}
+	 * @deprecated will be removed in 3.1.0. Use {@link #bufferWhen(Publisher, Function, Supplier)} instead.
 	 */
-	public final <U, V, C extends Collection<? super T>> Flux<C> buffer(Publisher<U>
-			bucketOpening,
-			Function<? super U, ? extends Publisher<V>> closeSelector,
-			Supplier<C> bufferSupplier) {
-		return onAssembly(new FluxBufferStartEnd<>(this, bucketOpening, closeSelector,
-				bufferSupplier, QueueSupplier.unbounded(QueueSupplier.XS_BUFFER_SIZE)));
+	@Deprecated
+	public final <U, V, C extends Collection<? super T>> Flux<C> buffer(Publisher<U> bucketOpening,
+			Function<? super U, ? extends Publisher<V>> closeSelector, Supplier<C> bufferSupplier) {
+		return bufferWhen(bucketOpening, closeSelector, bufferSupplier);
 	}
 
 	/**
@@ -2334,7 +2336,7 @@ public abstract class Flux<T> implements Publisher<T> {
 		if (timespan.equals(timeshift)) {
 			return buffer(timespan, timer);
 		}
-		return buffer(interval(Duration.ZERO, timeshift, timer), aLong -> Mono
+		return bufferWhen(interval(Duration.ZERO, timeshift, timer), aLong -> Mono
 				.delay(timespan, timer));
 	}
 
@@ -2731,6 +2733,77 @@ public abstract class Flux<T> implements Publisher<T> {
 	public final Flux<List<T>> bufferWhile(Predicate<? super T> predicate) {
 		return onAssembly(new FluxBufferPredicate<>(this, predicate,
 				listSupplier(), FluxBufferPredicate.Mode.WHILE));
+	}
+
+	/**
+	 * Collect incoming values into multiple {@link List} buffers started each time an opening
+	 * companion {@link Publisher} emits. Each buffer will last until the corresponding
+	 * closing companion {@link Publisher} emits, thus releasing the buffer to the resulting {@link Flux}.
+	 * <p>
+	 * When Open signal is strictly not overlapping Close signal : dropping buffers
+	 * <p>
+	 * <img class="marble" src="https://raw.githubusercontent.com/reactor/reactor-core/v3.0.6.RELEASE/src/docs/marble/bufferopenclose.png"
+	 * alt="">
+	 * <p>
+	 * When Open signal is strictly more frequent than Close signal : overlapping buffers
+	 * <p>
+	 * <img class="marble" src="https://raw.githubusercontent.com/reactor/reactor-core/v3.0.6.RELEASE/src/docs/marble/bufferopencloseover.png"
+	 * alt="">
+	 * <p>
+	 * When Open signal is exactly coordinated with Close signal : exact buffers
+	 * <p>
+	 * <img class="marble" src="https://raw.githubusercontent.com/reactor/reactor-core/v3.0.6.RELEASE/src/docs/marble/bufferboundary.png"
+	 * alt="">
+	 *
+	 * @param bucketOpening a companion {@link Publisher} to subscribe for buffer creation signals.
+	 * @param closeSelector a factory that, given a buffer opening signal, returns a companion
+	 * {@link Publisher} to subscribe to for buffer closure and emission signals.
+	 * @param <U> the element type of the buffer-opening sequence
+	 * @param <V> the element type of the buffer-closing sequence
+	 *
+	 * @return a microbatched {@link Flux} of {@link List} delimited by an opening {@link Publisher} and a relative
+	 * closing {@link Publisher}
+	 */
+	public final <U, V> Flux<List<T>> bufferWhen(Publisher<U> bucketOpening,
+			Function<? super U, ? extends Publisher<V>> closeSelector) {
+		return bufferWhen(bucketOpening, closeSelector, listSupplier());
+	}
+
+	/**
+	 * Collect incoming values into multiple user-defined {@link Collection} buffers started each time an opening
+	 * companion {@link Publisher} emits. Each buffer will last until the corresponding
+	 * closing companion {@link Publisher} emits, thus releasing the buffer to the resulting {@link Flux}.
+	 * <p>
+	 * When Open signal is strictly not overlapping Close signal : dropping buffers
+	 * <p>
+	 * <img class="marble" src="https://raw.githubusercontent.com/reactor/reactor-core/v3.0.6.RELEASE/src/docs/marble/bufferopenclose.png"
+	 * alt="">
+	 * <p>
+	 * When Open signal is strictly more frequent than Close signal : overlapping buffers
+	 * <p>
+	 * <img class="marble" src="https://raw.githubusercontent.com/reactor/reactor-core/v3.0.6.RELEASE/src/docs/marble/bufferopencloseover.png"
+	 * alt="">
+	 * <p>
+	 * When Open signal is exactly coordinated with Close signal : exact buffers
+	 * <p>
+	 * <img class="marble" src="https://raw.githubusercontent.com/reactor/reactor-core/v3.0.6.RELEASE/src/docs/marble/bufferboundary.png"
+	 * alt="">
+	 *
+	 * @param bucketOpening a companion {@link Publisher} to subscribe for buffer creation signals.
+	 * @param closeSelector a factory that, given a buffer opening signal, returns a companion
+	 * {@link Publisher} to subscribe to for buffer closure and emission signals.
+	 * @param bufferSupplier a {@link Supplier} of the concrete {@link Collection} to use for each buffer
+	 * @param <U> the element type of the buffer-opening sequence
+	 * @param <V> the element type of the buffer-closing sequence
+	 * @param <C> the {@link Collection} buffer type
+	 *
+	 * @return a microbatched {@link Flux} of {@link Collection} delimited by an opening {@link Publisher} and a relative
+	 * closing {@link Publisher}
+	 */
+	public final <U, V, C extends Collection<? super T>> Flux<C> bufferWhen(Publisher<U> bucketOpening,
+			Function<? super U, ? extends Publisher<V>> closeSelector, Supplier<C> bufferSupplier) {
+		return onAssembly(new FluxBufferWhen<>(this, bucketOpening, closeSelector,
+				bufferSupplier, QueueSupplier.unbounded(QueueSupplier.XS_BUFFER_SIZE)));
 	}
 
 	/**
@@ -6950,6 +7023,26 @@ public abstract class Flux<T> implements Publisher<T> {
 	}
 
 	/**
+	 * Return a {@link Flux} that emits the completion signal of the supplied
+	 * {@link Publisher} when this {@link Flux} onComplete or onError. If an error occur,
+	 * the error signal is replayed after the supplied {@link Publisher} is terminated.
+	 * <p>
+	 * <img class="marble" src="https://raw.githubusercontent.com/reactor/reactor-core/v3.0.6.RELEASE/src/docs/marble/ignorethen.png" alt="">
+	 *
+	 * @param afterSupplier a {@link Supplier} of {@link Publisher} to wait for after
+	 * this Flux termination
+	 *
+	 * @return a new {@link Flux} emitting eventually from the supplied {@link Publisher}
+	 * @deprecated removed in 3.1, use {@link #thenEmpty(Publisher)} with
+	 * {@link #defer}. The competing overload was causing confusion and the generic was
+	 * not symmetric with {@link Mono#then(Mono)}.
+	 */
+	@Deprecated
+	public final Mono<Void> then(Supplier<? extends Publisher<Void>> afterSupplier) {
+		return thenEmpty(defer(afterSupplier));
+	}
+
+	/**
 	 * Return a {@code Mono<Void>} that waits for this {@link Flux} to complete then
 	 * for a supplied {@link Publisher Publisher&lt;Void&gt;} to also complete. The
 	 * second completion signal is replayed, or any error signal that occurs instead.
@@ -6963,22 +7056,6 @@ public abstract class Flux<T> implements Publisher<T> {
 	 */
 	public final Mono<Void> thenEmpty(Publisher<Void> other) {
 		return new MonoIgnoreEmpty<>(this).then(MonoSource.wrap(other));
-	}
-
-	/**
-	 * Return a {@link Flux} that emits the completion signal of the supplied
-	 * {@link Publisher} when this {@link Flux} onComplete or onError. If an error occur,
-	 * the error signal is replayed after the supplied {@link Publisher} is terminated.
-	 * <p>
-	 * <img class="marble" src="https://raw.githubusercontent.com/reactor/reactor-core/v3.0.6.RELEASE/src/docs/marble/ignorethen.png" alt="">
-	 *
-	 * @param afterSupplier a {@link Supplier} of {@link Publisher} to wait for after
-	 * this Flux termination
-	 *
-	 * @return a new {@link Flux} emitting eventually from the supplied {@link Publisher}
-	 */
-	public final Mono<Void> then(Supplier<? extends Publisher<Void>> afterSupplier) {
-		return thenEmpty(defer(afterSupplier));
 	}
 
 	/**
@@ -7016,7 +7093,11 @@ public abstract class Flux<T> implements Publisher<T> {
 	 * @param <V> the supplied produced type
 	 *
 	 * @return a new {@link Flux} emitting eventually from the supplied {@link Publisher}
+	 * @deprecated removed in 3.1, use {@link #thenMany(Publisher)} with
+	 * {@link #defer}. The competing overload was called unnecessary by extended
+	 * feedback and aligns with removing of Supplier of Publisher aliases elsewhere.
 	 */
+	@Deprecated
 	public final <V> Flux<V> thenMany(Supplier<? extends Publisher<V>> afterSupplier) {
 		return thenMany(defer(afterSupplier));
 	}
@@ -7496,14 +7577,12 @@ public abstract class Flux<T> implements Publisher<T> {
 	 *
 	 * @return a windowing {@link Flux} delimiting its sub-sequences by a given {@link Publisher} and lasting until
 	 * a selected {@link Publisher} emits
+	 * @deprecated will be removed in 3.1.0. Use {@link #windowWhen(Publisher, Function)} instead.
 	 */
+	@Deprecated
 	public final <U, V> Flux<Flux<T>> window(Publisher<U> bucketOpening,
 			final Function<? super U, ? extends Publisher<V>> closeSelector) {
-		return onAssembly(new FluxWindowStartEnd<>(this,
-				bucketOpening,
-				closeSelector,
-				QueueSupplier.unbounded(QueueSupplier.XS_BUFFER_SIZE),
-				QueueSupplier.unbounded(QueueSupplier.XS_BUFFER_SIZE)));
+		return windowWhen(bucketOpening, closeSelector);
 	}
 
 	/**
@@ -7593,7 +7672,7 @@ public abstract class Flux<T> implements Publisher<T> {
 		if (timeshift.equals(timespan)) {
 			return window(timespan);
 		}
-		return window(interval(Duration.ZERO, timeshift, timer), aLong -> Mono.delay(timespan, timer));
+		return windowWhen(interval(Duration.ZERO, timeshift, timer), aLong -> Mono.delay(timespan, timer));
 	}
 
 	/**
@@ -7909,6 +7988,42 @@ public abstract class Flux<T> implements Publisher<T> {
 				prefetch,
 				inclusionPredicate,
 				FluxBufferPredicate.Mode.WHILE));
+	}
+
+	/**
+	 * Split this {@link Flux} sequence into potentially overlapping windows controlled by items of a
+	 * start {@link Publisher} and end {@link Publisher} derived from the start values.
+	 *
+	 * <p>
+	 * When Open signal is strictly not overlapping Close signal : dropping windows
+	 * <p>
+	 * <img class="marble" src="https://raw.githubusercontent.com/reactor/reactor-core/v3.0.6.RELEASE/src/docs/marble/windowopenclose.png" alt="">
+	 * <p>
+	 * When Open signal is strictly more frequent than Close signal : overlapping windows
+	 * <p>
+	 * <img class="marble" src="https://raw.githubusercontent.com/reactor/reactor-core/v3.0.6.RELEASE/src/docs/marble/windowopencloseover.png" alt="">
+	 * <p>
+	 * When Open signal is exactly coordinated with Close signal : exact windows
+	 * <p>
+	 * <img class="marble" src="https://raw.githubusercontent.com/reactor/reactor-core/v3.0.6.RELEASE/src/docs/marble/windowboundary.png" alt="">
+	 *
+	 * @param bucketOpening a {@link Publisher} to emit any item for a split signal and complete to terminate
+	 * @param closeSelector a {@link Function} given an opening signal and returning a {@link Publisher} that
+	 * emits to complete the window
+	 *
+	 * @param <U> the type of the sequence opening windows
+	 * @param <V> the type of the sequence closing windows opened by the bucketOpening Publisher's elements
+	 *
+	 * @return a windowing {@link Flux} delimiting its sub-sequences by a given {@link Publisher} and lasting until
+	 * a selected {@link Publisher} emits
+	 */
+	public final <U, V> Flux<Flux<T>> windowWhen(Publisher<U> bucketOpening,
+			final Function<? super U, ? extends Publisher<V>> closeSelector) {
+		return onAssembly(new FluxWindowWhen<>(this,
+				bucketOpening,
+				closeSelector,
+				QueueSupplier.unbounded(QueueSupplier.XS_BUFFER_SIZE),
+				QueueSupplier.unbounded(QueueSupplier.XS_BUFFER_SIZE)));
 	}
 
 	/**
