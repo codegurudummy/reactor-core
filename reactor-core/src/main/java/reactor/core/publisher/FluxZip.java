@@ -132,11 +132,17 @@ final class FluxZip<T, R> extends Flux<R> implements SourceProducer<R> {
 	@Override
 	public void subscribe(CoreSubscriber<? super R> actual) {
 		Publisher<? extends T>[] srcs = sources;
-		if (srcs != null) {
-			handleArrayMode(actual, srcs);
+		try {
+			if (srcs != null) {
+				handleArrayMode(actual, srcs);
+			}
+			else {
+				handleIterableMode(actual, sourcesIterable);
+			}
 		}
-		else {
-			handleIterableMode(actual, sourcesIterable);
+		catch (Throwable e) {
+			Operators.reportThrowInSubscribe(actual, e);
+			return;
 		}
 	}
 
@@ -330,6 +336,7 @@ final class FluxZip<T, R> extends Flux<R> implements SourceProducer<R> {
 	@Override
 	public Object scanUnsafe(Attr key) {
 		if (key == Attr.PREFETCH) return prefetch;
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 		return null;
 	}
 
@@ -372,7 +379,12 @@ final class FluxZip<T, R> extends Flux<R> implements SourceProducer<R> {
 				}
 				ZipSingleSubscriber<T> s = a[i];
 				if (s != null) {
-					sources[i].subscribe(s);
+					try {
+						sources[i].subscribe(s);
+					}
+					catch (Throwable e) {
+						Operators.reportThrowInSubscribe(s, e);
+					}
 				}
 			}
 		}
@@ -425,6 +437,7 @@ final class FluxZip<T, R> extends Flux<R> implements SourceProducer<R> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.TERMINATED) return wip == 0;
 			if (key == Attr.BUFFERED) return wip > 0 ? scalars.length : 0;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return super.scanUnsafe(key);
 		}
@@ -477,6 +490,7 @@ final class FluxZip<T, R> extends Flux<R> implements SourceProducer<R> {
 			if (key == Attr.ACTUAL) return parent;
 			if (key == Attr.CANCELLED) return s == Operators.cancelledSubscription();
 			if (key == Attr.BUFFERED) return parent.scalars[index] == null ? 0 : 1;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}
@@ -576,7 +590,13 @@ final class FluxZip<T, R> extends Flux<R> implements SourceProducer<R> {
 				if (cancelled || error != null) {
 					return;
 				}
-				sources[i].subscribe(a[i]);
+				ZipInner<T> s = a[i];
+				try {
+					sources[i].subscribe(s);
+				}
+				catch (Throwable e) {
+					Operators.reportThrowInSubscribe(s, e);
+				}
 			}
 		}
 
@@ -613,6 +633,7 @@ final class FluxZip<T, R> extends Flux<R> implements SourceProducer<R> {
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return requested;
 			if (key == Attr.ERROR) return error;
 			if (key == Attr.CANCELLED) return cancelled;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerProducer.super.scanUnsafe(key);
 		}
@@ -924,6 +945,7 @@ final class FluxZip<T, R> extends Flux<R> implements SourceProducer<R> {
 			if (key == Attr.BUFFERED) return queue != null ? queue.size() : 0;
 			if (key == Attr.TERMINATED) return done && (queue == null || queue.isEmpty());
 			if (key == Attr.PREFETCH) return prefetch;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}

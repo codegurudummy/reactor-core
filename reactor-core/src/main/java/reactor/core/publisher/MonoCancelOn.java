@@ -19,7 +19,7 @@ package reactor.core.publisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.scheduler.Scheduler;
 
-final class MonoCancelOn<T> extends MonoOperator<T, T> {
+final class MonoCancelOn<T> extends InternalMonoOperator<T, T> {
 
 	final Scheduler scheduler;
 
@@ -29,13 +29,14 @@ final class MonoCancelOn<T> extends MonoOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		source.subscribe(new FluxCancelOn.CancelSubscriber<T>(actual, scheduler));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return new FluxCancelOn.CancelSubscriber<T>(actual, scheduler);
 	}
 
 	@Override
 	public Object scanUnsafe(Attr key) {
 		if (key == Attr.RUN_ON) return scheduler;
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.ASYNC;
 
 		return super.scanUnsafe(key);
 	}

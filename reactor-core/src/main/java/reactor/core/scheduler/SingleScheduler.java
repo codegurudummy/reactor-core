@@ -55,7 +55,6 @@ final class SingleScheduler implements Scheduler, Supplier<ScheduledExecutorServ
 
 	SingleScheduler(ThreadFactory factory) {
 		this.factory = factory;
-		init();
 	}
 
 	/**
@@ -70,10 +69,6 @@ final class SingleScheduler implements Scheduler, Supplier<ScheduledExecutorServ
 		return e;
 	}
 
-	private void init() {
-		EXECUTORS.lazySet(this, Schedulers.decorateExecutorService(this, this.get()));
-	}
-
 	@Override
 	public boolean isDisposed() {
 		return executor == TERMINATED;
@@ -85,7 +80,7 @@ final class SingleScheduler implements Scheduler, Supplier<ScheduledExecutorServ
 		ScheduledExecutorService b = null;
 		for (; ; ) {
 			ScheduledExecutorService a = executor;
-			if (a != TERMINATED) {
+			if (a != TERMINATED && a != null) {
 				if (b != null) {
 					b.shutdownNow();
 				}
@@ -107,7 +102,7 @@ final class SingleScheduler implements Scheduler, Supplier<ScheduledExecutorServ
 		ScheduledExecutorService a = executor;
 		if (a != TERMINATED) {
 			a = EXECUTORS.getAndSet(this, TERMINATED);
-			if (a != TERMINATED) {
+			if (a != TERMINATED && a != null) {
 				a.shutdownNow();
 			}
 		}
@@ -115,12 +110,12 @@ final class SingleScheduler implements Scheduler, Supplier<ScheduledExecutorServ
 
 	@Override
 	public Disposable schedule(Runnable task) {
-		return Schedulers.directSchedule(executor, task, 0L, TimeUnit.MILLISECONDS);
+		return Schedulers.directSchedule(executor, task, null, 0L, TimeUnit.MILLISECONDS);
 	}
 
 	@Override
 	public Disposable schedule(Runnable task, long delay, TimeUnit unit) {
-		return Schedulers.directSchedule(executor, task, delay, unit);
+		return Schedulers.directSchedule(executor, task, null, delay, unit);
 	}
 
 	@Override

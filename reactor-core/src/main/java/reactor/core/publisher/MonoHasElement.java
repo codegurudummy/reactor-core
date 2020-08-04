@@ -24,15 +24,21 @@ import reactor.util.annotation.Nullable;
 /**
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class MonoHasElement<T> extends MonoOperator<T, Boolean> implements Fuseable {
+final class MonoHasElement<T> extends InternalMonoOperator<T, Boolean> implements Fuseable {
 
 	MonoHasElement(Mono<? extends T> source) {
 		super(source);
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super Boolean> actual) {
-		source.subscribe(new HasElementSubscriber<>(actual));
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
+	}
+
+	@Override
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super Boolean> actual) {
+		return new HasElementSubscriber<>(actual);
 	}
 
 	static final class HasElementSubscriber<T>
@@ -48,6 +54,9 @@ final class MonoHasElement<T> extends MonoOperator<T, Boolean> implements Fuseab
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) {
 				return s;
+			}
+			if (key == Attr.RUN_STYLE) {
+				return Attr.RunStyle.SYNC;
 			}
 			return super.scanUnsafe(key);
 		}

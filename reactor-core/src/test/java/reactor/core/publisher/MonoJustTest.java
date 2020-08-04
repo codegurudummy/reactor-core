@@ -58,6 +58,12 @@ public class MonoJustTest {
     }
 
 	@Test
+	public void normalOptionalOfNullable() {
+		StepVerifier.create(Mono.justOrEmpty(Optional.ofNullable(null)))
+				.verifyComplete();
+	}
+
+	@Test
 	public void normalScalarOptionalEmpty() {
 		StepVerifier.create(Mono.justOrEmpty(null))
 		            .verifyComplete();
@@ -121,7 +127,9 @@ public class MonoJustTest {
 	@Test
 	public void scanOperator() {
     	MonoJust s = new MonoJust<>("foo");
+
     	assertThat(s.scan(Scannable.Attr.BUFFERED)).isEqualTo(1);
+    	assertThat(s.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 	}
 
 }

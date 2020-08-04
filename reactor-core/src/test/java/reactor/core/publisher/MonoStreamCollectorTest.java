@@ -34,11 +34,13 @@ import java.util.stream.Collectors;
 
 import org.junit.Test;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Scannable;
 import reactor.test.StepVerifier;
 import reactor.test.subscriber.AssertSubscriber;
 
+import static java.util.stream.Collectors.reducing;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class MonoStreamCollectorTest {
@@ -111,6 +113,16 @@ public class MonoStreamCollectorTest {
 	}
 
 	@Test
+	public void scanOperator(){
+	    Flux<Integer> source = Flux.just(1);
+		MonoStreamCollector<Integer, ?, Set<Integer>> test = new MonoStreamCollector<>(source, Collectors.toSet());
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(source);
+		assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(Integer.MAX_VALUE);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
 	public void scanStreamCollectorSubscriber() {
 		CoreSubscriber<List<String>>
 				actual = new LambdaMonoSubscriber<>(null, e -> {}, null, null);
@@ -130,6 +142,7 @@ public class MonoStreamCollectorTest {
 
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
 		test.onError(new IllegalStateException("boom"));
@@ -246,8 +259,9 @@ public class MonoStreamCollectorTest {
 		assertThat(discarded).doesNotHaveAnyElementsOfTypes(Integer.class)
 		                     .hasOnlyElementsOfType(Map.class)
 		                     .hasSize(1);
-		//noinspection unchecked
-		assertThat(((Map) discarded.get(0)).keySet()).containsExactly(1, 2, 3, 4);
+		@SuppressWarnings("unchecked")
+		Map<Object, Object> discardedMap = (Map<Object, Object>) discarded.get(0);
+		assertThat(discardedMap.keySet()).containsExactly(1, 2, 3, 4);
 	}
 
 	@Test
@@ -269,8 +283,9 @@ public class MonoStreamCollectorTest {
 		assertThat(discarded).doesNotHaveAnyElementsOfTypes(Long.class)
 		                     .hasOnlyElementsOfType(Map.class)
 		                     .hasSize(1);
-		//noinspection unchecked
-		assertThat((Map) discarded.get(0)).containsOnlyKeys(0L, 1L);
+		@SuppressWarnings("unchecked")
+		Map<Object, Object> discardedMap = (Map<Object, Object>) discarded.get(0);
+		assertThat(discardedMap).containsOnlyKeys(0L, 1L);
 	}
 
 	@Test
@@ -292,8 +307,19 @@ public class MonoStreamCollectorTest {
 		assertThat(discarded).doesNotHaveAnyElementsOfTypes(Integer.class, Set.class)
 		                     .hasOnlyElementsOfType(Map.class)
 		                     .hasSize(1);
-		//noinspection unchecked
-		assertThat(((Map) discarded.get(0))).containsOnlyKeys(1, 2, 3, 4);
+		@SuppressWarnings("unchecked")
+		Map<Object, Object> discardedMap = (Map<Object, Object>) discarded.get(0);
+		assertThat(discardedMap).containsOnlyKeys(1, 2, 3, 4);
+	}
+
+	/**
+	 * A collector producing null should be intercepted early instead of signaling onNext(null).
+	 * @see <a href="https://github.com/reactor/reactor-core/issues/2181" target="_top">issue 2181</a>
+	 */
+	@Test
+	public void collectHandlesNulls() {
+		StepVerifier.create(Flux.empty().collect(reducing(null, (a, b) -> a)))
+				.verifyError(NullPointerException.class);
 	}
 
 }

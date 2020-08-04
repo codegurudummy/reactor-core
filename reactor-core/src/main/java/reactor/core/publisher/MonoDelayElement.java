@@ -35,7 +35,7 @@ import reactor.util.annotation.Nullable;
  * @author Simon Baslé
  * TODO : Review impl
  */
-final class MonoDelayElement<T> extends MonoOperator<T, T> {
+final class MonoDelayElement<T> extends InternalMonoOperator<T, T> {
 
 	final Scheduler timedScheduler;
 
@@ -51,13 +51,14 @@ final class MonoDelayElement<T> extends MonoOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		source.subscribe(new DelayElementSubscriber<>(actual, timedScheduler, delay, unit));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return new DelayElementSubscriber<>(actual, timedScheduler, delay, unit);
 	}
 
 	@Override
 	public Object scanUnsafe(Attr key) {
 		if (key == Attr.RUN_ON) return timedScheduler;
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.ASYNC;
 
 		return super.scanUnsafe(key);
 	}
@@ -87,6 +88,7 @@ final class MonoDelayElement<T> extends MonoOperator<T, T> {
 			if (key == Attr.TERMINATED) return done;
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.RUN_ON) return scheduler;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.ASYNC;
 
 			return super.scanUnsafe(key);
 		}

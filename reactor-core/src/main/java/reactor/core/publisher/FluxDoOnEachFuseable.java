@@ -30,7 +30,7 @@ import reactor.core.Fuseable;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxDoOnEachFuseable<T> extends FluxOperator<T, T> implements Fuseable {
+final class FluxDoOnEachFuseable<T> extends InternalFluxOperator<T, T> implements Fuseable {
 
 	final Consumer<? super Signal<T>> onSignal;
 
@@ -40,7 +40,13 @@ final class FluxDoOnEachFuseable<T> extends FluxOperator<T, T> implements Fuseab
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		this.source.subscribe(FluxDoOnEach.createSubscriber(actual, this.onSignal, true, false));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return FluxDoOnEach.createSubscriber(actual, this.onSignal, true, false);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 }

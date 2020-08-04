@@ -46,7 +46,7 @@ import reactor.util.context.Context;
  * @param <R> the output value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxMergeSequential<T, R> extends FluxOperator<T, R> {
+final class FluxMergeSequential<T, R> extends InternalFluxOperator<T, R> {
 
 	final ErrorMode errorMode;
 
@@ -85,19 +85,24 @@ final class FluxMergeSequential<T, R> extends FluxOperator<T, R> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super R> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super R> actual) {
 		//for now mergeSequential doesn't support onErrorContinue, so the scalar version shouldn't either
 		if (FluxFlatMap.trySubscribeScalarMap(source, actual, mapper, false, false)) {
-			return;
+			return null;
 		}
 
-		Subscriber<T> parent = new MergeSequentialMain<T, R>(actual,
+		return new MergeSequentialMain<T, R>(actual,
 				mapper,
 				maxConcurrency,
 				prefetch,
 				errorMode,
 				queueSupplier);
-		source.subscribe(parent);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class MergeSequentialMain<T, R> implements InnerOperator<T, R> {
@@ -178,6 +183,7 @@ final class FluxMergeSequential<T, R> extends FluxOperator<T, R> {
 			if (key == Attr.PREFETCH) return maxConcurrency;
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return requested;
 			if (key == Attr.BUFFERED) return subscribers.size();
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -526,6 +532,7 @@ final class FluxMergeSequential<T, R> extends FluxOperator<T, R> {
 			if (key == Attr.CANCELLED) return subscription == Operators.cancelledSubscription();
 			if (key == Attr.BUFFERED) return queue == null ? 0 : queue.size();
 			if (key == Attr.PREFETCH) return prefetch;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}

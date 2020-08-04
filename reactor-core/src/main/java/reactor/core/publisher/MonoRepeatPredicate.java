@@ -37,7 +37,7 @@ final class MonoRepeatPredicate<T> extends FluxFromMonoOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		FluxRepeatPredicate.RepeatPredicateSubscriber<T> parent = new FluxRepeatPredicate.RepeatPredicateSubscriber<>(source,
 				actual, predicate);
 
@@ -46,5 +46,12 @@ final class MonoRepeatPredicate<T> extends FluxFromMonoOperator<T, T> {
 		if (!parent.isCancelled()) {
 			parent.resubscribe();
 		}
+		return null;
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 }

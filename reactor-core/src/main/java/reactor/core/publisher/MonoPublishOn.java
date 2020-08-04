@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
+import reactor.core.Scannable;
 import reactor.core.scheduler.Scheduler;
 import reactor.util.annotation.Nullable;
 
@@ -31,7 +32,7 @@ import reactor.util.annotation.Nullable;
  *
  * @param <T> the value type
  */
-final class MonoPublishOn<T> extends MonoOperator<T, T> {
+final class MonoPublishOn<T> extends InternalMonoOperator<T, T> {
 
 	final Scheduler scheduler;
 
@@ -41,13 +42,14 @@ final class MonoPublishOn<T> extends MonoOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		source.subscribe(new PublishOnSubscriber<T>(actual, scheduler));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return new PublishOnSubscriber<T>(actual, scheduler);
 	}
 
 	@Override
 	public Object scanUnsafe(Attr key) {
 		if (key == Attr.RUN_ON) return scheduler;
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.ASYNC;
 
 		return super.scanUnsafe(key);
 	}
@@ -93,6 +95,7 @@ final class MonoPublishOn<T> extends MonoOperator<T, T> {
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.ERROR) return error;
 			if (key == Attr.RUN_ON) return scheduler;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.ASYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

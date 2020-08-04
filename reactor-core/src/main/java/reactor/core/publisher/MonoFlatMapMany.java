@@ -42,14 +42,20 @@ final class MonoFlatMapMany<T, R> extends FluxFromMonoOperator<T, R> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super R> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super R> actual) {
 		//for now Mono in general doesn't support onErrorContinue, so the scalar version shouldn't either
 		//even if the result is a Flux. once the mapper is applied, onErrorContinue will be taken care of by
 		//the mapped Flux if relevant.
 		if (FluxFlatMap.trySubscribeScalarMap(source, actual, mapper, false, false)) {
-			return;
+			return null;
 		}
-		source.subscribe(new FlatMapManyMain<T, R>(actual, mapper));
+		return new FlatMapManyMain<T, R>(actual, mapper);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class FlatMapManyMain<T, R> implements InnerOperator<T, R> {
@@ -84,6 +90,7 @@ final class MonoFlatMapMany<T, R> extends FluxFromMonoOperator<T, R> {
 		@Nullable
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return main;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -228,6 +235,7 @@ final class MonoFlatMapMany<T, R> extends FluxFromMonoOperator<T, R> {
 			if (key == Attr.PARENT) return parent.inner;
 			if (key == Attr.ACTUAL) return parent;
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return parent.requested;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}

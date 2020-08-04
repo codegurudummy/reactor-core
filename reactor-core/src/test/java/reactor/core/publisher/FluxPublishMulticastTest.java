@@ -25,14 +25,13 @@ import java.util.function.Function;
 import org.junit.Assert;
 import org.junit.Test;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.core.Fuseable;
 import reactor.core.Scannable;
-import reactor.core.scheduler.Schedulers;
 import reactor.test.StepVerifier;
 import reactor.test.publisher.FluxOperatorTest;
-import reactor.test.publisher.TestPublisher;
 import reactor.test.subscriber.AssertSubscriber;
 import reactor.util.concurrent.Queues;
 import reactor.util.context.Context;
@@ -78,7 +77,7 @@ public class FluxPublishMulticastTest extends FluxOperatorTest<String, String> {
 				scenario(f -> f.publish(p -> Flux.just("test", "test1", "test2")))
 						.fusionMode(Fuseable.SYNC),
 
-				scenario(f -> f.publish(p -> p.subscribeWith(UnicastProcessor.create()), 256))
+				scenario(f -> f.publish(p -> p.subscribeWith(Processors.unicast()), 256))
 						.fusionMode(Fuseable.ASYNC),
 
 
@@ -97,7 +96,7 @@ public class FluxPublishMulticastTest extends FluxOperatorTest<String, String> {
 		return Arrays.asList(scenario(f -> f.publish(p -> p)),
 
 				scenario(f -> f.publish(p ->
-						p.subscribeWith(UnicastProcessor.create())))
+						p.subscribeWith(Processors.unicast())))
 						.fusionMode(Fuseable.ASYNC),
 
 				scenario(f -> f.publish(p -> p))
@@ -155,8 +154,8 @@ public class FluxPublishMulticastTest extends FluxOperatorTest<String, String> {
 
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
-		UnicastProcessor<Integer> up =
-				UnicastProcessor.create(Queues.<Integer>get(16).get());
+		FluxIdentityProcessor<Integer> up =
+				Processors.more().unicast(Queues.<Integer>get(16).get());
 
 		up.publish(o -> zip((Object[] a) -> (Integer) a[0] + (Integer) a[1], o, o.skip(1)))
 		  .subscribe(ts);
@@ -177,7 +176,7 @@ public class FluxPublishMulticastTest extends FluxOperatorTest<String, String> {
 	public void cancelComposes() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
-		EmitterProcessor<Integer> sp = EmitterProcessor.create();
+		FluxIdentityProcessor<Integer> sp = Processors.multicast();
 
 		sp.publish(o -> Flux.<Integer>never())
 		  .subscribe(ts);
@@ -193,7 +192,7 @@ public class FluxPublishMulticastTest extends FluxOperatorTest<String, String> {
 	public void cancelComposes2() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
-		EmitterProcessor<Integer> sp = EmitterProcessor.create();
+		FluxIdentityProcessor<Integer> sp = Processors.multicast();
 
 		sp.publish(o -> Flux.<Integer>empty())
 		  .subscribe(ts);
@@ -283,6 +282,15 @@ public class FluxPublishMulticastTest extends FluxOperatorTest<String, String> {
         assertThat(Flux.just(Flux.just(1).hide().publish(v -> v)).flatMap(v -> v).blockLast()).isEqualTo(1);
     }
 
+    @Test
+    public void scanOperator(){
+    	Flux<Integer> parent = Flux.just(1);
+		FluxPublishMulticast<Integer, Integer> test = new FluxPublishMulticast<>(parent, v -> v, 123, Queues.one());
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+    	assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+    }
+
 	@Test
     public void scanMulticaster() {
         FluxPublishMulticast.FluxPublishMulticaster<Integer> test =
@@ -292,6 +300,7 @@ public class FluxPublishMulticastTest extends FluxOperatorTest<String, String> {
 
         assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
         assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(123);
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
         assertThat(test.scan(Scannable.Attr.BUFFERED)).isEqualTo(0);
         test.queue.add(1);
         assertThat(test.scan(Scannable.Attr.BUFFERED)).isEqualTo(1);
@@ -320,6 +329,7 @@ public class FluxPublishMulticastTest extends FluxOperatorTest<String, String> {
         assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
         test.request(789);
         assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(789);
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
         assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
         test.cancel();
@@ -338,6 +348,7 @@ public class FluxPublishMulticastTest extends FluxOperatorTest<String, String> {
 
         assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(sub);
         assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
     }
 
 	@Test
@@ -352,6 +363,7 @@ public class FluxPublishMulticastTest extends FluxOperatorTest<String, String> {
 
         assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(sub);
         assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
     }
 
     @Test
