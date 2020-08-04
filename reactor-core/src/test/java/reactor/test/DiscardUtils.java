@@ -19,6 +19,7 @@ package reactor.test;
 import java.time.Duration;
 import java.util.concurrent.ForkJoinPool;
 
+import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
 import reactor.core.CoreSubscriber;
@@ -33,22 +34,6 @@ import reactor.util.annotation.Nullable;
  * @author Simon Baslé
  */
 public class DiscardUtils {
-
-	/**
-	 * Create a test {@link Subscription} that acknowledges cancellation immediately by
-	 * calling {@link CoreSubscriber#onCancelled()}.
-	 * <p>
-	 * The subscription is compatible with {@link QueueSubscription} (fuseable), although
-	 * it always negotiate the fusion mode to be NONE.
-	 *
-	 * @param actual the downstream {@link CoreSubscriber} this subscription will be passed
-	 * to, and which will be acknowledged
-	 * @param <T> the type of data
-	 * @return the immediately acknowledging {@link Subscription}
-	 */
-	public static <T> Subscription acknowledgingSubscription(CoreSubscriber<? super T> actual) {
-		return acknowledgingSubscription(actual, Duration.ZERO);
-	}
 
 	/**
 	 * Create a test {@link Subscription} that acknowledges cancellation after a specified
@@ -68,10 +53,10 @@ public class DiscardUtils {
 	}
 
 	/**
-	 * Create a test {@link Subscription} that emits a pre-defined value AFTER it has been
-	 * cancelled via {@link Subscription#cancel()} (provided there has been some request).
-	 * If {@code ack} is set to true, the subscription additionally acknowledges the
-	 * cancellation is done via {@link CoreSubscriber#onCancelled()}.
+	 * Create a test {@link Subscription} that waits for a specified amount of time after
+	 * cancellation then emits a pre-defined value via {@link Subscription#cancel()}
+	 * (provided there has been some request) and finally acknowledges the cancellation is
+	 * done via {@link CoreSubscriber#onCancelled()}.
 	 * <p>
 	 * The subscription is compatible with {@link QueueSubscription} (fuseable), although
 	 * it always negotiate the fusion mode to be NONE.
@@ -79,36 +64,26 @@ public class DiscardUtils {
 	 * @param actual the downstream {@link CoreSubscriber} this subscription will be passed
 	 * to, and which will be acknowledged
 	 * @param lateOnNext the late onNext data to be emitted post cancellation
-	 * @param ack whether or not to acknowledge the cancellation after late item was emitted
+	 * @param delay the delay after which to emit late data and acknowledge cancel
 	 * @param <T> the type of data
-	 * @return the {@link Subscription} which emits immediately after being cancelled
+	 * @return the acknowledging {@link Subscription} which emits with a delay after being cancelled
 	 */
-	public static <T> Subscription lateOnNextSubscription(CoreSubscriber<? super T> actual, T lateOnNext, boolean ack) {
-		return lateOnNextSubscription(actual, lateOnNext, Duration.ZERO, ack);
+	public static <T> Subscription lateOnNextSubscription(CoreSubscriber<? super T> actual, T lateOnNext, Duration delay) {
+		return new LateAcknowledgingSubscription<>(actual, delay, lateOnNext);
 	}
 
 	/**
-	 * Create a test {@link Subscription} that emits a pre-defined value some time AFTER it
-	 * has been cancelled via {@link Subscription#cancel()} (provided there has been some request).
-	 * If {@code ack} is set to true, the subscription additionally acknowledges the
-	 * cancellation is done via {@link CoreSubscriber#onCancelled()}. This is done on a
-	 * dedicated thread.
-	 * <p>
-	 * The subscription is compatible with {@link QueueSubscription} (fuseable), although
-	 * it always negotiate the fusion mode to be NONE.
+	 * Create a test {@link Subscription} that waits for a specified amount of time after
+	 * cancellation then emits a pre-defined value via {@link Subscription#cancel()}
+	 * (provided there has been some request). This is a vanilla Reactive Streams {@link Subscription}.
 	 *
-	 * @param actual the downstream {@link CoreSubscriber} this subscription will be passed
-	 * to, and which will be acknowledged
+	 * @param actual the downstream {@link Subscriber} this subscription will be passed to
 	 * @param lateOnNext the late onNext data to be emitted post cancellation
-	 * @param delay the delay after which to emit late data (and optionally acknowledge cancel)
-	 * @param ack whether or not to acknowledge the cancellation after late item was emitted
+	 * @param delay the delay after which to emit late data
 	 * @param <T> the type of data
-	 * @return the {@link Subscription} which emits immediately after being cancelled
+	 * @return the {@link Subscription} which emits with a delay after being cancelled
 	 */
-	public static <T> Subscription lateOnNextSubscription(CoreSubscriber<? super T> actual, T lateOnNext, Duration delay, boolean ack) {
-		if (ack) {
-			return new LateAcknowledgingSubscription<>(actual, delay, lateOnNext);
-		}
+	public static <T> Subscription lateOnNextVanillaSubscription(Subscriber<? super T> actual, T lateOnNext, Duration delay) {
 		return new LateVanillaSubscription<>(actual, delay, lateOnNext);
 	}
 
@@ -262,13 +237,13 @@ public class DiscardUtils {
 
 	static final class LateVanillaSubscription<T> implements QueueSubscription<T> {
 
-		final CoreSubscriber<? super T> actual;
+		final Subscriber<? super T> actual;
 		final Duration ackDelay;
 		final T lateOnNext;
 
 		volatile boolean requested;
 
-		public LateVanillaSubscription(CoreSubscriber<? super T> actual, Duration ackDelay, T lateOnNext) {
+		public LateVanillaSubscription(Subscriber<? super T> actual, Duration ackDelay, T lateOnNext) {
 			this.actual = actual;
 			this.ackDelay = ackDelay;
 			this.lateOnNext = lateOnNext;

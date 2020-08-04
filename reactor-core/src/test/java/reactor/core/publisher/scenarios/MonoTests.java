@@ -156,8 +156,8 @@ public class MonoTests {
 				    .map(it -> it + it)
 				    .doAfterCancelled(() -> seen.set(true))
 		)
-		            .thenCancel()
-		            .verify();
+		            .thenCancelWithAck()
+		            .verify(Duration.ofMillis(100));
 
 		Assertions.assertThat(seen).isTrue();
 	}

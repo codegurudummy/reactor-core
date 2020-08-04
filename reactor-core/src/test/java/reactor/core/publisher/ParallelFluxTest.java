@@ -1075,8 +1075,8 @@ public class ParallelFluxTest {
 				    .map(it -> it + it)
 				    .doAfterCancelled(() -> seen.set(true))
 		)
-		            .thenCancel()
-		            .verify();
+		            .thenCancelWithAck()
+		            .verify(Duration.ofMillis(200));
 
 		assertThat(seen).isTrue();
 	}

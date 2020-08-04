@@ -15,6 +15,7 @@
  */
 package reactor.core.publisher;
 
+import java.time.Duration;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -23,6 +24,7 @@ import org.junit.Test;
 import reactor.core.CoreSubscriber;
 import reactor.core.Fuseable;
 import reactor.core.Scannable;
+import reactor.test.StepVerifier;
 import reactor.test.subscriber.AssertSubscriber;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -90,12 +92,19 @@ public class FluxJustTest {
 
     @Test
     public void cancelAckSource() {
-	    final AssertSubscriber<String> actual = AssertSubscriber.create(0);
-	    Flux.just("foo")
-	        .subscribe(actual);
+        final AssertSubscriber<String> actual = AssertSubscriber.create(0);
+        Flux.just("foo")
+            .subscribe(actual);
 
-	    actual.cancel();
-	    actual.assertOnCancelled();
+        actual.cancel();
+        actual.assertOnCancelled();
+    }
+
+    @Test
+    public void cancelAckSourceStepVerifier() {
+        StepVerifier.create(Flux.just("foo").collectList())
+                    .thenCancelWithAck()
+                    .verify(Duration.ofMillis(100));
     }
 
     @Test
