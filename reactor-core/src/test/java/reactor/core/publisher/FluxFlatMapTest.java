@@ -57,13 +57,14 @@ import reactor.util.concurrent.Queues;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class FluxFlatMapTest<afterTest> {
+public class FluxFlatMapTest {
 
 	@Rule
 	public AutoDisposingRule afterTest = new AutoDisposingRule();
 
 	@Test
-	public void flatmapInnerShouldntRequestInFusionModeSync() {
+	@Ignore("causes too much GC pressure and OutOfMemoryError")
+	public void flatmapInnerShouldntRequestInFusionModeSync_gcHeavy() {
 		/*
 		See original reproduction case in https://github.com/reactor/reactor-core/issues/2318
 		This simplified test attempts to trigger the bad state of the inner subscription a bit more directly,
@@ -72,6 +73,8 @@ public class FluxFlatMapTest<afterTest> {
 		*/
 		final Scheduler scheduler = afterTest.autoDispose(Schedulers.newParallel("flatmapInnerShouldntRequestInFusionModeSync", 2));
 		final List<AssertQueueSubscription<Integer>> innerQueueSubscriptions = Collections.synchronizedList(new ArrayList<>());
+		final List<Integer> innerContent = Arrays.asList(1, 2, 3, 4, 5);
+
 		Flux.fromStream(IntStream.range(0, 32).boxed())
 		    .flatMap(number -> {
 			    final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -86,7 +89,7 @@ public class FluxFlatMapTest<afterTest> {
 								    return Fuseable.NONE;
 							    }
 						    };
-						    assertQueueSubscription.addAll(Arrays.asList(1, 2, 3, 4, 5));
+						    assertQueueSubscription.addAll(innerContent);
 
 						    innerQueueSubscriptions.add(assertQueueSubscription);
 						    return subscriber -> subscriber.onSubscribe(assertQueueSubscription);
@@ -100,6 +103,35 @@ public class FluxFlatMapTest<afterTest> {
 		innerQueueSubscriptions.forEach(aqs -> assertThat(aqs.requested)
 				.withFailMessage("Inner publisher shouldn't be requested by FlatMapInner, got <request(%s)>", aqs.requested)
 				.isZero());
+	}
+
+	@Test
+	public void flatmapInnerShouldntRequestInFusionModeSync() {
+		/*
+		See original reproduction case in https://github.com/reactor/reactor-core/issues/2318
+		This simplified test directly triggers the fusion/request, reliably reproducing the
+		root cause behind the NoSuchElementError in an efficient way.
+		*/
+		final AssertQueueSubscription<Integer> inner = new AssertQueueSubscription<Integer>() {
+			@Override
+			public int requestFusion(int requestedMode) {
+				if ((requestedMode & Fuseable.SYNC) != 0) {
+					return Fuseable.SYNC;
+				}
+				return Fuseable.NONE;
+			}
+		};
+		inner.addAll(Arrays.asList(1, 2, 3, 4, 5));
+
+		FluxFlatMap.FlatMapMain<?, Integer> parent = new FluxFlatMap.FlatMapMain<>(
+				AssertSubscriber.create(0), v -> Mono.empty(), false, 8, Queues.small(), 4, Queues.small());
+		FluxFlatMap.FlatMapInner<Integer> flatMapInner = new FluxFlatMap.FlatMapInner<>(parent, 4);
+		flatMapInner.onSubscribe(inner);
+
+		assertThat(flatMapInner.sourceMode).as("SYNC fusion expected").isEqualTo(Fuseable.SYNC);
+
+		flatMapInner.request(4); //go over produced and trigger source request
+		assertThat(inner.requested).as("inner requested").isZero();
 	}
 
 	/*@Test
