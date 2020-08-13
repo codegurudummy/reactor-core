@@ -187,45 +187,45 @@ public class FluxBufferWhenTest {
 		  .assertNoError()
 		  .assertNotComplete();
 
-		sp1.emitNext(1);
+		sp1.tryEmitNext(1);
 
 		ts.assertNoValues()
 		  .assertNoError()
 		  .assertNotComplete();
 
-		sp2.emitNext(1);
+		sp2.tryEmitNext(1);
 
 		Assert.assertTrue("sp3 has no subscribers?", Scannable.from(sp3)
 															  .inners()
 															  .count() != 0);
 
-		sp1.emitNext(2);
-		sp1.emitNext(3);
-		sp1.emitNext(4);
+		sp1.tryEmitNext(2);
+		sp1.tryEmitNext(3);
+		sp1.tryEmitNext(4);
 
-		sp3.emitComplete();
+		sp3.tryEmitComplete();
 
 		ts.assertValues(Arrays.asList(2, 3, 4))
 		  .assertNoError()
 		  .assertNotComplete();
 
-		sp1.emitNext(5);
+		sp1.tryEmitNext(5);
 
-		sp2.emitNext(2);
+		sp2.tryEmitNext(2);
 
 		Assert.assertTrue("sp4 has no subscribers?", Scannable.from(sp4)
 															  .inners()
 															  .count() != 0);
 
-		sp1.emitNext(6);
+		sp1.tryEmitNext(6);
 
-		sp4.emitComplete();
+		sp4.tryEmitComplete();
 
 		ts.assertValues(Arrays.asList(2, 3, 4), Collections.singletonList(6))
 		  .assertNoError()
 		  .assertNotComplete();
 
-		sp1.emitComplete();
+		sp1.tryEmitComplete();
 
 		ts.assertValues(Arrays.asList(2, 3, 4), Collections.singletonList(6))
 		  .assertNoError()
@@ -252,24 +252,24 @@ public class FluxBufferWhenTest {
 		  .assertNoError()
 		  .assertNotComplete();
 
-		source.emitNext(1);
+		source.tryEmitNext(1);
 
 		ts.assertNoValues()
 		  .assertNoError()
 		  .assertNotComplete();
 
-		open.emitNext(1);
-		open.emitComplete();
+		open.tryEmitNext(1);
+		open.tryEmitComplete();
 
 		Assert.assertTrue("close has no subscribers?", Scannable.from(close)
 																.inners()
 																.count() != 0);
 
-		source.emitNext(2);
-		source.emitNext(3);
-		source.emitNext(4);
+		source.tryEmitNext(2);
+		source.tryEmitNext(3);
+		source.tryEmitNext(4);
 
-		close.emitComplete();
+		close.tryEmitComplete();
 
 		ts.assertValues(Arrays.asList(2, 3, 4))
 		  .assertNoError()
@@ -299,16 +299,16 @@ public class FluxBufferWhenTest {
 								   .bufferWhen(bucketOpening.asFlux(), u -> boundaryFlux.asFlux())
 								   .collectList())
 					.then(() -> {
-						numbers.emitNext(1);
-						numbers.emitNext(2);
-						bucketOpening.emitNext(1);
-						numbers.emitNext(3);
-						bucketOpening.emitNext(1);
-						numbers.emitNext(5);
-						boundaryFlux.emitNext(1);
-						bucketOpening.emitNext(1);
-						boundaryFlux.emitComplete();
-						numbers.emitComplete();
+						numbers.tryEmitNext(1);
+						numbers.tryEmitNext(2);
+						bucketOpening.tryEmitNext(1);
+						numbers.tryEmitNext(3);
+						bucketOpening.tryEmitNext(1);
+						numbers.tryEmitNext(5);
+						boundaryFlux.tryEmitNext(1);
+						bucketOpening.tryEmitNext(1);
+						boundaryFlux.tryEmitComplete();
+						numbers.tryEmitComplete();
 						//"the collected overlapping lists are available"
 					})
 					.assertNext(res -> assertThat(res).containsExactly(Arrays.asList(3, 5), Collections.singletonList(5), Collections.emptyList()))

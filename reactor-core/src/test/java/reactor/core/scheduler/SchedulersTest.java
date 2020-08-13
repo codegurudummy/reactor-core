@@ -673,7 +673,7 @@ public class SchedulersTest {
 
 			scheduler.dispose();
 
-			p.emitNext("reject me");
+			p.tryEmitNext("reject me");
 			l.await(3, TimeUnit.SECONDS);
 		}
 		catch (Exception ree) {

@@ -206,14 +206,14 @@ public class GuideTests {
 
 		hotFlux.subscribe(d -> System.out.println("Subscriber 1 to Hot Source: "+d));
 
-		hotSource.emitNext("blue");
-		hotSource.emitNext("green");
+		hotSource.tryEmitNext("blue");
+		hotSource.tryEmitNext("green");
 
 		hotFlux.subscribe(d -> System.out.println("Subscriber 2 to Hot Source: "+d));
 
-		hotSource.emitNext("orange");
-		hotSource.emitNext("purple");
-		hotSource.emitComplete();
+		hotSource.tryEmitNext("orange");
+		hotSource.tryEmitNext("purple");
+		hotSource.tryEmitComplete();
 	}
 
 	@Test

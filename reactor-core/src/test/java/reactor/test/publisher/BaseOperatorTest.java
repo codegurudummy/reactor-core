@@ -398,22 +398,22 @@ public abstract class BaseOperatorTest<I, PI extends Publisher<? extends I>, O, 
 			case -1:
 				break;
 			case 0:
-				rp.emitComplete();
+				rp.tryEmitComplete();
 				break;
 			case 1:
-				rp.emitNext(scenario.producingMapper
+				rp.tryEmitNext(scenario.producingMapper
 				                  .apply(0));
-				rp.emitComplete();
+				rp.tryEmitComplete();
 				break;
 			default:
 				if (p > 10_000) {
 					throw new IllegalArgumentException("Should not preload async source" + " " + "more than 10000," + " was " + p);
 				}
 				for (int i = 0; i < scenario.producerCount(); i++) {
-					rp.emitNext(scenario.producingMapper
+					rp.tryEmitNext(scenario.producingMapper
 					                  .apply(i));
 				}
-				rp.emitComplete();
+				rp.tryEmitComplete();
 		}
 		return rp.asFlux();
 	}
@@ -909,7 +909,7 @@ public abstract class BaseOperatorTest<I, PI extends Publisher<? extends I>, O, 
 
 	final StepVerifier.Step<O> inputFusedAsyncErrorOutputFusedAsync(OperatorScenario<I, PI, O, PO> scenario) {
 		Sinks.Many<I> up = Sinks.many().unsafe().unicast().onBackpressureBuffer();
-		up.emitNext(item(0));
+		up.tryEmitNext(item(0));
 		return StepVerifier.create(scenario.body()
 		                                   .apply(up.asFlux().as(f -> withFluxSource(new FluxFuseableExceptionOnPoll<>(
 				                                   f,

@@ -193,7 +193,18 @@ public final class EmitterProcessor<T> extends FluxProcessor<T, T> implements Si
 	}
 
 	@Override
-	public Emission emitComplete() {
+	public void onComplete() {
+		emitComplete();
+	}
+
+	@Override
+	public void emitComplete() {
+		//no particular error condition handling for onComplete
+		tryEmitComplete();
+	}
+
+	@Override
+	public Emission tryEmitComplete() {
 		if (done) {
 			return Emission.FAIL_TERMINATED;
 		}
@@ -203,10 +214,22 @@ public final class EmitterProcessor<T> extends FluxProcessor<T, T> implements Si
 	}
 
 	@Override
-	public Emission emitError(Throwable t) {
+	public void onError(Throwable throwable) {
+		emitError(throwable);
+	}
+
+	@Override
+	public void emitError(Throwable error) {
+		Emission result = tryEmitError(error);
+		if (result == Emission.FAIL_TERMINATED) {
+			Operators.onErrorDroppedMulticast(error, subscribers);
+		}
+	}
+
+	@Override
+	public Emission tryEmitError(Throwable t) {
 		Objects.requireNonNull(t, "onError");
 		if (done) {
-			Operators.onErrorDroppedMulticast(t);
 			return Emission.FAIL_TERMINATED;
 		}
 		if (Exceptions.addThrowable(ERROR, this, t)) {
@@ -215,15 +238,38 @@ public final class EmitterProcessor<T> extends FluxProcessor<T, T> implements Si
 			return Emission.OK;
 		}
 		else {
-			Operators.onErrorDroppedMulticast(t);
 			return Emission.FAIL_TERMINATED;
 		}
 	}
 
 	@Override
-	public Emission emitNext(T t) {
+	public void onNext(T t) {
+		if (sourceMode == Fuseable.ASYNC) {
+			drain();
+			return;
+		}
+		emitNext(t);
+	}
+
+	@Override
+	public void emitNext(T value) {
+		Emission result = tryEmitNext(value);
+		if (result == Emission.FAIL_OVERFLOW) {
+			Operators.onDiscard(value, currentContext());
+			//the emitError will onErrorDropped if already terminated
+			emitError(Exceptions.failWithOverflow("Backpressure overflow during Sinks.One#emitValue"));
+		}
+		else if (result == Emission.FAIL_CANCELLED) {
+			Operators.onDiscard(value, currentContext());
+		}
+		else if (result == Emission.FAIL_TERMINATED) {
+			Operators.onNextDroppedMulticast(value, subscribers);
+		}
+	}
+
+	@Override
+	public Emission tryEmitNext(T t) {
 		if (done) {
-			Operators.onNextDropped(t, currentContext());
 			return Emission.FAIL_TERMINATED;
 		}
 
@@ -307,27 +353,6 @@ public final class EmitterProcessor<T> extends FluxProcessor<T, T> implements Si
 
 			s.request(Operators.unboundedOrPrefetch(prefetch));
 		}
-	}
-
-	@Override
-	@SuppressWarnings("unchecked")
-	public void onNext(T t) {
-		if (sourceMode == Fuseable.ASYNC) {
-			drain();
-			return;
-		}
-
-		emitNext(t);
-	}
-
-	@Override
-	public void onError(Throwable t) {
-		emitError(t);
-	}
-
-	@Override
-	public void onComplete() {
-		emitComplete();
 	}
 
 	@Override

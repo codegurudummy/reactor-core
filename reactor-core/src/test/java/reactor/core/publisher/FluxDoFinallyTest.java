@@ -142,12 +142,12 @@ public class FluxDoFinallyTest implements Consumer<SignalType> {
 	@Test
 	public void asyncFused() {
 		Sinks.Many<Integer> up = Sinks.many().unicast().onBackpressureBuffer();
-		up.emitNext(1);
-		up.emitNext(2);
-		up.emitNext(3);
-		up.emitNext(4);
-		up.emitNext(5);
-		up.emitComplete();
+		up.tryEmitNext(1);
+		up.tryEmitNext(2);
+		up.tryEmitNext(3);
+		up.tryEmitNext(4);
+		up.tryEmitNext(5);
+		up.tryEmitComplete();
 
 		StepVerifier.create(up.asFlux().doFinally(this))
 		            .expectFusion(ASYNC)
@@ -162,12 +162,12 @@ public class FluxDoFinallyTest implements Consumer<SignalType> {
 	@Test
 	public void asyncFusedThreadBarrier() {
 		Sinks.Many<Object> up = Sinks.many().unicast().onBackpressureBuffer();
-		up.emitNext(1);
-		up.emitNext(2);
-		up.emitNext(3);
-		up.emitNext(4);
-		up.emitNext(5);
-		up.emitComplete();
+		up.tryEmitNext(1);
+		up.tryEmitNext(2);
+		up.tryEmitNext(3);
+		up.tryEmitNext(4);
+		up.tryEmitNext(5);
+		up.tryEmitComplete();
 
 		StepVerifier.create(up.asFlux().doFinally(this))
 		            .expectFusion(ASYNC | THREAD_BARRIER, NONE)
@@ -284,12 +284,12 @@ public class FluxDoFinallyTest implements Consumer<SignalType> {
 	@Test
 	public void asyncFusedConditional() {
 		Sinks.Many<Object> up = Sinks.many().unicast().onBackpressureBuffer();
-		up.emitNext(1);
-		up.emitNext(2);
-		up.emitNext(3);
-		up.emitNext(4);
-		up.emitNext(5);
-		up.emitComplete();
+		up.tryEmitNext(1);
+		up.tryEmitNext(2);
+		up.tryEmitNext(3);
+		up.tryEmitNext(4);
+		up.tryEmitNext(5);
+		up.tryEmitComplete();
 
 		StepVerifier.create(up.asFlux().doFinally(this)
 		                      .filter(i -> true))
@@ -305,12 +305,12 @@ public class FluxDoFinallyTest implements Consumer<SignalType> {
 	@Test
 	public void asyncFusedThreadBarrierConditional() {
 		Sinks.Many<Object> up = Sinks.many().unicast().onBackpressureBuffer();
-		up.emitNext(1);
-		up.emitNext(2);
-		up.emitNext(3);
-		up.emitNext(4);
-		up.emitNext(5);
-		up.emitComplete();
+		up.tryEmitNext(1);
+		up.tryEmitNext(2);
+		up.tryEmitNext(3);
+		up.tryEmitNext(4);
+		up.tryEmitNext(5);
+		up.tryEmitComplete();
 
 		StepVerifier.create(up.asFlux().doFinally(this)
 		                      .filter(i -> true))

@@ -158,23 +158,23 @@ public class FluxWindowWhenTest {
 		sp1.asFlux().windowWhen(sp2.asFlux(), v -> v == 1 ? sp3.asFlux() : sp4.asFlux())
 		   .subscribe(ts);
 
-		sp1.emitNext(1);
+		sp1.tryEmitNext(1);
 
-		sp2.emitNext(1);
+		sp2.tryEmitNext(1);
 
-		sp1.emitNext(2);
+		sp1.tryEmitNext(2);
 
-		sp2.emitNext(2);
+		sp2.tryEmitNext(2);
 
-		sp1.emitNext(3);
+		sp1.tryEmitNext(3);
 
-		sp3.emitNext(1);
+		sp3.tryEmitNext(1);
 
-		sp1.emitNext(4);
+		sp1.tryEmitNext(4);
 
-		sp4.emitNext(1);
+		sp4.tryEmitNext(1);
 
-		sp1.emitComplete();
+		sp1.tryEmitComplete();
 
 		ts.assertValueCount(2)
 		  .assertNoError()
@@ -201,24 +201,24 @@ public class FluxWindowWhenTest {
 		source.asFlux().windowWhen(openSelector.asFlux(), v -> v == 1 ? closeSelectorFor1.asFlux() : closeSelectorForOthers.asFlux())
 		      .subscribe(ts);
 
-		source.emitNext(1);
+		source.tryEmitNext(1);
 
-		openSelector.emitNext(1);
+		openSelector.tryEmitNext(1);
 
-		source.emitNext(2);
+		source.tryEmitNext(2);
 
-		openSelector.emitNext(2);
+		openSelector.tryEmitNext(2);
 
-		source.emitNext(3);
+		source.tryEmitNext(3);
 
-		closeSelectorFor1.emitNext(1);
+		closeSelectorFor1.tryEmitNext(1);
 
-		source.emitNext(4);
+		source.tryEmitNext(4);
 
-		closeSelectorForOthers.emitNext(1);
+		closeSelectorForOthers.tryEmitNext(1);
 
-		openSelector.emitComplete();
-		source.emitComplete(); //TODO evaluate, should the open completing cause the source to lose subscriber?
+		openSelector.tryEmitComplete();
+		source.tryEmitComplete(); //TODO evaluate, should the open completing cause the source to lose subscriber?
 
 		ts.assertValueCount(2)
 		  .assertNoError()
@@ -245,16 +245,16 @@ public class FluxWindowWhenTest {
 		source.asFlux().windowWhen(openSelector.asFlux(), v -> v == 1 ? closeSelectorFor1.asFlux() : closeSelectorOthers.asFlux())
 		      .subscribe(ts);
 
-		openSelector.emitNext(1);
+		openSelector.tryEmitNext(1);
 
-		source.emitNext(1);
-		source.emitNext(2);
-		source.emitNext(3);
+		source.tryEmitNext(1);
+		source.tryEmitNext(2);
+		source.tryEmitNext(3);
 
-		closeSelectorFor1.emitComplete();
+		closeSelectorFor1.tryEmitComplete();
 
-		source.emitNext(4);
-		source.emitComplete();
+		source.tryEmitNext(4);
+		source.tryEmitComplete();
 
 		ts.assertValueCount(1)
 		  .assertNoError()
@@ -283,16 +283,16 @@ public class FluxWindowWhenTest {
 								   .flatMap(Flux::buffer)
 								   .collectList())
 					.then(() -> {
-						numbers.emitNext(1);
-						numbers.emitNext(2);
-						bucketOpening.emitNext(1);
-						numbers.emitNext(3);
-						bucketOpening.emitNext(1);
-						numbers.emitNext(5);
-						boundaryFlux.emitNext(1);
-						bucketOpening.emitNext(1);
-						boundaryFlux.emitComplete();
-						numbers.emitComplete();
+						numbers.tryEmitNext(1);
+						numbers.tryEmitNext(2);
+						bucketOpening.tryEmitNext(1);
+						numbers.tryEmitNext(3);
+						bucketOpening.tryEmitNext(1);
+						numbers.tryEmitNext(5);
+						boundaryFlux.tryEmitNext(1);
+						bucketOpening.tryEmitNext(1);
+						boundaryFlux.tryEmitComplete();
+						numbers.tryEmitComplete();
 						//"the collected overlapping lists are available"
 					})
 					.assertNext(res -> assertThat(res).containsExactly(Arrays.asList(3, 5), Arrays.asList(5)))

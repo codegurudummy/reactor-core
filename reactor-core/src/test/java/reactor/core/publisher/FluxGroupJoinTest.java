@@ -55,16 +55,16 @@ public class FluxGroupJoinTest {
 
 		m.subscribe(ts);
 
-		source1.emitNext(1);
-		source1.emitNext(2);
-		source1.emitNext(4);
+		source1.tryEmitNext(1);
+		source1.tryEmitNext(2);
+		source1.tryEmitNext(4);
 
-		source2.emitNext(16);
-		source2.emitNext(32);
-		source2.emitNext(64);
+		source2.tryEmitNext(16);
+		source2.tryEmitNext(32);
+		source2.tryEmitNext(64);
 
-		source1.emitComplete();
-		source2.emitComplete();
+		source1.tryEmitComplete();
+		source2.tryEmitComplete();
 
 		ts.assertValues(17, 18, 20, 33, 34, 36, 65, 66, 68)
 		  .assertComplete()
@@ -146,8 +146,8 @@ public class FluxGroupJoinTest {
 
 		m.subscribe(ts);
 
-		source2.emitNext(1);
-		source1.emitError(new RuntimeException("Forced failure"));
+		source2.tryEmitNext(1);
+		source1.tryEmitError(new RuntimeException("Forced failure"));
 
 		ts.assertErrorMessage("Forced failure")
 		  .assertNotComplete()
@@ -165,8 +165,8 @@ public class FluxGroupJoinTest {
 
 		m.subscribe(ts);
 
-		source1.emitNext(1);
-		source2.emitError(new RuntimeException("Forced failure"));
+		source1.tryEmitNext(1);
+		source2.tryEmitError(new RuntimeException("Forced failure"));
 
 		ts.assertErrorMessage("Forced failure")
 		  .assertNotComplete()
@@ -185,7 +185,7 @@ public class FluxGroupJoinTest {
 				source1.asFlux().groupJoin(source2.asFlux(), just(duration1), just(Flux.never()), add2);
 		m.subscribe(ts);
 
-		source1.emitNext(1);
+		source1.tryEmitNext(1);
 
 		ts.assertErrorMessage("Forced failure")
 		  .assertNotComplete()
@@ -204,7 +204,7 @@ public class FluxGroupJoinTest {
 				source1.asFlux().groupJoin(source2.asFlux(), just(Flux.never()), just(duration1), add2);
 		m.subscribe(ts);
 
-		source2.emitNext(1);
+		source2.tryEmitNext(1);
 
 		ts.assertErrorMessage("Forced failure")
 		  .assertNotComplete()
@@ -225,7 +225,7 @@ public class FluxGroupJoinTest {
 				source1.asFlux().groupJoin(source2.asFlux(), fail, just(Flux.never()), add2);
 		m.subscribe(ts);
 
-		source1.emitNext(1);
+		source1.tryEmitNext(1);
 
 		ts.assertErrorMessage("Forced failure")
 		  .assertNotComplete()
@@ -246,7 +246,7 @@ public class FluxGroupJoinTest {
 				source1.asFlux().groupJoin(source2.asFlux(), just(Flux.never()), fail, add2);
 		m.subscribe(ts);
 
-		source2.emitNext(1);
+		source2.tryEmitNext(1);
 
 		ts.assertErrorMessage("Forced failure")
 		  .assertNotComplete()
@@ -267,8 +267,8 @@ public class FluxGroupJoinTest {
 				source1.asFlux().groupJoin(source2.asFlux(), just(Flux.never()), just(Flux.never()), fail);
 		m.subscribe(ts);
 
-		source1.emitNext(1);
-		source2.emitNext(2);
+		source1.tryEmitNext(1);
+		source2.tryEmitNext(2);
 
 		ts.assertErrorMessage("Forced failure")
 		  .assertNotComplete()

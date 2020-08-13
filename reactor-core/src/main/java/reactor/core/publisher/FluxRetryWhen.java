@@ -180,7 +180,7 @@ final class FluxRetryWhen<T> extends InternalFluxOperator<T, T> {
 
 			otherArbiter.request(1);
 
-			signaller.emitNext(this);
+			signaller.tryEmitNext(this);
 		}
 
 		@Override

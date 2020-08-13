@@ -234,10 +234,10 @@ public class FluxDistinctUntilChangedTest extends FluxOperatorTest<String, Strin
 		                                 .filter(v -> true)
 		                                 .subscribeWith(AssertSubscriber.create());
 
-		dp.emitNext(1);
-		dp.emitNext(2);
-		dp.emitNext(3);
-		dp.emitComplete();
+		dp.tryEmitNext(1);
+		dp.tryEmitNext(2);
+		dp.tryEmitNext(3);
+		dp.tryEmitComplete();
 
 		ts.assertValues(1, 2, 3).assertComplete();
 	}

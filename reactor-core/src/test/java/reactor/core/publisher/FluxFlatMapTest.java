@@ -350,13 +350,13 @@ public class FluxFlatMapTest {
 		Assert.assertTrue("source1 no subscribers?", Scannable.from(source1).inners().count() != 0);
 		Assert.assertFalse("source2 has subscribers?", Scannable.from(source2).inners().count() != 0);
 
-		source1.emitNext(1);
-		source2.emitNext(10);
+		source1.tryEmitNext(1);
+		source2.tryEmitNext(10);
 
-		source1.emitComplete();
+		source1.tryEmitComplete();
 
-		source2.emitNext(2);
-		source2.emitComplete();
+		source2.tryEmitNext(2);
+		source2.tryEmitComplete();
 
 		ts.assertValues(1, 10, 2)
 		.assertNoError()
@@ -385,11 +385,11 @@ public class FluxFlatMapTest {
 		Assert.assertTrue("source1 no subscribers?", Scannable.from(source1).inners().count() != 0);
 		Assert.assertTrue("source2 no  subscribers?", Scannable.from(source2).inners().count() != 0);
 
-		source1.emitNext(1);
-		source1.emitComplete();
+		source1.tryEmitNext(1);
+		source1.tryEmitComplete();
 
-		source2.emitNext(2);
-		source2.emitComplete();
+		source2.tryEmitNext(2);
+		source2.tryEmitComplete();
 
 		ts.assertValueCount(1000)
 		.assertNoError()
@@ -621,10 +621,10 @@ public class FluxFlatMapTest {
 		});
 		StepVerifier.create(up.asFlux().flatMap(Flux::just))
 		            .then(() -> {
-			            up.emitNext(1);
+			            up.tryEmitNext(1);
 						@SuppressWarnings("unchecked")
 			            CoreSubscriber<? super Integer> a = (CoreSubscriber<? super Integer>) Scannable.from(up).scan(Scannable.Attr.ACTUAL);
-			            up.emitComplete();
+			            up.tryEmitComplete();
 			            a.onNext(2);
 		            })
 		            .expectNext(1)
@@ -1052,11 +1052,11 @@ public class FluxFlatMapTest {
 
 		fmm.onNext(ps.asFlux());
 
-		ps.emitNext(1);
+		ps.tryEmitNext(1);
 
 		Operators.addCap(FluxFlatMap.FlatMapMain.REQUESTED, fmm, 2L);
 
-		ps.emitNext(2);
+		ps.tryEmitNext(2);
 
 		fmm.drain(null);
 
@@ -1178,11 +1178,11 @@ public class FluxFlatMapTest {
 		StepVerifier.create(Flux.just(1)
 		                        .hide()
 		                        .flatMap(f -> up.asFlux(), 1))
-		            .then(() -> up.emitNext(1))
-		            .then(() -> up.emitNext(2))
-		            .then(() -> up.emitNext(3))
-		            .then(() -> up.emitNext(4))
-		            .then(() -> up.emitComplete())
+		            .then(() -> up.tryEmitNext(1))
+		            .then(() -> up.tryEmitNext(2))
+		            .then(() -> up.tryEmitNext(3))
+		            .then(() -> up.tryEmitNext(4))
+		            .then(() -> up.tryEmitComplete())
 		            .expectNext(1, 2, 3, 4)
 		            .verifyComplete();
 	}
@@ -1193,9 +1193,9 @@ public class FluxFlatMapTest {
 		StepVerifier.create(Flux.just(1)
 		                        .hide()
 		                        .flatMap(f -> up.asFlux(), 1))
-		            .then(() -> up.emitNext(1))
-		            .then(() -> up.emitNext(2))
-		            .then(() -> up.emitError(new Exception("test")))
+		            .then(() -> up.tryEmitNext(1))
+		            .then(() -> up.tryEmitNext(2))
+		            .then(() -> up.tryEmitError(new Exception("test")))
 		            .expectNext(1, 2)
 		            .verifyErrorMessage("test");
 	}

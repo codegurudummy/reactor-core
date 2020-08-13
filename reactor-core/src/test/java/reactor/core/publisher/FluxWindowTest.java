@@ -439,8 +439,8 @@ public class FluxWindowTest extends FluxOperatorTest<String, Flux<String>> {
 		  .assertNotComplete()
 		  .assertNoError();
 
-		sp.emitNext(1);
-		sp.emitError(new RuntimeException("forced failure"));
+		sp.tryEmitNext(1);
+		sp.tryEmitError(new RuntimeException("forced failure"));
 
 		ts.assertValueCount(1)
 		  .assertNotComplete()
@@ -470,8 +470,8 @@ public class FluxWindowTest extends FluxOperatorTest<String, Flux<String>> {
 		  .assertNotComplete()
 		  .assertNoError();
 
-		sp.emitNext(1);
-		sp.emitError(new RuntimeException("forced failure"));
+		sp.tryEmitNext(1);
+		sp.tryEmitError(new RuntimeException("forced failure"));
 
 		ts.assertValueCount(1)
 		  .assertNotComplete()
@@ -501,9 +501,9 @@ public class FluxWindowTest extends FluxOperatorTest<String, Flux<String>> {
 		  .assertNotComplete()
 		  .assertNoError();
 
-		sp.emitNext(1);
-		sp.emitNext(2);
-		sp.emitError(new RuntimeException("forced failure"));
+		sp.tryEmitNext(1);
+		sp.tryEmitNext(2);
+		sp.tryEmitError(new RuntimeException("forced failure"));
 
 		ts.assertValueCount(1)
 		  .assertNotComplete()
@@ -529,8 +529,8 @@ public class FluxWindowTest extends FluxOperatorTest<String, Flux<String>> {
 		  .assertNotComplete()
 		  .assertNoError();
 
-		sp.emitNext(1);
-		sp.emitError(new RuntimeException("forced failure"));
+		sp.tryEmitNext(1);
+		sp.tryEmitError(new RuntimeException("forced failure"));
 
 		ts.assertValueCount(1)
 		  .assertNotComplete()

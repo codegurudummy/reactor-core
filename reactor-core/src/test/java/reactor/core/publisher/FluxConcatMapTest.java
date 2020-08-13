@@ -123,20 +123,20 @@ public class  FluxConcatMapTest extends AbstractFluxConcatMapTest {
 		  .assertNoError()
 		  .assertNotComplete();
 
-		source.emitNext(1);
-		source.emitNext(2);
+		source.tryEmitNext(1);
+		source.tryEmitNext(2);
 
 		Assert.assertTrue("source1 no subscribers?", Scannable.from(source1).inners().count() != 0);
 		Assert.assertFalse("source2 has subscribers?", Scannable.from(source2).inners().count() != 0);
 
-		source1.emitNext(1);
-		source2.emitNext(10);
+		source1.tryEmitNext(1);
+		source2.tryEmitNext(10);
 
-		source1.emitComplete();
-		source.emitComplete();
+		source1.tryEmitComplete();
+		source.tryEmitComplete();
 
-		source2.emitNext(2);
-		source2.emitComplete();
+		source2.tryEmitNext(2);
+		source2.tryEmitComplete();
 
 		ts.assertValues(1, 2)
 		  .assertNoError()
@@ -160,20 +160,20 @@ public class  FluxConcatMapTest extends AbstractFluxConcatMapTest {
 		  .assertNoError()
 		  .assertNotComplete();
 
-		source.emitNext(1);
+		source.tryEmitNext(1);
 
 		Assert.assertTrue("source1 no subscribers?", Scannable.from(source1).inners().count() != 0);
 		Assert.assertFalse("source2 has subscribers?", Scannable.from(source2).inners().count() != 0);
 
-		source1.emitNext(1);
-		source2.emitNext(10);
+		source1.tryEmitNext(1);
+		source2.tryEmitNext(10);
 
-		source1.emitComplete();
-		source.emitNext(2);
-		source.emitComplete();
+		source1.tryEmitComplete();
+		source.tryEmitNext(2);
+		source.tryEmitComplete();
 
-		source2.emitNext(2);
-		source2.emitComplete();
+		source2.tryEmitNext(2);
+		source2.tryEmitComplete();
 
 		ts.assertValues(1, 2)
 		  .assertNoError()

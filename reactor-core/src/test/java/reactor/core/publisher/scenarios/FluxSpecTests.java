@@ -404,13 +404,13 @@ public class FluxSpecTests {
 		composable.asFlux().subscribe(value::set);
 
 //		when: "a value is accepted"
-		composable.emitNext(1);
+		composable.tryEmitNext(1);
 
 //		then: "it is passed to the consumer"
 		assertThat(value.get()).isEqualTo(1);
 
 //		when: "another value is accepted"
-		composable.emitNext(2);
+		composable.tryEmitNext(2);
 
 //		then: "it too is passed to the consumer"
 		assertThat(value.get()).isEqualTo(2);
@@ -426,7 +426,7 @@ public class FluxSpecTests {
 		composable.asFlux().doOnError(e -> errors.increment()).subscribe();
 
 //		when: "A RuntimeException is accepted"
-		composable.emitError(new RuntimeException());
+		composable.tryEmitError(new RuntimeException());
 
 //		then: "it is passed to the consumer"
 		assertThat(errors.intValue()).isEqualTo(1);
@@ -448,7 +448,7 @@ public class FluxSpecTests {
 //		when: "accept list of Strings"
 		AtomicReference<String> tap = new AtomicReference<>();
 		composable.subscribe(tap::set);
-		d.emitNext(Arrays.asList("a", "b", "c"));
+		d.tryEmitNext(Arrays.asList("a", "b", "c"));
 
 //		then: "its value is the last of the initial values"
 		assertThat(tap.get()).isEqualTo("c");
@@ -464,7 +464,7 @@ public class FluxSpecTests {
 //		when: "the source accepts a value"
 		AtomicReference<Integer> value = new AtomicReference<>();
 		mapped.subscribe(value::set);
-		source.emitNext(1);
+		source.tryEmitNext(1);
 
 //		then: "the value is mapped"
 		assertThat(value.get()).isEqualTo(2);
@@ -485,7 +485,7 @@ public class FluxSpecTests {
 
 
 		StepVerifier.create(mapped.next())
-					.then(() -> source.emitNext(1))
+					.then(() -> source.tryEmitNext(1))
 					.assertNext(result -> assertThat(result).isEqualTo(2))
 					.verifyComplete();
 	}
@@ -508,9 +508,9 @@ public class FluxSpecTests {
 		    .log().subscribe(tap::set);
 
 //		when: "the sources accept a value"
-		source1.emitNext(1);
-		source2.emitNext(2);
-		source3.emitNext(3);
+		source1.tryEmitNext(1);
+		source2.tryEmitNext(2);
+		source3.tryEmitNext(3);
 
 //		then: "the values are all collected from source1 flux"
 		assertThat(tap.get()).containsExactly(1, 2, 3);
@@ -569,18 +569,18 @@ public class FluxSpecTests {
 					System.out.println("completed!");
 				});
 
-		w1.emitNext("1a");
-		w2.emitNext("2a");
-		w3.emitNext("3a");
-		w1.emitComplete();
+		w1.tryEmitNext("1a");
+		w2.tryEmitNext("2a");
+		w3.tryEmitNext("3a");
+		w1.tryEmitComplete();
 		// twice for w2
-		w2.emitNext("2b");
-		w2.emitComplete();
+		w2.tryEmitNext("2b");
+		w2.tryEmitComplete();
 		// 4 times for w3
-		w3.emitNext("3b");
-		w3.emitNext("3c");
-		w3.emitNext("3d");
-		w3.emitComplete();
+		w3.tryEmitNext("3b");
+		w3.tryEmitNext("3c");
+		w3.tryEmitNext("3d");
+		w3.tryEmitComplete();
 
 
 //		then: "the values are all collected from source1 and source2 flux"
@@ -674,10 +674,10 @@ public class FluxSpecTests {
 		                                   .subscribeWith(AssertSubscriber.create());
 
 //		when: "the sources accept a value"
-		source.emitNext(1);
-		source.emitNext(2);
-		source.emitNext(3);
-		source.emitComplete();
+		source.tryEmitNext(1);
+		source.tryEmitNext(2);
+		source.tryEmitNext(3);
+		source.tryEmitComplete();
 
 //		then: "the count value matches the number of accept"
 		tap.assertValues(3L).assertComplete();
@@ -740,13 +740,13 @@ public class FluxSpecTests {
 //		when: "the source accepts an even value"
 		AtomicReference<Integer> value = new AtomicReference<>();
 		filtered.subscribe(value::set);
-		source.emitNext(2);
+		source.tryEmitNext(2);
 
 //		then: "it passes through"
 		assertThat(value.get()).isEqualTo(2);
 
 //		when: "the source accepts an odd value"
-		source.emitNext(3);
+		source.tryEmitNext(3);
 
 //		then: "it is blocked by the filter"
 		assertThat(value.get()).isEqualTo(2);
@@ -755,7 +755,7 @@ public class FluxSpecTests {
 		Sinks.Many<Boolean> anotherSource = Sinks.many().multicast().onBackpressureBuffer();
 		AtomicBoolean tap = new AtomicBoolean();
 		anotherSource.asFlux().filter(it -> it).subscribe(tap::set);
-		anotherSource.emitNext(true);
+		anotherSource.tryEmitNext(true);
 
 //		then: "it is accepted by the filter"
 		assertThat(tap.get()).isTrue();
@@ -763,7 +763,7 @@ public class FluxSpecTests {
 //		when: "simple filter nominal case"
 		anotherSource = Sinks.many().multicast().onBackpressureBuffer();
 		anotherSource.asFlux().filter(it -> it).subscribe(tap::set);
-		anotherSource.emitNext(false);
+		anotherSource.tryEmitNext(false);
 
 //		then: "it is not accepted by the filter (previous value held)"
 		assertThat(tap.get()).isTrue();
@@ -788,7 +788,7 @@ public class FluxSpecTests {
 		      .subscribe();
 
 //		when: "the source accepts a value"
-		source.emitNext(1);
+		source.tryEmitNext(1);
 
 //		then: "the error is passed on"
 		assertThat(errors.intValue()).isEqualTo(1);
@@ -813,11 +813,11 @@ public class FluxSpecTests {
 			res.subscribe();
 
 //		when: "the source accepts a value"
-			source.emitNext(1);
-			source.emitNext(2);
-			source.emitNext(3);
-			source.emitNext(4);
-			source.emitComplete();
+			source.tryEmitNext(1);
+			source.tryEmitNext(2);
+			source.tryEmitNext(3);
+			source.tryEmitNext(4);
+			source.tryEmitComplete();
 
 //		then: "the res is passed on"
 			assertThat(res.block()).containsExactly(2, 4, 6, 8);
@@ -844,7 +844,7 @@ public class FluxSpecTests {
 		filtered.doOnError(e -> errors.increment()).subscribe();
 
 //		when: "the source accepts a value"
-		source.emitNext(1);
+		source.tryEmitNext(1);
 
 //		then: "the error is passed on"
 		assertThat(errors.intValue()).isEqualTo(1);
@@ -893,12 +893,12 @@ public class FluxSpecTests {
 		reduced.doOnSuccess(values::add).subscribe();
 
 //		when: "the expected number of values is accepted"
-		source.emitNext(1);
-		source.emitNext(2);
-		source.emitNext(3);
-		source.emitNext(4);
-		source.emitNext(5);
-		source.emitComplete();
+		source.tryEmitNext(1);
+		source.tryEmitNext(2);
+		source.tryEmitNext(3);
+		source.tryEmitNext(4);
+		source.tryEmitNext(5);
+		source.tryEmitComplete();
 
 //		then: "the consumer only receives the final value"
 		assertThat(values).containsExactly(120);
@@ -913,12 +913,12 @@ public class FluxSpecTests {
 		AssertSubscriber<Integer> value = reduced.subscribeWith(AssertSubscriber.create());
 
 //		when: "the expected number of values is accepted"
-		source.emitNext(1);
-		source.emitNext(2);
-		source.emitNext(3);
-		source.emitNext(4);
-		source.emitNext(5);
-		source.emitComplete();
+		source.tryEmitNext(1);
+		source.tryEmitNext(2);
+		source.tryEmitNext(3);
+		source.tryEmitNext(4);
+		source.tryEmitNext(5);
+		source.tryEmitComplete();
 
 //		then: "the reduced composable holds the reduced value"
 		value.assertValues(120).assertComplete();
@@ -933,14 +933,14 @@ public class FluxSpecTests {
 		                                        .subscribeWith(AssertSubscriber.create());
 
 //		when: "the first value is accepted"
-		source.emitNext(1);
+		source.tryEmitNext(1);
 
 //		then: "the reduced value is unknown"
 		value.assertNoValues();
 
 //		when: "the second value is accepted"
-		source.emitNext(2);
-		source.emitComplete();
+		source.tryEmitNext(2);
+		source.tryEmitComplete();
 
 //		then: "the reduced value is known"
 		value.assertValues(2).assertComplete();
@@ -959,20 +959,20 @@ public class FluxSpecTests {
 		reduced.subscribe(value::set);
 
 //		when: "the first value is accepted"
-		source.emitNext(1);
+		source.tryEmitNext(1);
 
 //		then: "the reduction is available"
 		assertThat(value.get()).isEqualTo(1);
 
 //		when: "the second value is accepted"
-		source.emitNext(2);
+		source.tryEmitNext(2);
 
 //		then: "the updated reduction is available"
 		assertThat(value.get()).isEqualTo(2);
 
 //		when: "use an initial value"
 		source.asFlux().scan(4, new Reduction()).subscribe(value::set);
-		source.emitNext(1);
+		source.tryEmitNext(1);
 
 //		then: "the updated reduction is available"
 		assertThat(value.get()).isEqualTo(4);
@@ -986,8 +986,8 @@ public class FluxSpecTests {
 		StepVerifier.create(source.asFlux()
 								  .collectList())
 					.then(() -> {
-						source.emitNext(1);
-						source.emitComplete();
+						source.tryEmitNext(1);
+						source.tryEmitComplete();
 					})
 					.assertNext(res -> assertThat(res).containsExactly(1));
 	}
@@ -1006,13 +1006,13 @@ public class FluxSpecTests {
 		AssertSubscriber<Integer> value = reduced.subscribeWith(AssertSubscriber.create());
 
 //		when: "the first value is accepted"
-		source.emitNext(1);
+		source.tryEmitNext(1);
 
 //		then: "the reduction is not available"
 		value.assertNoValues();
 
 //		when: "the second value is accepted and flushed"
-		source.emitNext(2);
+		source.tryEmitNext(2);
 
 //		then: "the updated reduction is available"
 		value.assertValues(2);
@@ -1104,8 +1104,8 @@ public class FluxSpecTests {
 				});
 
 		Flux.range(1, 1000).subscribe(data -> {
-			while(head.emitNext(data).hasFailed());
-		}, head::emitError, head::emitComplete);
+			while(head.tryEmitNext(data).hasFailed());
+		}, head::tryEmitError, head::tryEmitComplete);
 		latch.await();
 		Assert.assertTrue(sum.get() == length);
 	}

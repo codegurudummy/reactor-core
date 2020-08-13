@@ -74,13 +74,13 @@ public class FluxOnBackpressureLatestTest {
 
 		tp.asFlux().onBackpressureLatest().subscribe(ts);
 
-		tp.emitNext(1);
+		tp.tryEmitNext(1);
 
 		ts.assertNoValues()
 		  .assertNoError()
 		  .assertNotComplete();
 
-		tp.emitNext(2);
+		tp.tryEmitNext(2);
 
 		ts.request(1);
 
@@ -88,8 +88,8 @@ public class FluxOnBackpressureLatestTest {
 		  .assertNoError()
 		  .assertNotComplete();
 
-		tp.emitNext(3);
-		tp.emitNext(4);
+		tp.tryEmitNext(3);
+		tp.tryEmitNext(4);
 
 		ts.request(2);
 
@@ -97,8 +97,8 @@ public class FluxOnBackpressureLatestTest {
 		  .assertNoError()
 		  .assertNotComplete();
 
-		tp.emitNext(5);
-		tp.emitComplete();
+		tp.tryEmitNext(5);
+		tp.tryEmitComplete();
 
 		ts.assertValues(2, 4, 5)
 		  .assertNoError()
@@ -113,7 +113,7 @@ public class FluxOnBackpressureLatestTest {
 
 		tp.asFlux().onBackpressureLatest().subscribe(ts);
 
-		tp.emitError(new RuntimeException("forced failure"));
+		tp.tryEmitError(new RuntimeException("forced failure"));
 
 		ts.assertNoValues()
 		  .assertNotComplete()
@@ -130,7 +130,7 @@ public class FluxOnBackpressureLatestTest {
 			public void onNext(Integer t) {
 				super.onNext(t);
 				if (t == 2) {
-					tp.emitNext(3);
+					tp.tryEmitNext(3);
 				}
 			}
 		};
@@ -139,8 +139,8 @@ public class FluxOnBackpressureLatestTest {
 		  .onBackpressureLatest()
 		  .subscribe(ts);
 
-		tp.emitNext(1);
-		tp.emitNext(2);
+		tp.tryEmitNext(1);
+		tp.tryEmitNext(2);
 
 		ts.request(1);
 

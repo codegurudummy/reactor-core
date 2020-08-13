@@ -18,7 +18,6 @@ package reactor.core.publisher;
 
 import java.time.Duration;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 
 import org.assertj.core.api.Assertions;
@@ -64,16 +63,16 @@ public class FluxWindowBoundaryTest {
 
 		ts.assertValueCount(1);
 
-		sp1.emitNext(1);
-		sp1.emitNext(2);
-		sp1.emitNext(3);
+		sp1.tryEmitNext(1);
+		sp1.tryEmitNext(2);
+		sp1.tryEmitNext(3);
 
-		sp2.emitNext(1);
+		sp2.tryEmitNext(1);
 
-		sp1.emitNext(4);
-		sp1.emitNext(5);
+		sp1.tryEmitNext(4);
+		sp1.tryEmitNext(5);
 
-		sp1.emitComplete();
+		sp1.tryEmitComplete();
 
 		ts.assertValueCount(2);
 
@@ -100,16 +99,16 @@ public class FluxWindowBoundaryTest {
 
 		ts.assertValueCount(1);
 
-		sp1.emitNext(1);
-		sp1.emitNext(2);
-		sp1.emitNext(3);
+		sp1.tryEmitNext(1);
+		sp1.tryEmitNext(2);
+		sp1.tryEmitNext(3);
 
-		sp2.emitNext(1);
+		sp2.tryEmitNext(1);
 
-		sp1.emitNext(4);
-		sp1.emitNext(5);
+		sp1.tryEmitNext(4);
+		sp1.tryEmitNext(5);
 
-		sp2.emitComplete();
+		sp2.tryEmitComplete();
 
 		ts.assertValueCount(2);
 
@@ -136,16 +135,16 @@ public class FluxWindowBoundaryTest {
 
 		ts.assertValueCount(1);
 
-		sp1.emitNext(1);
-		sp1.emitNext(2);
-		sp1.emitNext(3);
+		sp1.tryEmitNext(1);
+		sp1.tryEmitNext(2);
+		sp1.tryEmitNext(3);
 
-		sp2.emitNext(1);
+		sp2.tryEmitNext(1);
 
-		sp1.emitNext(4);
-		sp1.emitNext(5);
+		sp1.tryEmitNext(4);
+		sp1.tryEmitNext(5);
 
-		sp1.emitError(new RuntimeException("forced failure"));
+		sp1.tryEmitError(new RuntimeException("forced failure"));
 
 		ts.assertValueCount(2);
 
@@ -178,16 +177,16 @@ public class FluxWindowBoundaryTest {
 
 		ts.assertValueCount(1);
 
-		sp1.emitNext(1);
-		sp1.emitNext(2);
-		sp1.emitNext(3);
+		sp1.tryEmitNext(1);
+		sp1.tryEmitNext(2);
+		sp1.tryEmitNext(3);
 
-		sp2.emitNext(1);
+		sp2.tryEmitNext(1);
 
-		sp1.emitNext(4);
-		sp1.emitNext(5);
+		sp1.tryEmitNext(4);
+		sp1.tryEmitNext(5);
 
-		sp2.emitError(new RuntimeException("forced failure"));
+		sp2.tryEmitError(new RuntimeException("forced failure"));
 
 		ts.assertValueCount(2);
 
@@ -239,13 +238,13 @@ public class FluxWindowBoundaryTest {
 								   .concatMap(Flux::buffer)
 								   .collectList())
 					.then(() -> {
-						numbers.emitNext(1);
-						numbers.emitNext(2);
-						numbers.emitNext(3);
-						boundaryFlux.emitNext(1);
-						numbers.emitNext(5);
-						numbers.emitNext(6);
-						numbers.emitComplete();
+						numbers.tryEmitNext(1);
+						numbers.tryEmitNext(2);
+						numbers.tryEmitNext(3);
+						boundaryFlux.tryEmitNext(1);
+						numbers.tryEmitNext(5);
+						numbers.tryEmitNext(6);
+						numbers.tryEmitComplete();
 						//"the collected lists are available"
 					})
 					.assertNext(res -> assertThat(res).containsExactly(Arrays.asList(1, 2, 3), Arrays.asList(5, 6)))

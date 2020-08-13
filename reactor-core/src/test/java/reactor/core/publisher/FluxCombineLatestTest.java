@@ -168,17 +168,17 @@ public class FluxCombineLatestTest extends FluxOperatorTest<String, String> {
 		Flux.combineLatest(dp1.asFlux(), dp2.asFlux(), (a, b) -> a + b)
 		    .subscribe(ts);
 
-		dp1.emitNext(1);
-		dp1.emitNext(2);
+		dp1.tryEmitNext(1);
+		dp1.tryEmitNext(2);
 
-		dp2.emitNext(10);
-		dp2.emitNext(20);
-		dp2.emitNext(30);
+		dp2.tryEmitNext(10);
+		dp2.tryEmitNext(20);
+		dp2.tryEmitNext(30);
 
-		dp1.emitNext(3);
+		dp1.tryEmitNext(3);
 
-		dp1.emitComplete();
-		dp2.emitComplete();
+		dp1.tryEmitComplete();
+		dp2.tryEmitComplete();
 
 		ts.assertFuseableSource()
 		  .assertFusionMode(Fuseable.ASYNC)

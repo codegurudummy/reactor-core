@@ -215,7 +215,7 @@ public class MonoTests {
 	@Test
 	public void testMono() throws Exception {
 		Sinks.One<String> promise = Sinks.one();
-		promise.emitValue("test");
+		promise.tryEmitValue("test");
 		final CountDownLatch successCountDownLatch = new CountDownLatch(1);
 		promise.asMono().subscribe(v -> successCountDownLatch.countDown());
 		assertThat("Failed", successCountDownLatch.await(10, TimeUnit.SECONDS));

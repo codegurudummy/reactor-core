@@ -69,7 +69,7 @@ public class UnicastProcessorTest {
 		for (int i = 0; i < 5; i++) {
 			Runnable generator = () -> {
 				for (int j = 0; j < countPerThread; j++) {
-					sink.emitNext(j);
+					sink.tryEmitNext(j);
 				}
 			};
 			executor.submit(generator);

@@ -270,7 +270,7 @@ public class FluxUsingTest extends FluxOperatorTest<String, String> {
 
 		Assert.assertTrue("No subscriber?", Scannable.from(tp).inners().count() != 0);
 
-		tp.emitNext(1);
+		tp.tryEmitNext(1);
 
 		ts.assertValues(1)
 		  .assertNotComplete()
@@ -278,7 +278,7 @@ public class FluxUsingTest extends FluxOperatorTest<String, String> {
 
 		ts.cancel();
 
-		tp.emitNext(2);
+		tp.tryEmitNext(2);
 
 		ts.assertValues(1)
 		  .assertNotComplete()

@@ -432,9 +432,9 @@ public class FluxTests extends AbstractReactorTest {
 	@Test
 	public void promiseAcceptCountCannotExceedOne() {
 		Sinks.One<Object> deferred = Sinks.one();
-		deferred.emitValue("alpha");
+		deferred.tryEmitValue("alpha");
 		try {
-			deferred.emitValue("bravo");
+			deferred.tryEmitValue("bravo");
 		}
 		catch (Exception e) {
 			if(!Exceptions.isCancel(e)) {
@@ -451,8 +451,8 @@ public class FluxTests extends AbstractReactorTest {
 
 		StepVerifier.create(deferred.asMono())
 		            .then(() -> {
-			            deferred.emitError(error);
-			            deferred.emitValue(error);
+			            deferred.tryEmitError(error);
+			            deferred.tryEmitValue(error);
 		            })
 		            .expectErrorMessage("foo")
 		            .verifyThenAssertThat()
@@ -468,8 +468,8 @@ public class FluxTests extends AbstractReactorTest {
 
 		StepVerifier.create(deferred.asMono())
 		            .then(() -> {
-			            deferred.emitError(error);
-			            deferred.emitValue("alpha");
+			            deferred.tryEmitError(error);
+			            deferred.tryEmitValue("alpha");
 		            })
 		            .expectErrorMessage("foo")
 		            .verifyThenAssertThat()
@@ -544,9 +544,9 @@ public class FluxTests extends AbstractReactorTest {
 			  .subscribe();
 
 		for (int j = 0; j < 10; j++) {
-			source.emitNext(1);
+			source.tryEmitNext(1);
 		}
-		source.emitComplete();
+		source.tryEmitComplete();
 
 		Assert.assertTrue(result.block(Duration.ofSeconds(5)) >= avgTime * 0.6);
 	}
@@ -589,7 +589,7 @@ public class FluxTests extends AbstractReactorTest {
 		long start = System.currentTimeMillis();
 
 		for (String i : data) {
-			while (deferred.emitNext(i).hasFailed() );
+			while (deferred.tryEmitNext(i).hasFailed() );
 		}
 		if (!latch.await(10, TimeUnit.SECONDS)) {
 			throw new RuntimeException(latch.getCount()+ " ");
@@ -643,7 +643,7 @@ public class FluxTests extends AbstractReactorTest {
 
 		long start = System.currentTimeMillis();
 		for (int i : data) {
-			while (deferred.emitNext(i).hasFailed() );
+			while (deferred.tryEmitNext(i).hasFailed() );
 		}
 
 		if (!latch.await(15, TimeUnit.SECONDS)) {
@@ -692,7 +692,7 @@ public class FluxTests extends AbstractReactorTest {
 		long start = System.currentTimeMillis();
 
 		for (int i : data) {
-			while (mapManydeferred.emitNext(i).hasFailed() );
+			while (mapManydeferred.tryEmitNext(i).hasFailed() );
 		}
 
 		if (!latch.await(20, TimeUnit.SECONDS)) {
@@ -775,7 +775,7 @@ public class FluxTests extends AbstractReactorTest {
 		                                                }));
 
 		testDataset.forEach(data -> {
-			while (batchingStreamDef.emitNext(data).hasFailed() );
+			while (batchingStreamDef.tryEmitNext(data).hasFailed() );
 		});
 
 		System.out.println(batchesDistribution);
@@ -878,8 +878,8 @@ public class FluxTests extends AbstractReactorTest {
 
 		afterSubscribe.await(5, TimeUnit.SECONDS);
 
-		globalFeed.emitNext(2223);
-		globalFeed.emitNext(2224);
+		globalFeed.tryEmitNext(2223);
+		globalFeed.tryEmitNext(2224);
 
 		latch.await(5, TimeUnit.SECONDS);
 		assertEquals("Must have counted 4 elements", 0, latch.getCount());
@@ -1083,10 +1083,10 @@ public class FluxTests extends AbstractReactorTest {
 		                                                .doOnError(Throwable::printStackTrace)
 		                                                .subscribe(i -> latch.countDown()));
 
-		streamBatcher.emitNext(12);
-		streamBatcher.emitNext(123);
-		streamBatcher.emitNext(42);
-		streamBatcher.emitNext(666);
+		streamBatcher.tryEmitNext(12);
+		streamBatcher.tryEmitNext(123);
+		streamBatcher.tryEmitNext(42);
+		streamBatcher.tryEmitNext(666);
 
 		boolean finished = latch.await(2, TimeUnit.SECONDS);
 		if (!finished) {
@@ -1405,10 +1405,10 @@ public class FluxTests extends AbstractReactorTest {
 		                                                 .collectList()
 		                                                 .doOnTerminate(doneSemaphore::release))
 					.then(() -> {
-						forkEmitterProcessor.emitNext(1);
-						forkEmitterProcessor.emitNext(2);
-						forkEmitterProcessor.emitNext(3);
-						forkEmitterProcessor.emitComplete();
+						forkEmitterProcessor.tryEmitNext(1);
+						forkEmitterProcessor.tryEmitNext(2);
+						forkEmitterProcessor.tryEmitNext(3);
+						forkEmitterProcessor.tryEmitComplete();
 					})
 					.assertNext(res -> assertEquals(Arrays.asList("i0", "done1", "i0", "i1", "done2", "i0", "i1", "i2", "done3"), res))
 					.verifyComplete();

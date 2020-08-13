@@ -87,37 +87,37 @@ public class FluxBufferBoundaryTest
 		  .assertNoError()
 		  .assertNotComplete();
 
-		sp1.emitNext(1);
-		sp1.emitNext(2);
+		sp1.tryEmitNext(1);
+		sp1.tryEmitNext(2);
 
 		ts.assertNoValues()
 		  .assertNoError()
 		  .assertNotComplete();
 
-		sp2.emitNext(1);
+		sp2.tryEmitNext(1);
 
 		ts.assertValues(Arrays.asList(1, 2))
 		  .assertNoError()
 		  .assertNotComplete();
 
-		sp2.emitNext(2);
+		sp2.tryEmitNext(2);
 
 		ts.assertValues(Arrays.asList(1, 2))
 		  .assertNoError()
 		  .assertNotComplete();
 
-		sp1.emitNext(3);
-		sp1.emitNext(4);
+		sp1.tryEmitNext(3);
+		sp1.tryEmitNext(4);
 
-		sp2.emitComplete();
+		sp2.tryEmitComplete();
 
 		ts.assertValues(Arrays.asList(1, 2), Arrays.asList(3, 4))
 		  .assertNoError()
 		  .assertComplete();
 
-		sp1.emitNext(5);
-		sp1.emitNext(6);
-		sp1.emitComplete();
+		sp1.tryEmitNext(5);
+		sp1.tryEmitNext(6);
+		sp1.tryEmitComplete();
 
 		ts.assertValues(Arrays.asList(1, 2), Arrays.asList(3, 4))
 		  .assertNoError()
@@ -139,31 +139,31 @@ public class FluxBufferBoundaryTest
 		  .assertNoError()
 		  .assertNotComplete();
 
-		sp1.emitNext(1);
-		sp1.emitNext(2);
+		sp1.tryEmitNext(1);
+		sp1.tryEmitNext(2);
 
 		ts.assertNoValues()
 		  .assertNoError()
 		  .assertNotComplete();
 
-		sp2.emitNext(1);
+		sp2.tryEmitNext(1);
 
 		ts.assertValues(Arrays.asList(1, 2))
 		  .assertNoError()
 		  .assertNotComplete();
 
-		sp1.emitError(new RuntimeException("forced failure"));
+		sp1.tryEmitError(new RuntimeException("forced failure"));
 
 		Assert.assertFalse("sp2 has subscribers?", Scannable.from(sp2).inners().findAny().isPresent());
 
-		sp2.emitNext(2);
+		sp2.tryEmitNext(2);
 
 		ts.assertValues(Arrays.asList(1, 2))
 		  .assertError(RuntimeException.class)
 		  .assertErrorMessage("forced failure")
 		  .assertNotComplete();
 
-		sp2.emitComplete();
+		sp2.tryEmitComplete();
 
 		ts.assertValues(Arrays.asList(1, 2))
 		  .assertError(RuntimeException.class)
@@ -186,22 +186,22 @@ public class FluxBufferBoundaryTest
 		  .assertNoError()
 		  .assertNotComplete();
 
-		sp1.emitNext(1);
-		sp1.emitNext(2);
+		sp1.tryEmitNext(1);
+		sp1.tryEmitNext(2);
 
 		ts.assertNoValues()
 		  .assertNoError()
 		  .assertNotComplete();
 
-		sp2.emitNext(1);
+		sp2.tryEmitNext(1);
 
 		ts.assertValues(Arrays.asList(1, 2))
 		  .assertNoError()
 		  .assertNotComplete();
 
-		sp1.emitNext(3);
+		sp1.tryEmitNext(3);
 
-		sp2.emitError(new RuntimeException("forced failure"));
+		sp2.tryEmitError(new RuntimeException("forced failure"));
 
 		Assert.assertFalse("sp1 has subscribers?", Scannable.from(sp1).inners().findAny().isPresent());
 
@@ -210,7 +210,7 @@ public class FluxBufferBoundaryTest
 		  .assertErrorMessage("forced failure")
 		  .assertNotComplete();
 
-		sp2.emitComplete();
+		sp2.tryEmitComplete();
 
 		ts.assertValues(Arrays.asList(1, 2))
 		  .assertError(RuntimeException.class)
@@ -258,10 +258,10 @@ public class FluxBufferBoundaryTest
 		})
 		   .subscribe(ts);
 
-		sp1.emitNext(1);
-		sp1.emitNext(2);
+		sp1.tryEmitNext(1);
+		sp1.tryEmitNext(2);
 
-		sp2.emitNext(1);
+		sp2.tryEmitNext(1);
 
 		Assert.assertFalse("sp1 has subscribers?", Scannable.from(sp1).inners().findAny().isPresent());
 		Assert.assertFalse("sp2 has subscribers?", Scannable.from(sp2).inners().findAny().isPresent());
@@ -337,13 +337,13 @@ public class FluxBufferBoundaryTest
 								   .buffer(boundaryFlux.asFlux())
 								   .collectList())
 					.then(() -> {
-						numbers.emitNext(1);
-						numbers.emitNext(2);
-						numbers.emitNext(3);
-						boundaryFlux.emitNext(1);
-						numbers.emitNext(5);
-						numbers.emitNext(6);
-						numbers.emitComplete();
+						numbers.tryEmitNext(1);
+						numbers.tryEmitNext(2);
+						numbers.tryEmitNext(3);
+						boundaryFlux.tryEmitNext(1);
+						numbers.tryEmitNext(5);
+						numbers.tryEmitNext(6);
+						numbers.tryEmitComplete();
 						//"the collected lists are available"
 					})
 					.assertNext(res -> assertThat(res).containsExactly(Arrays.asList(1, 2, 3), Arrays.asList(5, 6)))

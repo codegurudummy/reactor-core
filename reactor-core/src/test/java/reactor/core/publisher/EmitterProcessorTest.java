@@ -121,7 +121,7 @@ public class EmitterProcessorTest {
 		assertThat(processor.sourceMode).as("sourceMode").isEqualTo(Fuseable.ASYNC);
 
 		processor.onNext(null);
-		assertThatThrownBy(() -> processor.emitNext(null)).isInstanceOf(NullPointerException.class);
+		assertThatThrownBy(() -> processor.tryEmitNext(null)).isInstanceOf(NullPointerException.class);
 	}
 
 	@Test

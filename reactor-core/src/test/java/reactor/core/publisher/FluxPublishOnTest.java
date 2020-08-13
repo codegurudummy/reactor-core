@@ -248,9 +248,9 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 				Sinks.many().unsafe().unicast().onBackpressureBuffer(new ConcurrentLinkedQueue<>());
 
 		for (int i = 0; i < 1_000_000; i++) {
-			up.emitNext(i);
+			up.tryEmitNext(i);
 		}
-		up.emitComplete();
+		up.tryEmitComplete();
 
 		up.asFlux()
 		  .publishOn(Schedulers.fromExecutorService(exec))
@@ -269,9 +269,9 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 				Sinks.many().unsafe().unicast().onBackpressureBuffer(Queues.<Integer>unbounded(1024).get());
 
 		for (int i = 0; i < 1_000_000; i++) {
-			up.emitNext(0);
+			up.tryEmitNext(0);
 		}
-		up.emitComplete();
+		up.tryEmitComplete();
 
 		StepVerifier.create(up.asFlux().publishOn(Schedulers.fromExecutorService(exec)), 0)
 		            .expectSubscription()
@@ -698,9 +698,9 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 		Sinks.Many<Integer> up =
 				Sinks.many().unsafe().unicast().onBackpressureBuffer(Queues.<Integer>get(2).get());
-		up.emitNext(1);
-		up.emitNext(2);
-		up.emitComplete();
+		up.tryEmitNext(1);
+		up.tryEmitNext(2);
+		up.tryEmitComplete();
 
 		up.asFlux().map(v -> v == 2 ? null : v)
 		  .publishOn(Schedulers.fromExecutorService(exec))
@@ -718,9 +718,9 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 		Sinks.Many<Integer> up =
 				Sinks.many().unsafe().unicast().onBackpressureBuffer(Queues.<Integer>get(2).get());
-		up.emitNext(1);
-		up.emitNext(2);
-		up.emitComplete();
+		up.tryEmitNext(1);
+		up.tryEmitNext(2);
+		up.tryEmitComplete();
 
 		up.asFlux().map(v -> v == 2 ? null : v)
 		  .publishOn(Schedulers.fromExecutorService(exec))
@@ -808,8 +808,8 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 		  .publishOn(Schedulers.fromExecutorService(exec))
 		  .subscribe(ts);
 
-		up.emitNext(1);
-		up.emitComplete();
+		up.tryEmitNext(1);
+		up.tryEmitComplete();
 
 		ts.await(Duration.ofSeconds(5));
 
@@ -834,8 +834,8 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 		  .publishOn(Schedulers.fromExecutorService(exec))
 		  .subscribe(ts);
 
-		up.emitNext(1);
-		up.emitComplete();
+		up.tryEmitNext(1);
+		up.tryEmitComplete();
 
 		ts.await(Duration.ofSeconds(5));
 
@@ -1187,7 +1187,7 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 		                            }));
 
 		for (int i = 0; i < COUNT; i++) {
-			while (s.emitNext(i).hasFailed() );
+			while (s.tryEmitNext(i).hasFailed() );
 		}
 
 		internalLatch.await(5, TimeUnit.SECONDS);
@@ -1227,7 +1227,7 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 		});
 
 		for (int i = 1; i <= items; i++) {
-			while (s.emitNext(String.valueOf(i)).hasFailed() );
+			while (s.tryEmitNext(String.valueOf(i)).hasFailed() );
 		}
 		latch.await(15, TimeUnit.SECONDS);
 		assertThat(latch.getCount())

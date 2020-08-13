@@ -62,16 +62,6 @@ final class SerializedManySink<T> implements Many<T>, Scannable {
 		return sink.asFlux();
 	}
 
-	@Override
-	public final Emission emitComplete() {
-		if (done) {
-			return Sinks.Emission.FAIL_TERMINATED;
-		}
-		done = true;
-		drain();
-		return Sinks.Emission.OK;
-	}
-
 	Context currentContext() {
 		return contextHolder.currentContext();
 	}
@@ -81,10 +71,33 @@ final class SerializedManySink<T> implements Many<T>, Scannable {
 	}
 
 	@Override
-	public final Emission emitError(Throwable t) {
+	public void emitComplete() {
+		//no particular error condition handling for onComplete
+		tryEmitComplete();
+	}
+
+	@Override
+	public final Emission tryEmitComplete() {
+		if (done) {
+			return Sinks.Emission.FAIL_TERMINATED;
+		}
+		done = true;
+		drain();
+		return Sinks.Emission.OK;
+	}
+
+	@Override
+	public void emitError(Throwable error) {
+		Emission result = tryEmitError(error);
+		if (result == Emission.FAIL_TERMINATED) {
+			Operators.onErrorDropped(error, currentContext());
+		}
+	}
+
+	@Override
+	public final Emission tryEmitError(Throwable t) {
 		Objects.requireNonNull(t, "t is null in sink.error(t)");
 		if (done) {
-			Operators.onOperatorError(t, currentContext());
 			return Sinks.Emission.FAIL_TERMINATED;
 		}
 		if (Exceptions.addThrowable(ERROR, this, t)) {
@@ -94,28 +107,42 @@ final class SerializedManySink<T> implements Many<T>, Scannable {
 		}
 
 		Context ctx = currentContext();
+		//we do deal with the queue inside tryEmitError, but the throwable t is left up to the user
 		Operators.onDiscardQueueWithClear(mpscQueue, ctx, null);
-		Operators.onOperatorError(t, ctx);
 		return Sinks.Emission.FAIL_TERMINATED;
 	}
 
 	@Override
-	public final Emission emitNext(T t) {
+	public void emitNext(T value) {
+		Emission result = tryEmitNext(value);
+		if (result == Emission.FAIL_OVERFLOW) {
+			Operators.onDiscard(value, currentContext());
+			//the emitError will onErrorDropped if already terminated
+			emitError(Exceptions.failWithOverflow("Backpressure overflow during Sinks.One#emitValue"));
+		}
+		else if (result == Emission.FAIL_CANCELLED) {
+			Operators.onDiscard(value, currentContext());
+		}
+		else if (result == Emission.FAIL_TERMINATED) {
+			Operators.onNextDropped(value, currentContext());
+		}
+	}
+
+	@Override
+	public final Emission tryEmitNext(T t) {
 		Objects.requireNonNull(t, "t is null in sink.next(t)");
 		if (done) {
-			Operators.onNextDropped(t, currentContext());
 			return Sinks.Emission.FAIL_TERMINATED;
 		}
 		if (WIP.get(this) == 0 && WIP.compareAndSet(this, 0, 1)) {
 			Emission emission;
 			try {
-				emission = sink.emitNext(t);
+				emission = sink.tryEmitNext(t);
 			}
 			catch (Throwable ex) {
-				Subscription
-						s = sink instanceof Subscription ? (Subscription) sink : null;
-				Operators.onOperatorError(s, ex, t, currentContext());
-				emitError(ex);
+				Subscription s = sink instanceof Subscription ? (Subscription) sink : null;
+				ex = Operators.onOperatorError(s, ex, t, currentContext());
+				tryEmitError(ex);
 				//should use sink.dispose
 				return Sinks.Emission.FAIL_TERMINATED;
 			}
@@ -161,7 +188,7 @@ final class SerializedManySink<T> implements Many<T>, Scannable {
 				if (ERROR.get(this) != null) {
 					Operators.onDiscardQueueWithClear(q, currentContext(), null);
 					//noinspection ConstantConditions
-					e.emitError(Exceptions.terminate(ERROR, this));
+					e.tryEmitError(Exceptions.terminate(ERROR, this));
 					return;
 				}
 
@@ -171,7 +198,7 @@ final class SerializedManySink<T> implements Many<T>, Scannable {
 				boolean empty = v == null;
 
 				if (d && empty) {
-					e.emitComplete();
+					e.tryEmitComplete();
 					return;
 				}
 
@@ -180,11 +207,11 @@ final class SerializedManySink<T> implements Many<T>, Scannable {
 				}
 
 				try {
-					e.emitNext(v);
+					e.tryEmitNext(v);
 				}
 				catch (Throwable ex) {
-					Operators.onOperatorError(null, ex, v, currentContext());
-					emitError(ex);
+					ex = Operators.onOperatorError(null, ex, v, currentContext());
+					tryEmitError(ex);
 					break;
 				}
 			}

@@ -45,25 +45,25 @@ public class FluxSampleTimeoutTest {
 		   .sampleTimeout(v -> v == 1 ? sp2.asFlux() : sp3.asFlux())
 		   .subscribe(ts);
 
-		sp1.emitNext(1);
-		sp2.emitNext(1);
+		sp1.tryEmitNext(1);
+		sp2.tryEmitNext(1);
 
 		ts.assertValues(1)
 		  .assertNoError()
 		  .assertNotComplete();
 
-		sp1.emitNext(2);
-		sp1.emitNext(3);
-		sp1.emitNext(4);
+		sp1.tryEmitNext(2);
+		sp1.tryEmitNext(3);
+		sp1.tryEmitNext(4);
 
-		sp3.emitNext(2);
+		sp3.tryEmitNext(2);
 
 		ts.assertValues(1, 4)
 		  .assertNoError()
 		  .assertNotComplete();
 
-		sp1.emitNext(5);
-		sp1.emitComplete();
+		sp1.tryEmitNext(5);
+		sp1.tryEmitComplete();
 
 		ts.assertValues(1, 4, 5)
 		  .assertNoError()
@@ -85,8 +85,8 @@ public class FluxSampleTimeoutTest {
 		   .sampleTimeout(v -> sp2.asFlux())
 		   .subscribe(ts);
 
-		sp1.emitNext(1);
-		sp1.emitError(new RuntimeException("forced failure"));
+		sp1.tryEmitNext(1);
+		sp1.tryEmitError(new RuntimeException("forced failure"));
 
 		ts.assertNoValues()
 		  .assertError(RuntimeException.class)
@@ -108,8 +108,8 @@ public class FluxSampleTimeoutTest {
 		   .sampleTimeout(v -> sp2.asFlux())
 		   .subscribe(ts);
 
-		sp1.emitNext(1);
-		sp2.emitError(new RuntimeException("forced failure"));
+		sp1.tryEmitNext(1);
+		sp2.tryEmitError(new RuntimeException("forced failure"));
 
 		ts.assertNoValues()
 		  .assertError(RuntimeException.class)
@@ -130,7 +130,7 @@ public class FluxSampleTimeoutTest {
 		   .sampleTimeout(v -> null)
 		   .subscribe(ts);
 
-		sp1.emitNext(1);
+		sp1.tryEmitNext(1);
 
 		ts.assertNoValues()
 		  .assertError(NullPointerException.class)

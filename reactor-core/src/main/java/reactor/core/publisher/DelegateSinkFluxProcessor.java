@@ -47,17 +47,17 @@ final class DelegateSinkFluxProcessor<IN> extends FluxProcessor<IN, IN> {
 
 	@Override
 	public void onComplete() {
-		sink.emitComplete();
+		sink.tryEmitComplete();
 	}
 
 	@Override
 	public void onError(Throwable t) {
-		sink.emitError(t);
+		sink.tryEmitError(t);
 	}
 
 	@Override
 	public void onNext(IN in) {
-		sink.emitNext(in);
+		sink.tryEmitNext(in);
 	}
 
 	@Override

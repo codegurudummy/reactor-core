@@ -630,7 +630,7 @@ public class StepVerifierTests {
 
 		StepVerifier.create(flux, 2)
 		            .expectNext("t0", "t1")
-		            .then(p::emitEmpty)
+		            .then(p::tryEmitEmpty)
 		            .expectComplete()
 		            .verify();
 
@@ -1988,9 +1988,9 @@ public class StepVerifierTests {
 		Sinks.Many<String> up = Sinks.many().unicast().onBackpressureBuffer();
 		StepVerifier.create(up.asFlux().take(3), 0)
 		            .expectFusion()
-		            .then(() -> up.emitNext("test"))
-		            .then(() -> up.emitNext("test"))
-		            .then(() -> up.emitNext("test"))
+		            .then(() -> up.tryEmitNext("test"))
+		            .then(() -> up.tryEmitNext("test"))
+		            .then(() -> up.tryEmitNext("test"))
 		            .thenRequest(2)
 		            .expectNext("test", "test")
 		            .thenRequest(1)
@@ -2003,9 +2003,9 @@ public class StepVerifierTests {
 		Sinks.Many<String> up = Sinks.many().unicast().onBackpressureBuffer();
 		StepVerifier.create(up.asFlux().take(3), 0)
 		            .expectFusion()
-		            .then(() -> up.emitNext("test"))
-		            .then(() -> up.emitNext("test"))
-		            .then(() -> up.emitNext("test"))
+		            .then(() -> up.tryEmitNext("test"))
+		            .then(() -> up.tryEmitNext("test"))
+		            .then(() -> up.tryEmitNext("test"))
 		            .thenRequest(2)
 		            .expectNext("test", "test")
 		            .thenCancel()
@@ -2073,7 +2073,7 @@ public class StepVerifierTests {
 		Scheduler scheduler = Schedulers.newBoundedElastic(1, 100, "test");
 		Sinks.Many<Integer> processor = Sinks.many().unsafe().multicast().onBackpressureError();
 		Mono<Integer> doAction = Mono.fromSupplier(() -> 22)
-		                             .doOnNext(processor::emitNext)
+		                             .doOnNext(processor::tryEmitNext)
 		                             .subscribeOn(scheduler);
 
 		assertThatExceptionOfType(AssertionError.class)
@@ -2320,7 +2320,7 @@ public class StepVerifierTests {
 		Sinks.One<Integer> processor = Sinks.one();
 		StepVerifier.create(processor.asMono(), 0)
 				.expectFusion(Fuseable.ANY)
-				.then(() -> processor.emitValue(1))
+				.then(() -> processor.tryEmitValue(1))
 				.thenRequest(1)
 				.expectNext(1)
 				.verifyComplete();
@@ -2333,8 +2333,8 @@ public class StepVerifierTests {
 		StepVerifier.create(processor.asFlux().doOnRequest(requests::add), 0)
 				.expectFusion(Fuseable.ANY)
 				.then(() -> {
-					processor.emitNext(1);
-					processor.emitComplete();
+					processor.tryEmitNext(1);
+					processor.tryEmitComplete();
 				})
 				.thenRequest(1)
 				.thenRequest(1)
@@ -2357,10 +2357,10 @@ public class StepVerifierTests {
 
 			subscriptionWorker.schedulePeriodically(() -> {
 				if (source.size() > 0) {
-					fluxEmitter.emitNext(source.remove(0));
+					fluxEmitter.tryEmitNext(source.remove(0));
 				}
 				else {
-					fluxEmitter.emitComplete();
+					fluxEmitter.tryEmitComplete();
 				}
 			}, 0, 10, TimeUnit.MILLISECONDS);
 			return fluxEmitter.asFlux();

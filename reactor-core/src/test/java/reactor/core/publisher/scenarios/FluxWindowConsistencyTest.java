@@ -62,7 +62,7 @@ public class FluxWindowConsistencyTest {
 
 	private void generate(int start, int count) {
 		for (int i = 0; i < count; i++) {
-			sourceProcessor.emitNext(i + start);
+			sourceProcessor.tryEmitNext(i + start);
 		}
 	}
 
@@ -74,7 +74,7 @@ public class FluxWindowConsistencyTest {
 
 	private void generateAndComplete(int start, int count) {
 		generate(start, count);
-		sourceProcessor.emitComplete();
+		sourceProcessor.tryEmitComplete();
 		generate(start + count, 10);
 	}
 
@@ -210,7 +210,7 @@ public class FluxWindowConsistencyTest {
 		Flux<Flux<Integer>> windows = source.window(boundary.asFlux());
 		subscribe(windows);
 		generate(0, 3);
-		boundary.emitNext(1);
+		boundary.tryEmitNext(1);
 		generateAndComplete(3, 3);
 		verifyMainComplete(Arrays.asList(0, 1, 2), Arrays.asList(3, 4, 5));
 	}
@@ -222,10 +222,10 @@ public class FluxWindowConsistencyTest {
 		Sinks.Many<Integer> end2 = Sinks.many().unsafe().multicast().onBackpressureError();
 		Flux<Flux<Integer>> windows = source.windowWhen(start.asFlux(), v -> v == 1 ? end1.asFlux() : end2.asFlux());
 		subscribe(windows);
-		start.emitNext(1);
+		start.tryEmitNext(1);
 		generate(0, 3);
-		end1.emitNext(1);
-		start.emitNext(2);
+		end1.tryEmitNext(1);
+		start.tryEmitNext(2);
 		generateAndComplete(3, 3);
 		verifyMainComplete(Arrays.asList(0, 1, 2), Arrays.asList(3, 4, 5));
 	}
@@ -309,11 +309,11 @@ public class FluxWindowConsistencyTest {
 
 		subscribe(windows);
 		generate(0, 3);
-		boundary.emitNext(1);
+		boundary.tryEmitNext(1);
 		generate(3, 1);
 		mainSubscriber.cancel();
 		generate(4, 2);
-		boundary.emitNext(1);
+		boundary.tryEmitNext(1);
 		generate(6, 10);
 		verifyMainCancel(true, Arrays.asList(0, 1, 2), Arrays.asList(3, 4, 5));
 	}
@@ -325,15 +325,15 @@ public class FluxWindowConsistencyTest {
 		Sinks.Many<Integer> end2 = Sinks.many().unsafe().multicast().onBackpressureError();
 		Flux<Flux<Integer>> windows = source.windowWhen(start.asFlux(), v -> v == 1 ? end1.asFlux() : end2.asFlux());
 		subscribe(windows);
-		start.emitNext(1);
+		start.tryEmitNext(1);
 		generate(0, 3);
-		end1.emitNext(1);
-		start.emitNext(2);
+		end1.tryEmitNext(1);
+		start.tryEmitNext(2);
 		generate(3, 1);
 		mainSubscriber.cancel();
 		generate(4, 2);
-		end2.emitNext(1);
-		start.emitNext(3);
+		end2.tryEmitNext(1);
+		start.tryEmitNext(3);
 		generate(7, 10);
 		verifyMainCancel(true, Arrays.asList(0, 1, 2), Arrays.asList(3, 4, 5));
 	}
@@ -417,7 +417,7 @@ public class FluxWindowConsistencyTest {
 
 		subscribe(windows);
 		generate(0, 3);
-		boundary.emitNext(1);
+		boundary.tryEmitNext(1);
 		mainSubscriber.cancel();
 		generate(3, 1);
 		verifyMainCancelNoNewWindow(1, Arrays.asList(0, 1, 2));
@@ -430,10 +430,10 @@ public class FluxWindowConsistencyTest {
 		Sinks.Many<Integer> end2 = Sinks.many().unsafe().multicast().onBackpressureError();
 		Flux<Flux<Integer>> windows = source.windowWhen(start.asFlux(), v -> v == 1 ? end1.asFlux() : end2.asFlux());
 		subscribe(windows);
-		start.emitNext(1);
+		start.tryEmitNext(1);
 		generate(0, 4);
-		end1.emitNext(1);
-		start.emitNext(2);
+		end1.tryEmitNext(1);
+		start.tryEmitNext(2);
 		mainSubscriber.cancel();
 		generate(5, 1);
 		verifyMainCancelNoNewWindow(1, Arrays.asList(0, 1, 2, 3));
@@ -519,7 +519,7 @@ public class FluxWindowConsistencyTest {
 		Sinks.Many<Integer> end2 = Sinks.many().unsafe().multicast().onBackpressureError();
 		Flux<Flux<Integer>> windows = source.windowWhen(start.asFlux(), v -> v == 1 ? end1.asFlux() : end2.asFlux());
 		subscribe(windows);
-		start.emitNext(1);
+		start.tryEmitNext(1);
 		generateWithCancel(0, 6, 1);
 		verifyInnerCancel(0, i -> i != 2, Arrays.asList(0, 1));
 	}
