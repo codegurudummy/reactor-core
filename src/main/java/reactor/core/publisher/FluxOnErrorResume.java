@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -31,11 +31,11 @@ import org.reactivestreams.Subscription;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxResume<T> extends FluxSource<T, T> {
+final class FluxOnErrorResume<T> extends FluxSource<T, T> {
 
 	final Function<? super Throwable, ? extends Publisher<? extends T>> nextFactory;
 
-	FluxResume(Flux<? extends T> source,
+	FluxOnErrorResume(Flux<? extends T> source,
 			Function<? super Throwable, ? extends Publisher<? extends T>> nextFactory) {
 		super(source);
 		this.nextFactory = Objects.requireNonNull(nextFactory, "nextFactory");

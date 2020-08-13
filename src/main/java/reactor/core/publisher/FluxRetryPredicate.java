@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -31,9 +31,9 @@ import org.reactivestreams.Subscriber;
  */
 final class FluxRetryPredicate<T> extends FluxSource<T, T> {
 
-	final Predicate<Throwable> predicate;
+	final Predicate<? super Throwable> predicate;
 
-	FluxRetryPredicate(Flux<? extends T> source, Predicate<Throwable> predicate) {
+	FluxRetryPredicate(Flux<? extends T> source, Predicate<? super Throwable> predicate) {
 		super(source);
 		this.predicate = Objects.requireNonNull(predicate, "predicate");
 	}
@@ -56,7 +56,7 @@ final class FluxRetryPredicate<T> extends FluxSource<T, T> {
 
 		final Publisher<? extends T> source;
 
-		final Predicate<Throwable> predicate;
+		final Predicate<? super Throwable> predicate;
 
 		volatile int wip;
 		@SuppressWarnings("rawtypes")
@@ -66,7 +66,7 @@ final class FluxRetryPredicate<T> extends FluxSource<T, T> {
 		long produced;
 
 		RetryPredicateSubscriber(Publisher<? extends T> source,
-				Subscriber<? super T> actual, Predicate<Throwable> predicate) {
+				Subscriber<? super T> actual, Predicate<? super Throwable> predicate) {
 			super(actual);
 			this.source = source;
 			this.predicate = predicate;

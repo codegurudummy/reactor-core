@@ -1,11 +1,11 @@
 /*
- * Copyright (c) 2011-2016 Pivotal Software Inc, All Rights Reserved.
+ * Copyright (c) 2011-2017 Pivotal Software Inc, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,7 +28,7 @@ import reactor.test.subscriber.AssertSubscriber;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class FluxWindowStartEndTest {
+public class FluxWindowWhenTest {
 
 	static <T> AssertSubscriber<T> toList(Publisher<T> windows) {
 		AssertSubscriber<T> ts = AssertSubscriber.create();
@@ -53,7 +53,7 @@ public class FluxWindowStartEndTest {
 		DirectProcessor<Integer> sp3 = DirectProcessor.create();
 		DirectProcessor<Integer> sp4 = DirectProcessor.create();
 
-		sp1.window(sp2, v -> v == 1 ? sp3 : sp4)
+		sp1.windowWhen(sp2, v -> v == 1 ? sp3 : sp4)
 		   .subscribe(ts);
 
 		sp1.onNext(1);
@@ -96,7 +96,7 @@ public class FluxWindowStartEndTest {
 		DirectProcessor<Integer> sp3 = DirectProcessor.create();
 		DirectProcessor<Integer> sp4 = DirectProcessor.create();
 
-		sp1.window(sp2, v -> v == 1 ? sp3 : sp4)
+		sp1.windowWhen(sp2, v -> v == 1 ? sp3 : sp4)
 		   .subscribe(ts);
 
 		sp1.onNext(1);
@@ -139,7 +139,7 @@ public class FluxWindowStartEndTest {
 		DirectProcessor<Integer> sp3 = DirectProcessor.create();
 		DirectProcessor<Integer> sp4 = DirectProcessor.create();
 
-		sp1.window(sp2, v -> v == 1 ? sp3 : sp4)
+		sp1.windowWhen(sp2, v -> v == 1 ? sp3 : sp4)
 		   .subscribe(ts);
 
 		sp2.onNext(1);
@@ -169,13 +169,13 @@ public class FluxWindowStartEndTest {
 	@Test
 	public void windowWillAcumulateMultipleListsOfValuesOverlap() {
 		//given: "a source and a collected flux"
-		EmitterProcessor<Integer> numbers = EmitterProcessor.<Integer>create().connect();
-		EmitterProcessor<Integer> bucketOpening = EmitterProcessor.<Integer>create().connect();
+		EmitterProcessor<Integer> numbers = EmitterProcessor.create();
+		EmitterProcessor<Integer> bucketOpening = EmitterProcessor.create();
 
 		//"overlapping buffers"
-		EmitterProcessor<Integer> boundaryFlux = EmitterProcessor.<Integer>create().connect();
+		EmitterProcessor<Integer> boundaryFlux = EmitterProcessor.create();
 
-		Mono<List<List<Integer>>> res = numbers.window(bucketOpening, u -> boundaryFlux )
+		Mono<List<List<Integer>>> res = numbers.windowWhen(bucketOpening, u -> boundaryFlux )
 		                                       .flatMap(Flux::buffer)
 		                                       .buffer()
 		                                       .publishNext()
