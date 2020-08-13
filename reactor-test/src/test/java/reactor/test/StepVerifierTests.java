@@ -2213,22 +2213,13 @@ public class StepVerifierTests {
 
 	@Test
 	public void useStepVerifierWithOptionsAs() {
-		Flux.range(1, 3)
-		    .as(StepVerifierOptions.create().initialRequest(2).test())
-		    .expectNext(1, 2)
-		    .thenRequest(1)
-		    .expectNext(3)
-		    .verifyComplete();
-
-
-		Flux.range(1, 3)
-		    .as(StepVerifier::withOptions)
-		    .initialRequest(2)
-		    .scenarioName("foo")
-		    .withTestScenario()
-		    .expectNext(1, 2)
-		    .thenRequest(1)
-		    .expectNext(3)
-		    .verifyComplete();
+	Flux.range(1, 3)
+	    .as(StepVerifier::withOptions)
+	    .initialRequest(2)
+	    .scenarioName("foo")
+	    .expectNext(1, 2)
+	    .thenRequest(1)
+	    .expectNext(3)
+	    .verifyComplete();
 	}
 }
