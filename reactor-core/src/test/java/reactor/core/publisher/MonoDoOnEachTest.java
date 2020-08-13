@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.stream.Stream;
 
 import org.assertj.core.api.Assertions;
 import org.junit.Ignore;
@@ -69,7 +70,7 @@ public class MonoDoOnEachTest {
 				new MonoDoOnEach<>(source, s -> { });
 
 		test.subscribe();
-		Mockito.verify(source).subscribe(argumentCaptor.capture());
+		Mockito.verify(source).subscribeOrReturn(argumentCaptor.capture());
 
 		assertThat(argumentCaptor.getValue()).isInstanceOf(FluxDoOnEach.DoOnEachSubscriber.class);
 	}
@@ -88,12 +89,10 @@ public class MonoDoOnEachTest {
 		test.filter(t -> true)
 		    .subscribe();
 
-		Class expected = FluxDoOnEach.DoOnEachConditionalSubscriber.class;
-		assertThat(ref.get()
-		              .actuals()
-		              .map(Object::getClass)
-		)
-				.contains(expected);
+		Class<?> expected = FluxDoOnEach.DoOnEachConditionalSubscriber.class;
+		Stream<Class<?>> streamOfClasses = ref.get().actuals().map(Object::getClass);
+
+		assertThat(streamOfClasses).contains(expected);
 	}
 
 	@Test
