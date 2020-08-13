@@ -24,6 +24,8 @@ import java.util.stream.Stream;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+
+import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.Scannable;
 import reactor.util.annotation.Nullable;
@@ -41,7 +43,7 @@ import reactor.util.context.Context;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxRepeatWhen<T> extends FluxOperator<T, T> {
+final class FluxRepeatWhen<T> extends InternalFluxOperator<T, T> {
 
 	final Function<? super Flux<Long>, ? extends Publisher<?>> whenSourceFactory;
 
@@ -53,7 +55,7 @@ final class FluxRepeatWhen<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		RepeatWhenOtherSubscriber other = new RepeatWhenOtherSubscriber();
 		Subscriber<Long> signaller = Operators.serialize(other.completionSignal);
 
@@ -75,14 +77,23 @@ final class FluxRepeatWhen<T> extends FluxOperator<T, T> {
 		}
 		catch (Throwable e) {
 			actual.onError(Operators.onOperatorError(e, actual.currentContext()));
-			return;
+			return null;
 		}
 
 		p.subscribe(other);
 
 		if (!main.cancelled) {
-			source.subscribe(main);
+			return main;
 		}
+		else {
+			return null;
+		}
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class RepeatWhenMainSubscriber<T>
@@ -92,7 +103,7 @@ final class FluxRepeatWhen<T> extends FluxOperator<T, T> {
 
 		final Subscriber<Long> signaller;
 
-		final Publisher<? extends T> source;
+		final CorePublisher<? extends T> source;
 
 		volatile int wip;
 		static final AtomicIntegerFieldUpdater<RepeatWhenMainSubscriber> WIP =
@@ -104,7 +115,7 @@ final class FluxRepeatWhen<T> extends FluxOperator<T, T> {
 
 		RepeatWhenMainSubscriber(CoreSubscriber<? super T> actual,
 				Subscriber<Long> signaller,
-				Publisher<? extends T> source) {
+				CorePublisher<? extends T> source) {
 			super(actual);
 			this.signaller = signaller;
 			this.source = source;
@@ -170,7 +181,7 @@ final class FluxRepeatWhen<T> extends FluxOperator<T, T> {
 					//flow that emit a Context as a trigger for the re-subscription are
 					//used to REPLACE the currentContext()
 					if (trigger instanceof Context) {
-						this.context = (Context) trigger;
+						this.context = this.context.putAll((Context) trigger);
 					}
 
 					source.subscribe(this);
@@ -192,14 +203,19 @@ final class FluxRepeatWhen<T> extends FluxOperator<T, T> {
 			actual.onComplete();
 		}
 
+		@Override
+		public Object scanUnsafe(Attr key) {
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+			return super.scanUnsafe(key);
+		}
 	}
 
 	static final class RepeatWhenOtherSubscriber extends Flux<Long>
-			implements InnerConsumer<Object> {
+			implements InnerConsumer<Object>, OptimizableOperator<Long, Long> {
 
 		RepeatWhenMainSubscriber<?> main;
 
-		final DirectProcessor<Long> completionSignal = new DirectProcessor<>();
+		final FluxIdentityProcessor<Long> completionSignal = Processors.more().multicastNoBackpressure();
 
 		@Override
 		public Context currentContext() {
@@ -211,6 +227,7 @@ final class FluxRepeatWhen<T> extends FluxOperator<T, T> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return main.otherArbiter;
 			if (key == Attr.ACTUAL) return main;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}
@@ -240,5 +257,19 @@ final class FluxRepeatWhen<T> extends FluxOperator<T, T> {
 			completionSignal.subscribe(actual);
 		}
 
+		@Override
+		public CoreSubscriber<? super Long> subscribeOrReturn(CoreSubscriber<? super Long> actual) {
+			return actual;
+		}
+
+		@Override
+		public FluxIdentityProcessor<Long> source() {
+			return completionSignal;
+		}
+
+		@Override
+		public OptimizableOperator<?, ? extends Long> nextOptimizableSource() {
+			return null;
+		}
 	}
 }

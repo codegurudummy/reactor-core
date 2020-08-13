@@ -33,7 +33,7 @@ import reactor.util.context.Context;
  * @param <U> the value type of the other Publisher
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxTakeUntilOther<T, U> extends FluxOperator<T, T> {
+final class FluxTakeUntilOther<T, U> extends InternalFluxOperator<T, T> {
 
 	final Publisher<U> other;
 
@@ -48,14 +48,20 @@ final class FluxTakeUntilOther<T, U> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		TakeUntilMainSubscriber<T> mainSubscriber = new TakeUntilMainSubscriber<>(actual);
 
 		TakeUntilOtherSubscriber<U> otherSubscriber = new TakeUntilOtherSubscriber<>(mainSubscriber);
 
 		other.subscribe(otherSubscriber);
 
-		source.subscribe(mainSubscriber);
+		return mainSubscriber;
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class TakeUntilOtherSubscriber<U> implements InnerConsumer<U> {
@@ -78,6 +84,7 @@ final class FluxTakeUntilOther<T, U> extends FluxOperator<T, T> {
 			if (key == Attr.CANCELLED) return main.other == Operators.cancelledSubscription();
 			if (key == Attr.PARENT) return main.other;
 			if (key == Attr.ACTUAL) return main;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}
@@ -137,6 +144,7 @@ final class FluxTakeUntilOther<T, U> extends FluxOperator<T, T> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return main;
 			if (key == Attr.CANCELLED) return main == Operators.cancelledSubscription();
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

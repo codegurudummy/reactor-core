@@ -49,7 +49,7 @@ final class MonoError<T> extends Mono<T> implements Fuseable.ScalarCallable, Sou
 
 	@Override
 	public void subscribe(CoreSubscriber<? super T> actual) {
-		Operators.error(actual, Operators.onOperatorError(error, actual.currentContext()));
+		Operators.error(actual, error);
 	}
 
 	@Override
@@ -62,6 +62,7 @@ final class MonoError<T> extends Mono<T> implements Fuseable.ScalarCallable, Sou
 
 	@Override
 	public Object scanUnsafe(Attr key) {
-		return null; //no particular key to be represented, still useful in hooks
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return null;
 	}
 }

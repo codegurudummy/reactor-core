@@ -32,6 +32,7 @@ import reactor.test.StepVerifier;
 import reactor.test.subscriber.AssertSubscriber;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static reactor.core.Scannable.from;
 
 public class FluxIntervalTest {
 
@@ -136,10 +137,36 @@ public class FluxIntervalTest {
 		StepVerifier.withVirtualTime(this::scenario4)
 		            .thenAwait(Duration.ofMillis(1500))
 		            .expectNext(0L)
-		            .thenAwait(Duration.ofSeconds(4))
+		            .thenAwait(Duration.ofSeconds(3))
 		            .expectNextCount(4)
 		            .thenCancel()
 		            .verify();
+	}
+
+	Flux<Long> scenario5(){
+		return Flux.interval(Duration.ofNanos(0), Duration.ofNanos(1_000));
+	}
+
+	@Test
+	public void normal5() {
+		// Prior to gh-1734, sub millis period would round to 0 and this would fail.
+		Duration period = Duration.ofNanos(1_000);
+		Duration timespan = Duration.ofSeconds(1);
+		StepVerifier.withVirtualTime(() ->
+			Flux.interval(Duration.ofNanos(0), period).take(timespan).count()
+		)
+				.thenAwait(timespan)
+				.expectNext(timespan.toNanos() / period.toNanos())
+				.verifyComplete();
+	}
+
+	@Test
+	public void scanOperator() {
+		final Flux<Long> interval = Flux.interval(Duration.ofSeconds(1));
+
+		assertThat(interval).isInstanceOf(Scannable.class);
+		assertThat(from(interval).scan(Scannable.Attr.RUN_ON)).isSameAs(Schedulers.parallel());
+		assertThat(from(interval).scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.ASYNC);
 	}
 
 	@Test
@@ -152,6 +179,7 @@ public class FluxIntervalTest {
 
         assertThat(test.scan(Scannable.Attr.RUN_ON)).isSameAs(worker);
         assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.ASYNC);
         assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
         test.cancel();
         assertThat(test.scan(Scannable.Attr.CANCELLED)).isTrue();
@@ -161,14 +189,6 @@ public class FluxIntervalTest {
 		}
     }
 
-    @Test
-    public void scanOperator() {
-	    final Flux<Long> interval = Flux.interval(Duration.ofSeconds(1));
-
-	    assertThat(interval).isInstanceOf(Scannable.class);
-	    assertThat(((Scannable) interval).scan(Scannable.Attr.RUN_ON))
-			    .isSameAs(Schedulers.parallel());
-    }
 
     @Test
 	public void tickOverflow() {

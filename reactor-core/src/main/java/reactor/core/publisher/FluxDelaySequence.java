@@ -28,7 +28,7 @@ import reactor.core.scheduler.Scheduler;
  * @author Simon Baslé
  */
 //adapted from RxJava2 FlowableDelay: https://github.com/ReactiveX/RxJava/blob/2.x/src/main/java/io/reactivex/internal/operators/flowable/FlowableDelay.java
-final class FluxDelaySequence<T> extends FluxOperator<T, T> {
+final class FluxDelaySequence<T> extends InternalFluxOperator<T, T> {
 
 	final Duration  delay;
 	final Scheduler scheduler;
@@ -40,15 +40,16 @@ final class FluxDelaySequence<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		Scheduler.Worker w = scheduler.createWorker();
 
-		source.subscribe(new DelaySubscriber<T>(actual, delay, w));
+		return new DelaySubscriber<T>(actual, delay, w);
 	}
 
 	@Override
 	public Object scanUnsafe(Attr key) {
 		if (key == Attr.RUN_ON) return scheduler;
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.ASYNC;
 
 		return super.scanUnsafe(key);
 	}
@@ -73,14 +74,8 @@ final class FluxDelaySequence<T> extends FluxOperator<T, T> {
 			super();
 			this.actual = new SerializedSubscriber<>(actual);
 			this.w = w;
-			if (delay.compareTo(Duration.ofMinutes(1)) < 0) {
-				this.delay = delay.toNanos();
-				this.timeUnit = TimeUnit.NANOSECONDS;
-			}
-			else {
-				this.delay = delay.toMillis();
-				this.timeUnit = TimeUnit.MILLISECONDS;
-			}
+			this.delay = delay.toNanos();
+			this.timeUnit = TimeUnit.NANOSECONDS;
 		}
 
 		@Override
@@ -165,6 +160,7 @@ final class FluxDelaySequence<T> extends FluxOperator<T, T> {
 			if (key == Attr.RUN_ON) return w;
 			if (key == Attr.TERMINATED) return done;
 			if (key == Attr.CANCELLED) return w.isDisposed() && !done;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.ASYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

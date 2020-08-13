@@ -30,6 +30,9 @@ import reactor.core.Scannable;
 import reactor.util.annotation.Nullable;
 import reactor.util.context.Context;
 
+import static reactor.core.Scannable.Attr.RUN_STYLE;
+import static reactor.core.Scannable.Attr.RunStyle.SYNC;
+
 /**
  * Maps the upstream value into a single {@code true} or {@code false} value
  * provided by a generated Publisher for that input value and emits the input value if
@@ -41,7 +44,7 @@ import reactor.util.context.Context;
  * @param <T> the input value type
  * @author Simon Baslé
  */
-class MonoFilterWhen<T> extends MonoOperator<T, T> {
+class MonoFilterWhen<T> extends InternalMonoOperator<T, T> {
 
 	final Function<? super T, ? extends Publisher<Boolean>> asyncPredicate;
 
@@ -52,8 +55,14 @@ class MonoFilterWhen<T> extends MonoOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		source.subscribe(new MonoFilterWhenMain<>(actual, asyncPredicate));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return new MonoFilterWhenMain<>(actual, asyncPredicate);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == RUN_STYLE) return SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class MonoFilterWhenMain<T> extends Operators.MonoSubscriber<T, T> {
@@ -213,6 +222,7 @@ class MonoFilterWhen<T> extends MonoOperator<T, T> {
 			if (key == Attr.TERMINATED) return asyncFilter != null
 					? asyncFilter.scanUnsafe(Attr.TERMINATED)
 					: super.scanUnsafe(Attr.TERMINATED);
+			if (key == RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			//CANCELLED, PREFETCH
 			return super.scanUnsafe(key);
@@ -298,6 +308,7 @@ class MonoFilterWhen<T> extends MonoOperator<T, T> {
 			if (key == Attr.TERMINATED) return done;
 			if (key == Attr.PREFETCH) return Integer.MAX_VALUE;
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return done ? 0L : 1L;
+			if (key == RUN_STYLE) return SYNC;
 
 			return null;
 		}

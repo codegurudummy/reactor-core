@@ -19,6 +19,7 @@ import java.util.function.Consumer;
 import java.util.function.LongConsumer;
 
 import org.reactivestreams.Subscription;
+import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.Fuseable.ConditionalSubscriber;
@@ -38,7 +39,7 @@ import reactor.util.context.Context;
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxPeek<T> extends FluxOperator<T, T> implements SignalPeek<T> {
+final class FluxPeek<T> extends InternalFluxOperator<T, T> implements SignalPeek<T> {
 
 	final Consumer<? super Subscription> onSubscribeCall;
 
@@ -73,14 +74,19 @@ final class FluxPeek<T> extends FluxOperator<T, T> implements SignalPeek<T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		if (actual instanceof ConditionalSubscriber) {
 			@SuppressWarnings("unchecked") // javac, give reason to suppress because inference anomalies
 					ConditionalSubscriber<T> s2 = (ConditionalSubscriber<T>) actual;
-			source.subscribe(new PeekConditionalSubscriber<>(s2, this));
-			return;
+			return new PeekConditionalSubscriber<>(s2, this);
 		}
-		source.subscribe(new PeekSubscriber<>(actual, this));
+		return new PeekSubscriber<>(actual, this);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class PeekSubscriber<T> implements InnerOperator<T, T> {
@@ -103,6 +109,7 @@ final class FluxPeek<T> extends FluxOperator<T, T> implements SignalPeek<T> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.TERMINATED) return done;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

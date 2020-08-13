@@ -44,8 +44,14 @@ final class MonoAll<T> extends MonoFromFluxOperator<T, Boolean>
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super Boolean> actual) {
-		source.subscribe(new AllSubscriber<T>(actual, predicate));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super Boolean> actual) {
+		return new AllSubscriber<T>(actual, predicate);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class AllSubscriber<T> extends Operators.MonoSubscriber<T, Boolean> {
@@ -65,6 +71,7 @@ final class MonoAll<T> extends MonoFromFluxOperator<T, Boolean>
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.TERMINATED) return done;
 			if (key == Attr.PARENT) return s;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return super.scanUnsafe(key);
 		}

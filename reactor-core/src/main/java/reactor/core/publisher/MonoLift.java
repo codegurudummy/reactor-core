@@ -25,7 +25,7 @@ import reactor.core.Scannable;
 /**
  * @author Stephane Maldini
  */
-final class MonoLift<I, O> extends MonoOperator<I, O> {
+final class MonoLift<I, O> extends InternalMonoOperator<I, O> {
 
 	final BiFunction<Publisher, ? super CoreSubscriber<? super O>, ? extends CoreSubscriber<? super I>>
 			lifter;
@@ -37,13 +37,13 @@ final class MonoLift<I, O> extends MonoOperator<I, O> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super O> actual) {
+	public CoreSubscriber<? super I> subscribeOrReturn(CoreSubscriber<? super O> actual) {
 		CoreSubscriber<? super I> input =
 				lifter.apply(source, actual);
 
 		Objects.requireNonNull(input, "Lifted subscriber MUST NOT be null");
 
-		source.subscribe(input);
+		return input;
 	}
 
 	@Override
@@ -52,5 +52,11 @@ final class MonoLift<I, O> extends MonoOperator<I, O> {
 			return Scannable.from(source).stepName();
 		}
 		return super.stepName();
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Scannable.from(source).scanUnsafe(key);
+		return super.scanUnsafe(key);
 	}
 }

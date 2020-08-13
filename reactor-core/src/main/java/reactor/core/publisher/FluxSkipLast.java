@@ -27,7 +27,7 @@ import reactor.util.annotation.Nullable;
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxSkipLast<T> extends FluxOperator<T, T> {
+final class FluxSkipLast<T> extends InternalFluxOperator<T, T> {
 
 	final int n;
 
@@ -40,8 +40,14 @@ final class FluxSkipLast<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		source.subscribe(new SkipLastSubscriber<>(actual, n));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return new SkipLastSubscriber<>(actual, n);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	//Fixme Does not implement ConditionalSubscriber until the full chain of operators
@@ -100,6 +106,7 @@ final class FluxSkipLast<T> extends FluxOperator<T, T> {
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.PREFETCH) return n;
 			if (key == Attr.BUFFERED) return size();
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

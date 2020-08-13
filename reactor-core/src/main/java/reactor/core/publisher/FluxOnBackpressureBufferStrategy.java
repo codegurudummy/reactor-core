@@ -36,7 +36,7 @@ import reactor.util.context.Context;
  * @author Stephane Maldini
  * @author Simon Baslé
  */
-final class FluxOnBackpressureBufferStrategy<O> extends FluxOperator<O, O> {
+final class FluxOnBackpressureBufferStrategy<O> extends InternalFluxOperator<O, O> {
 
 	final Consumer<? super O>    onBufferOverflow;
 	final int                    bufferSize;
@@ -51,19 +51,25 @@ final class FluxOnBackpressureBufferStrategy<O> extends FluxOperator<O, O> {
 		this.bufferSize = bufferSize;
 		this.onBufferOverflow = onBufferOverflow;
 		this.bufferOverflowStrategy = bufferOverflowStrategy;
-		this.delayError = onBufferOverflow != null;
+		this.delayError = onBufferOverflow != null || bufferOverflowStrategy == BufferOverflowStrategy.ERROR;
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super O> actual) {
-		source.subscribe(new BackpressureBufferDropOldestSubscriber<>(actual,
+	public CoreSubscriber<? super O> subscribeOrReturn(CoreSubscriber<? super O> actual) {
+		return new BackpressureBufferDropOldestSubscriber<>(actual,
 				bufferSize,
-				delayError, onBufferOverflow, bufferOverflowStrategy));
+				delayError, onBufferOverflow, bufferOverflowStrategy);
 	}
 
 	@Override
 	public int getPrefetch() {
 		return Integer.MAX_VALUE;
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class BackpressureBufferDropOldestSubscriber<T>
@@ -119,6 +125,7 @@ final class FluxOnBackpressureBufferStrategy<O> extends FluxOperator<O, O> {
 			if (key == Attr.ERROR) return error;
 			if (key == Attr.PREFETCH) return Integer.MAX_VALUE;
 			if (key == Attr.DELAY_ERROR) return delayError;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

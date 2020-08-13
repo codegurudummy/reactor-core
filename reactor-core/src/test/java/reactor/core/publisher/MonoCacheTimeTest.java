@@ -24,7 +24,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Test;
 
+import org.reactivestreams.Subscription;
+import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
+import reactor.core.Scannable;
 import reactor.core.scheduler.Schedulers;
 import reactor.test.StepVerifier;
 import reactor.test.publisher.MonoOperatorTest;
@@ -496,7 +499,8 @@ public class MonoCacheTimeTest extends MonoOperatorTest<String, String> {
 		AtomicInteger subCount = new AtomicInteger();
 		Mono<Integer> source = Mono.defer(() -> Mono.just(subCount.incrementAndGet()));
 
-		Mono<Integer> cached = source.cache(Duration.ofMillis(100), vts)
+		// Note: use sub-millis duration after gh-1734
+		Mono<Integer> cached = source.cache(Duration.ofNanos(100), vts)
 		                             .hide();
 
 		StepVerifier.create(cached)
@@ -505,7 +509,15 @@ public class MonoCacheTimeTest extends MonoOperatorTest<String, String> {
 		            .as("first subscription caches 1")
 		            .verifyComplete();
 
-		vts.advanceTimeBy(Duration.ofMillis(110));
+		vts.advanceTimeBy(Duration.ofNanos(50));
+
+		StepVerifier.create(cached)
+				.expectNoFusionSupport()
+				.expectNext(1)
+				.as("cached value returned before ttl")
+				.verifyComplete();
+
+		vts.advanceTimeBy(Duration.ofNanos(60));
 
 		StepVerifier.create(cached)
 		            .expectNext(2)
@@ -833,6 +845,58 @@ public class MonoCacheTimeTest extends MonoOperatorTest<String, String> {
 		          .expectNext(1, 2, 3, 4, 5, 6)
 		          .verifyComplete();
 		assertThat(virtualTimeScheduler.getScheduledTaskCount()).isZero().as("once cache skipped scheduled count");
+	}
+
+	@Test
+	public void noTtlCancelDoesntCancelSource() {
+		AtomicInteger cancelled = new AtomicInteger();
+		Mono<Object> cached = new MonoCacheTime<>(Mono.never()
+		                          .doOnCancel(cancelled::incrementAndGet));
+
+		Disposable d1 = cached.subscribe();
+		Disposable d2 = cached.subscribe();
+
+		d1.dispose();
+		assertThat(cancelled.get()).as("when cancelling d1").isEqualTo(0);
+
+		d2.dispose();
+		assertThat(cancelled.get()).as("when both cancelled").isEqualTo(0);
+	}
+
+	@Test
+	public void scanOperator(){
+	    Mono<Integer> source = Mono.just(1);
+		MonoCacheTime<Integer> test = new MonoCacheTime<>(source);
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(source);
+		assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(Integer.MAX_VALUE);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
+	public void scanCoordinatorSubscriber(){
+		MonoCacheTime<Integer> main = new MonoCacheTime<>(Mono.just(1));
+		MonoCacheTime.CoordinatorSubscriber<Integer> test = new MonoCacheTime.CoordinatorSubscriber<>(main);
+
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
+	public void scanSubscriber() {
+		CoreSubscriber<Boolean> actual = new LambdaMonoSubscriber<>(null, e -> {}, null, null);
+		MonoCacheTime.CacheMonoSubscriber<Boolean> test = new MonoCacheTime.CacheMonoSubscriber<>(actual);
+
+		Subscription parent = Operators.emptySubscription();
+		test.onSubscribe(parent);
+
+
+		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(Integer.MAX_VALUE);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+
+		assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
+		test.cancel();
+		assertThat(test.scan(Scannable.Attr.CANCELLED)).isTrue();
 	}
 
 }
