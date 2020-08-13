@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2017 Pivotal Software Inc, All Rights Reserved.
+ * Copyright (c) 2011-Present Pivotal Software Inc, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,13 +35,6 @@ import reactor.util.annotation.Nullable;
  */
 final class FluxMap<T, R> extends InternalFluxOperator<T, R> {
 
-	static <T, R> Flux<R> create(Flux<? extends T> source, Function<? super T, ? extends R> mapper) {
-		if (source instanceof Fuseable) {
-			return new FluxMapFuseable<>(source, mapper);
-		}
-		return new FluxMap<>(source, mapper);
-	}
-
 	final Function<? super T, ? extends R> mapper;
 
 	/**
@@ -52,10 +45,18 @@ final class FluxMap<T, R> extends InternalFluxOperator<T, R> {
 	 *
 	 * @throws NullPointerException if either {@code source} or {@code mapper} is null.
 	 */
-	private FluxMap(Flux<? extends T> source,
+	FluxMap(Flux<? extends T> source,
 			Function<? super T, ? extends R> mapper) {
 		super(source);
 		this.mapper = Objects.requireNonNull(mapper, "mapper");
+	}
+
+	@Override
+	<V> Flux<V> doMap(Function<? super R, ? extends V> mapper) {
+		return new FluxMap<>(
+				source,
+				this.mapper.andThen(mapper)
+		);
 	}
 
 	@Override
