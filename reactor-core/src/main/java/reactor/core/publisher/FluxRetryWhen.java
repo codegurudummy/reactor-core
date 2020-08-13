@@ -88,8 +88,9 @@ final class FluxRetryWhen<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		subscribe(actual, whenSourceFactory, source);
+		return null;
 	}
 
 	static final class RetryWhenMainSubscriber<T> extends
@@ -243,6 +244,16 @@ final class FluxRetryWhen<T> extends FluxOperator<T, T> {
 		@Override
 		public void subscribe(CoreSubscriber<? super Throwable> actual) {
 			completionSignal.subscribe(actual);
+		}
+
+		@Override
+		public CoreSubscriber<? super Throwable> subscribeOrReturn(CoreSubscriber<? super Throwable> actual) {
+			return actual;
+		}
+
+		@Override
+		public DirectProcessor<Throwable> source() {
+			return completionSignal;
 		}
 	}
 

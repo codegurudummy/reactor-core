@@ -40,22 +40,20 @@ import reactor.util.context.Context;
  *
  * @author Simon Baslé
  */
-final class MonoDelayUntil<T> extends Mono<T> implements Scannable {
-
-	final Mono<T> source;
+final class MonoDelayUntil<T> extends MonoOperator<T, T> implements Scannable {
 
 	Function<? super T, ? extends Publisher<?>>[] otherGenerators;
 
 	@SuppressWarnings("unchecked")
-	MonoDelayUntil(Mono<T> monoSource,
+	MonoDelayUntil(Mono<? extends T> monoSource,
 			Function<? super T, ? extends Publisher<?>> triggerGenerator) {
-		this.source = Objects.requireNonNull(monoSource, "monoSource");
+		super(monoSource);
 		this.otherGenerators = new Function[] { Objects.requireNonNull(triggerGenerator, "triggerGenerator")};
 	}
 
-	MonoDelayUntil(Mono<T> monoSource,
+	MonoDelayUntil(Mono<? extends T> monoSource,
 			Function<? super T, ? extends Publisher<?>>[] triggerGenerators) {
-		this.source = Objects.requireNonNull(monoSource, "monoSource");
+		super(monoSource);
 		this.otherGenerators = triggerGenerators;
 	}
 
@@ -77,15 +75,10 @@ final class MonoDelayUntil<T> extends Mono<T> implements Scannable {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public final CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		DelayUntilCoordinator<T> parent = new DelayUntilCoordinator<>(actual, otherGenerators);
 		actual.onSubscribe(parent);
-		source.subscribe(parent);
-	}
-
-	@Override
-	public Object scanUnsafe(Attr key) {
-		return null; //no particular key to be represented, still useful in hooks
+		return parent;
 	}
 
 	static final class DelayUntilCoordinator<T>
@@ -166,7 +159,17 @@ final class MonoDelayUntil<T> extends Mono<T> implements Scannable {
 			}
 
 			Function<? super T, ? extends Publisher<?>> generator = otherGenerators[triggerIndex];
-			Publisher<?> p = generator.apply(value);
+
+			Publisher<?> p;
+
+			try {
+				p = generator.apply(value);
+			}
+			catch (Throwable t) {
+				onError(t);
+				return;
+			}
+
 			DelayUntilTrigger triggerSubscriber = new DelayUntilTrigger<>(this);
 
 			this.triggerSubscribers[triggerIndex] = triggerSubscriber;

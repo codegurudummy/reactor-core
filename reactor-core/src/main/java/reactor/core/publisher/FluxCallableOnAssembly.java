@@ -18,7 +18,6 @@ package reactor.core.publisher;
 
 import java.util.concurrent.Callable;
 
-import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.Fuseable;
 import reactor.core.publisher.FluxOnAssembly.AssemblySnapshot;
@@ -37,7 +36,7 @@ import reactor.core.publisher.FluxOnAssembly.AssemblySnapshot;
  * @see <a href="https://github.com/reactor/reactive-streams-commons">https://github.com/reactor/reactive-streams-commons</a>
  */
 final class FluxCallableOnAssembly<T> extends FluxOperator<T, T>
-		implements Fuseable, Callable<T>, AssemblyOp, ForwardingCorePublisher<T, T> {
+		implements Fuseable, Callable<T>, AssemblyOp {
 
 	final AssemblySnapshot stacktrace;
 
@@ -47,18 +46,8 @@ final class FluxCallableOnAssembly<T> extends FluxOperator<T, T>
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		source.subscribe(mapSubscriber(actual));
-	}
-
-	@Override
-	public CorePublisher<? extends T> getSource() {
-		return source;
-	}
-
-	@Override
-	public CoreSubscriber<? super T> mapSubscriber(CoreSubscriber<? super T> actual) {
-		return FluxOnAssembly.mapSubscriber(actual, source, stacktrace);
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return FluxOnAssembly.wrapSubscriber(actual, source, stacktrace);
 	}
 
 	@SuppressWarnings("unchecked")

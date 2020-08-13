@@ -40,7 +40,7 @@ final class FluxRetryPredicate<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 
 		RetryPredicateSubscriber<T> parent = new RetryPredicateSubscriber<>(source,
 				actual,
@@ -51,6 +51,7 @@ final class FluxRetryPredicate<T> extends FluxOperator<T, T> {
 		if (!parent.isCancelled()) {
 			parent.resubscribe();
 		}
+		return null;
 	}
 
 	static final class RetryPredicateSubscriber<T>

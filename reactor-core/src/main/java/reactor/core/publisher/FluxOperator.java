@@ -21,6 +21,7 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 
 import org.reactivestreams.Publisher;
+import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.Scannable;
 import reactor.util.annotation.Nullable;
@@ -43,6 +44,35 @@ public abstract class FluxOperator<I, O> extends Flux<O> implements Scannable {
 	 */
 	protected FluxOperator(Flux<? extends I> source) {
 		this.source = Objects.requireNonNull(source);
+	}
+
+	@Override
+	@SuppressWarnings("unchecked")
+	public void subscribe(CoreSubscriber<? super O> subscriber) {
+		CorePublisher publisher = this;
+		CorePublisher next = publisher;
+		CoreSubscriber liftedSubscriber;
+		for (; ; ) {
+			liftedSubscriber = next.subscribeOrReturn(subscriber);
+
+			if (liftedSubscriber == null) {
+				return;
+			}
+
+			publisher = next;
+			next = publisher.source();
+
+			if (next == null) {
+				publisher.subscribe(subscriber);
+				return;
+			}
+			subscriber = liftedSubscriber;
+		}
+	}
+
+	@Override
+	public CorePublisher<?> source() {
+		return source;
 	}
 
 	@Override

@@ -44,6 +44,7 @@ import reactor.core.publisher.FluxConcatMap.ErrorMode;
 import reactor.core.publisher.FluxOnAssembly.AssemblyLightSnapshot;
 import reactor.core.publisher.FluxOnAssembly.AssemblySnapshot;
 import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
 import reactor.util.Logger;
 import reactor.util.annotation.Nullable;
 import reactor.util.concurrent.Queues;
@@ -52,17 +53,21 @@ import reactor.util.concurrent.Queues;
  * A ParallelFlux publishes to an array of Subscribers, in parallel 'rails' (or
  * {@link #groups() 'groups'}).
  * <p>
- * Use {@code from()} to start processing a regular Publisher in 'rails', which each
+ * Use {@link #from} to start processing a regular Publisher in 'rails', which each
  * cover a subset of the original Publisher's data. {@link Flux#parallel()} is a
  * convenient shortcut to achieve that on a {@link Flux}.
  * <p>
- * Use {@code runOn()} to introduce where each 'rail' should run on thread-vise.
+ * Use {@link #runOn} to introduce where each 'rail' should run on thread-vise.
  * <p>
- * Use {@code sequential()} to merge the sources back into a single {@link Flux} or
+ * Use {@link #sequential)} to merge the sources back into a single {@link Flux}.
+ * <p>
+ * Use {@link #then)} to listen for all rails termination in the produced {@link Mono}
+ * <p>
  * {@link #subscribe(Subscriber)} if you simply want to subscribe to the merged sequence.
  * Note that other variants like {@link #subscribe(Consumer)} instead do multiple
  * subscribes, one on each rail (which means that the lambdas should be as stateless and
  * side-effect free as possible).
+ *
  *
  * @param <T> the value type
  */
@@ -70,7 +75,7 @@ public abstract class ParallelFlux<T> implements CorePublisher<T> {
 
 	/**
 	 * Take a Publisher and prepare to consume it on multiple 'rails' (one per CPU core)
-	 * in a round-robin fashion.
+	 * in a round-robin fashion. Equivalent to {@link Flux#parallel}.
 	 *
 	 * @param <T> the value type
 	 * @param source the source Publisher
@@ -78,9 +83,7 @@ public abstract class ParallelFlux<T> implements CorePublisher<T> {
 	 * @return the {@link ParallelFlux} instance
 	 */
 	public static <T> ParallelFlux<T> from(Publisher<? extends T> source) {
-		return from(source,
-				Runtime.getRuntime()
-				       .availableProcessors(), Queues.SMALL_BUFFER_SIZE,
+		return from(source, Schedulers.DEFAULT_POOL_SIZE, Queues.SMALL_BUFFER_SIZE,
 				Queues.small());
 	}
 
@@ -299,7 +302,9 @@ public abstract class ParallelFlux<T> implements CorePublisher<T> {
 	 * @param composer the composition function to apply on each {@link GroupedFlux rail}
 	 * @param <U> the type of the resulting parallelized flux
 	 * @return a {@link ParallelFlux} of the composed groups
+	 * @deprecated will be removed in 3.4.0. Use {@link #transformGroups(Function)} instead
 	 */
+	@Deprecated
 	public final <U> ParallelFlux<U> composeGroup(Function<? super GroupedFlux<Integer, T>,
 			? extends Publisher<? extends U>> composer) {
 		if (getPrefetch() > -1) {
@@ -1083,6 +1088,18 @@ public abstract class ParallelFlux<T> implements CorePublisher<T> {
 		return ParallelFluxName.createOrAppend(this, key, value);
 	}
 
+
+
+	/**
+	 * Emit an onComplete or onError signal once all values across 'rails' have been observed.
+	 *
+	 * @return the new Mono instance emitting the reduced value or empty if the
+	 * {@link ParallelFlux} was empty
+	 */
+	public final Mono<Void> then() {
+		return Mono.onAssembly(new ParallelThen(this));
+	}
+
 	/**
 	 * Allows composing operators, in assembly time, on top of this {@link ParallelFlux}
 	 * and returns another {@link ParallelFlux} with composed features.
@@ -1095,6 +1112,32 @@ public abstract class ParallelFlux<T> implements CorePublisher<T> {
 	 */
 	public final <U> ParallelFlux<U> transform(Function<? super ParallelFlux<T>, ParallelFlux<U>> composer) {
 		return onAssembly(as(composer));
+	}
+
+	/**
+	 * Allows composing operators off the groups (or 'rails'), as individual {@link GroupedFlux}
+	 * instances keyed by the zero based rail's index. The transformed groups are
+	 * {@link Flux#parallel parallelized} back once the transformation has been applied.
+	 * Since groups are generated anew per each subscription, this is all done in a "lazy"
+	 * fashion where each subscription trigger distinct applications of the {@link Function}.
+	 * <p>
+	 * Note that like in {@link #groups()}, requests and cancellation compose through, and
+	 * cancelling only one rail may result in undefined behavior.
+	 *
+	 * @param composer the composition function to apply on each {@link GroupedFlux rail}
+	 * @param <U> the type of the resulting parallelized flux
+	 * @return a {@link ParallelFlux} of the composed groups
+	 */
+	public final <U> ParallelFlux<U> transformGroups(Function<? super GroupedFlux<Integer, T>,
+			? extends Publisher<? extends U>> composer) {
+		if (getPrefetch() > -1) {
+			return from(groups().flatMap(composer::apply),
+					parallelism(), getPrefetch(),
+					Queues.small());
+		}
+		else {
+			return from(groups().flatMap(composer::apply), parallelism());
+		}
 	}
 
 	@Override

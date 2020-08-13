@@ -788,7 +788,7 @@ public abstract class Operators {
 		Function<Publisher, Publisher> hook = Hooks.onLastOperatorHook;
 		final Publisher<T> publisher;
 		if (hook == null) {
-			publisher = source;
+			return source;
 		}
 		else {
 			publisher = Objects.requireNonNull(hook.apply(source),"LastOperator hook returned null");
@@ -1285,7 +1285,11 @@ public abstract class Operators {
 		@Override
 		public void subscribe(Subscriber<? super T> s) {
 			publisher.subscribe(s);
+		}
 
+		@Override
+		public CoreSubscriber<?> subscribeOrReturn(CoreSubscriber<? super T> subscriber) {
+			return subscriber;
 		}
 	}
 

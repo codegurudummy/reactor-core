@@ -52,13 +52,12 @@ final class MonoPeekTerminal<T> extends MonoOperator<T, T> implements Fuseable {
 
 	@Override
 	@SuppressWarnings("unchecked")
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		if (actual instanceof ConditionalSubscriber) {
-			source.subscribe(new MonoTerminalPeekSubscriber<>((ConditionalSubscriber<? super T>) actual,
-					this));
-			return;
+			return new MonoTerminalPeekSubscriber<>((ConditionalSubscriber<? super T>) actual,
+					this);
 		}
-		source.subscribe(new MonoTerminalPeekSubscriber<>(actual, this));
+		return new MonoTerminalPeekSubscriber<>(actual, this);
 	}
 
 	/*
