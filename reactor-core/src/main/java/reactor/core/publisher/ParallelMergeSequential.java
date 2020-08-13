@@ -16,6 +16,7 @@
 package reactor.core.publisher;
 
 import java.util.Queue;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
@@ -72,7 +73,7 @@ final class ParallelMergeSequential<T> extends Flux<T> implements Scannable {
 		source.subscribe(parent.subscribers);
 	}
 	
-	static final class MergeSequentialMain<T> implements InnerProducer<T> {
+	static final class MergeSequentialMain<T> extends AtomicInteger implements InnerProducer<T> {
 
 		final MergeSequentialInner<T>[] subscribers;
 		
@@ -107,6 +108,7 @@ final class ParallelMergeSequential<T> extends Flux<T> implements Scannable {
 				Supplier<Queue<T>> queueSupplier) {
 			this.actual = actual;
 			this.queueSupplier = queueSupplier;
+			this.set(n);
 			@SuppressWarnings("unchecked")
 			MergeSequentialInner<T>[] a = new MergeSequentialInner[n];
 
@@ -340,6 +342,12 @@ final class ParallelMergeSequential<T> extends Flux<T> implements Scannable {
 				}
 			}
 		}
+
+		void innerCancelled() {
+			if (decrementAndGet() <= 0) {
+				actual.onCancelled();
+			}
+		}
 	}
 	
 	static final class MergeSequentialInner<T> implements InnerConsumer<T> {
@@ -420,7 +428,12 @@ final class ParallelMergeSequential<T> extends Flux<T> implements Scannable {
 		public void cancel() {
 			Operators.terminate(S, this);
 		}
-		
+
+		@Override
+		public void onCancelled() {
+			parent.innerCancelled();
+		}
+
 		Queue<T> getQueue(Supplier<Queue<T>> queueSupplier) {
 			Queue<T> q = queue;
 			if (q == null) {

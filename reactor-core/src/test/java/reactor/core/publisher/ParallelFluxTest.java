@@ -31,6 +31,7 @@ import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
 
@@ -1062,6 +1063,22 @@ public class ParallelFluxTest {
 				"onComplete() Hello!",
 				"onComplete() Hello!"
 		);
+	}
+
+	@Test
+	public void doAfterCancelled() {
+		AtomicBoolean seen = new AtomicBoolean();
+
+		StepVerifier.create(
+				Flux.just("foo")
+				    .parallel()
+				    .map(it -> it + it)
+				    .doAfterCancelled(() -> seen.set(true))
+		)
+		            .thenCancelWithAck()
+		            .verify(Duration.ofMillis(200));
+
+		assertThat(seen).isTrue();
 	}
 
 	private void tryToSleep(long value)

@@ -154,9 +154,17 @@ final class MonoCollectList<T> extends MonoFromFluxOperator<T, List<T>> implemen
 				}
 			}
 			if (l != null) {
+				Subscription s = this.s;
 				s.cancel();
 				Operators.onDiscardMultiple(l, actual.currentContext());
 			}
+		}
+
+		@Override
+		public void onCancelled() {
+			//the list is nulled out by cancel and protected against races with synchronize
+			//so we effectively do as in the default, ie nothing but propagate onCancelled
+			actual.onCancelled();
 		}
 	}
 }

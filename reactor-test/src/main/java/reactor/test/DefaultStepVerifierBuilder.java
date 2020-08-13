@@ -626,6 +626,12 @@ final class DefaultStepVerifierBuilder<T>
 	}
 
 	@Override
+	public DefaultStepVerifier<T> thenCancelWithAck() {
+		this.script.add(new SubscriptionEvent<>("thenCancelWithAck", true));
+		return build();
+	}
+
+	@Override
 	public Duration verifyError() {
 		return expectError().verify();
 	}
@@ -1257,8 +1263,9 @@ final class DefaultStepVerifierBuilder<T>
 			return s;
 		}
 
-		void doCancel() {
-			if (!(cancel() instanceof InnerSubscription)) {
+		void doCancel(boolean waitForAck) {
+			cancel();
+			if (!waitForAck) {
 				this.completeLatch.countDown();
 			}
 		}
@@ -1554,7 +1561,7 @@ final class DefaultStepVerifierBuilder<T>
 					updateRequested(subscriptionEvent);
 				}
 				if (subscriptionEvent.isTerminal()) {
-					doCancel();
+					doCancel(subscriptionEvent.isWaitForAck());
 					return true;
 				}
 				subscriptionEvent.consume(get());
@@ -2074,14 +2081,24 @@ final class DefaultStepVerifierBuilder<T>
 	static class SubscriptionEvent<T> extends AbstractEagerEvent<T> {
 
 		final Consumer<Subscription> consumer;
+		final boolean waitForAck;
 
 		SubscriptionEvent(String desc) {
 			this(null, desc);
 		}
 
+		SubscriptionEvent(String desc, boolean waitForAck) {
+			this(null, waitForAck, desc);
+		}
+
 		SubscriptionEvent(@Nullable Consumer<Subscription> consumer, String desc) {
+			this(consumer, false, desc);
+		}
+
+		SubscriptionEvent(@Nullable Consumer<Subscription> consumer, boolean waitForAck, String desc) {
 			super(desc);
 			this.consumer = consumer;
+			this.waitForAck = waitForAck;
 		}
 
 		void consume(Subscription subscription) {
@@ -2092,6 +2109,10 @@ final class DefaultStepVerifierBuilder<T>
 
 		boolean isTerminal() {
 			return consumer == null;
+		}
+
+		boolean isWaitForAck() {
+			return isTerminal() && waitForAck;
 		}
 	}
 
@@ -2332,7 +2353,7 @@ final class DefaultStepVerifierBuilder<T>
 		@Override
 		void run(DefaultVerifySubscriber<T> parent) throws Exception {
 			if (delegate.isTerminal()) {
-				parent.doCancel();
+				parent.doCancel(delegate.isWaitForAck());
 			} else {
 				delegate.consume(parent.get());
 			}
