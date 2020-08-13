@@ -19,7 +19,7 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.function.Predicate;
 
-import org.reactivestreams.Publisher;
+import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 
@@ -30,7 +30,7 @@ import reactor.core.Exceptions;
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxRetryPredicate<T> extends FluxOperator<T, T> {
+final class FluxRetryPredicate<T> extends InternalFluxOperator<T, T> {
 
 	final Predicate<? super Throwable> predicate;
 
@@ -40,7 +40,7 @@ final class FluxRetryPredicate<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 
 		RetryPredicateSubscriber<T> parent = new RetryPredicateSubscriber<>(source,
 				actual,
@@ -51,12 +51,13 @@ final class FluxRetryPredicate<T> extends FluxOperator<T, T> {
 		if (!parent.isCancelled()) {
 			parent.resubscribe();
 		}
+		return null;
 	}
 
 	static final class RetryPredicateSubscriber<T>
 			extends Operators.MultiSubscriptionSubscriber<T, T> {
 
-		final Publisher<? extends T> source;
+		final CorePublisher<? extends T> source;
 
 		final Predicate<? super Throwable> predicate;
 
@@ -67,7 +68,7 @@ final class FluxRetryPredicate<T> extends FluxOperator<T, T> {
 
 		long produced;
 
-		RetryPredicateSubscriber(Publisher<? extends T> source,
+		RetryPredicateSubscriber(CorePublisher<? extends T> source,
 				CoreSubscriber<? super T> actual, Predicate<? super Throwable> predicate) {
 			super(actual);
 			this.source = source;

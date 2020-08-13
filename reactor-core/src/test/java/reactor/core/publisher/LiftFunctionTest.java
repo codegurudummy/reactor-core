@@ -25,6 +25,7 @@ import org.awaitility.Awaitility;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.reactivestreams.Publisher;
+
 import reactor.core.Fuseable;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -87,7 +88,8 @@ public class LiftFunctionTest {
 	@Test
 	public void liftConnectableFlux() {
 		ConnectableFlux<Integer> source = Flux.just(1)
-		                                      .publish(); //TODO hide if ConnectableFlux gets a hide function
+		                                      .publish()
+		                                      .hide();
 
 		Operators.LiftFunction<Integer, Integer> liftFunction =
 				Operators.LiftFunction.liftScannable(null, (s, actual) -> actual);
@@ -116,7 +118,10 @@ public class LiftFunctionTest {
 		assertThat(liftOperator)
 				.isExactlyInstanceOf(ConnectableLift.class);
 
-		((ConnectableLift) liftOperator).connect(d -> cancelSupportInvoked.set(true));
+		@SuppressWarnings("unchecked")
+		ConnectableLift<Integer, Integer> connectableLiftOperator = ((ConnectableLift<Integer, Integer>) liftOperator);
+
+		connectableLiftOperator.connect(d -> cancelSupportInvoked.set(true));
 
 		Awaitility.await().atMost(1, TimeUnit.SECONDS)
 		          .untilAsserted(() -> assertThat(cancelSupportInvoked).isTrue());
@@ -136,8 +141,9 @@ public class LiftFunctionTest {
 
 		assertThat(liftOperator)
 				.isExactlyInstanceOf(ConnectableLiftFuseable.class);
-
-		((ConnectableLiftFuseable) liftOperator).connect(d -> cancelSupportInvoked.set(true));
+		@SuppressWarnings("unchecked")
+		ConnectableLiftFuseable<Integer, Integer> connectableLifOperator = (ConnectableLiftFuseable<Integer, Integer>) liftOperator;
+		connectableLifOperator.connect(d -> cancelSupportInvoked.set(true));
 
 		Awaitility.await().atMost(1, TimeUnit.SECONDS)
 				.untilAsserted(() -> assertThat(cancelSupportInvoked).isTrue());
