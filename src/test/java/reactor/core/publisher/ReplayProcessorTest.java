@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -580,20 +580,15 @@ public class ReplayProcessorTest {
 		assertThat(s.isCancelled()).isFalse();
 		assertThat(s.isCancelled()).isFalse();
 
-		assertThat(rp.isStarted()).isFalse();
 		assertThat(rp.getPrefetch()).isEqualTo(Integer.MAX_VALUE);
 		if(rp.getBufferSize() != Integer.MAX_VALUE) {
 			assertThat(rp.getBufferSize()).isEqualTo(1);
 		}
-		BlockingSink<String> sink = rp.connectSink();
-		assertThat(rp.connectSink().isCancelled()).isTrue();
-		rp.onComplete();
-		assertThat(rp.connectSink().isCancelled()).isTrue();
-		assertThat(rp.isStarted()).isTrue();
-
+		FluxSink<String> sink = rp.sink();
+		sink.next("test");
 		rp.onComplete();
 
-		assertThat(sink.emit("test").isCancelled()).isTrue();
+		rp.onComplete();
 
 		Exception e = new RuntimeException("test");
 		try{

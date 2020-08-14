@@ -84,7 +84,7 @@ I want to deal with: <<which.create>>, <<which.values>>, <<which.peeking>>,
 
 * I have an empty sequence but...
 ** I want a value instead: `defaultIfEmpty`
-** I want another sequence instead: `Flux#switchIfEmpty`, `Mono.otherwiseIfEmpty`
+** I want another sequence instead: `switchIfEmpty`
 
 * I have a sequence but I'm not interested in values: `ignoreElements`
 ** ...and I want the completion represented as a `Mono`: `then`
@@ -171,18 +171,18 @@ I want to deal with: <<which.create>>, <<which.values>>, <<which.peeking>>,
 * I want the try/catch equivalent of...
 ** throwing: `error`
 ** catching an exception...
-*** and falling back to a default value: `Flux#onErrorReturn`
-*** and falling back to another `Flux`: `Flux#onErrorResumeWith`
-*** and wrapping and re-throwing: `.onErrorResumeWith(t -> Flux.error(new RuntimeException(t)))`
+*** and falling back to a default value: `onErrorReturn`
+*** and falling back to another `Flux` or `Mono`: `onErrorResume`
+*** and wrapping and re-throwing: `.onErrorMap(t -> new RuntimeException(t))`
 ** the finally block: `doFinally`
 ** the using pattern from Java 7: `using` factory method
 
 * I want to recover from errors...
-** by falling back: `Flux#onErrorReturn`, `Flux#onErrorResumeWith`
-*** ...but from a Mono: `Mono#otherwiseReturn`, `Mono#otherwise`
+** by falling back...
+*** to a value: `onErrorReturn`
+*** to a `Publisher` or `Mono`, possibly different ones depending on the error: `Flux#onErrorResume` and `Mono#onErrorResume`
 ** by retrying: `retry`
 *** ...triggered by a companion control Flux: `retryWhen`
-** by switching to another `Flux` depending on the error type: `switchOnError`
 
 * I want to deal with backpressure "errors"footnote:[request max from upstream and apply the strategy when downstream doesn't produce enough request]...
 ** by throwing a special `IllegalStateException`: `Flux#onBackpressureError`
@@ -216,7 +216,7 @@ I want to deal with: <<which.create>>, <<which.values>>, <<which.peeking>>,
 ** based on a predicate on elements: `windowUntil`
 *** ...…emitting the element that triggered the boundary in the next window (`cutBefore` variant): `.windowUntil(predicate, true)`
 *** ...keeping the window open while elements match a predicate: `windowWhile` (non-matching elements are not emitted)
-** driven by an arbitrary boundary represented by onNexts in a control Publisher: `window(Publisher)`
+** driven by an arbitrary boundary represented by onNexts in a control Publisher: `window(Publisher)`, `windowWhen`
 
 * I want to split a `Flux<T>` and buffer elements within boundaries together...
 ** into `List`...
@@ -228,7 +228,7 @@ I want to deal with: <<which.create>>, <<which.values>>, <<which.peeking>>,
 *** by an arbitrary criteria boundary: `bufferUntil(Predicate)`
 **** ...putting the element that triggered the boundary in the next buffer: `.bufferUntil(predicate, true)`
 **** ...buffering while predicate matches and dropping the element that triggered the boundary: `bufferWhile(Predicate)`
-*** driven by an arbitrary boundary represented by onNexts in a control Publisher: `buffer(Publisher)`
+*** driven by an arbitrary boundary represented by onNexts in a control Publisher: `buffer(Publisher)`, `bufferWhen`
 ** into an arbitrary "collection" type `C`: use variants like `buffer(int, Supplier<C>)`
 
 * I want to split a `Flux<T>` so that element that share a characteristic end up in the same sub-flux: `groupBy(Function<T,K>)`

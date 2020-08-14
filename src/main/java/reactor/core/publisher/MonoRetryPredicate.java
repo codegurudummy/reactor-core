@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -30,10 +30,10 @@ import org.reactivestreams.Subscriber;
  */
 final class MonoRetryPredicate<T> extends MonoSource<T, T> {
 
-	final Predicate<Throwable> predicate;
+	final Predicate<? super Throwable> predicate;
 
 	MonoRetryPredicate(Mono<? extends T> source,
-			Predicate<Throwable> predicate) {
+			Predicate<? super Throwable> predicate) {
 		super(source);
 		this.predicate = Objects.requireNonNull(predicate, "predicate");
 	}

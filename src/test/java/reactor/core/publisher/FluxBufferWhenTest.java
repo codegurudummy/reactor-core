@@ -1,11 +1,11 @@
 /*
- * Copyright (c) 2011-2016 Pivotal Software Inc, All Rights Reserved.
+ * Copyright (c) 2011-2017 Pivotal Software Inc, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,7 +27,7 @@ import reactor.test.subscriber.AssertSubscriber;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class FluxBufferStartEndTest {
+public class FluxBufferWhenTest {
 
 	@Test
 	public void normal() {
@@ -38,7 +38,7 @@ public class FluxBufferStartEndTest {
 		DirectProcessor<Integer> sp3 = DirectProcessor.create();
 		DirectProcessor<Integer> sp4 = DirectProcessor.create();
 
-		sp1.buffer(sp2, v -> v == 1 ? sp3 : sp4)
+		sp1.bufferWhen(sp2, v -> v == 1 ? sp3 : sp4)
 		   .subscribe(ts);
 
 		ts.assertNoValues()
@@ -94,7 +94,7 @@ public class FluxBufferStartEndTest {
 		DirectProcessor<Integer> sp2 = DirectProcessor.create();
 		DirectProcessor<Integer> sp3 = DirectProcessor.create();
 
-		sp1.buffer(sp2, v -> sp3)
+		sp1.bufferWhen(sp2, v -> sp3)
 		   .subscribe(ts);
 
 		ts.assertNoValues()
@@ -132,13 +132,13 @@ public class FluxBufferStartEndTest {
 	@Test
 	public void bufferWillAcumulateMultipleListsOfValuesOverlap() {
 		//given: "a source and a collected flux"
-		EmitterProcessor<Integer> numbers = EmitterProcessor.<Integer>create().connect();
-		EmitterProcessor<Integer> bucketOpening = EmitterProcessor.<Integer>create().connect();
+		EmitterProcessor<Integer> numbers = EmitterProcessor.create();
+		EmitterProcessor<Integer> bucketOpening = EmitterProcessor.create();
 
 		//"overlapping buffers"
-		EmitterProcessor<Integer> boundaryFlux = EmitterProcessor.<Integer>create().connect();
+		EmitterProcessor<Integer> boundaryFlux = EmitterProcessor.create();
 
-		Mono<List<List<Integer>>> res = numbers.buffer(bucketOpening, u -> boundaryFlux )
+		Mono<List<List<Integer>>> res = numbers.bufferWhen(bucketOpening, u -> boundaryFlux )
 		                                       .buffer()
 		                                       .publishNext()
 		                                       .subscribe();

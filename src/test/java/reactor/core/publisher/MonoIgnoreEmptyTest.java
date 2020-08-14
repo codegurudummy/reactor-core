@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,10 +16,7 @@
 
 package reactor.core.publisher;
 
-import java.time.Duration;
-
 import org.junit.Test;
-import org.reactivestreams.Publisher;
 import reactor.test.StepVerifier;
 
 public class MonoIgnoreEmptyTest {
@@ -35,13 +32,6 @@ public class MonoIgnoreEmptyTest {
 	public void normal() {
 		StepVerifier.create(Flux.just(1)
 		                        .thenEmpty(Flux.empty()))
-		            .expectComplete();
-	}
-
-	@Test
-	public void normal2() {
-		StepVerifier.create(Flux.empty()
-		                        .then((Flux::empty)))
 		            .expectComplete();
 	}
 

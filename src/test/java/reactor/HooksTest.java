@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,16 +17,13 @@
 package reactor;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.LinkedTransferQueue;
 import java.util.logging.Level;
 
 import org.junit.Assert;
 import org.junit.Test;
-import org.reactivestreams.Subscriber;
 import reactor.core.publisher.ConnectableFlux;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Hooks;
@@ -36,10 +33,7 @@ import reactor.core.publisher.ParallelFlux;
 import reactor.core.publisher.SignalType;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
-import reactor.test.StepVerifier;
 import reactor.test.subscriber.AssertSubscriber;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * @author Stephane Maldini
@@ -161,7 +155,7 @@ public class HooksTest {
 				new String[]{"FluxJust: 1", "{ \"operator\" : \"MapFuseable\" }: 2",
 						"{ \"operator\" : \"PeekFuseable\" }! false",
 						"{ \"operator\" : \"CollectList\" }! true", "MonoJust: [2]",
-						"{ \"operator\" : \"Otherwise\" }: [2]"});
+						"{ \"operator\" : \"OnErrorResume\" }: [2]"});
 
 		q.clear();
 
@@ -178,7 +172,7 @@ public class HooksTest {
 				new String[]{"FluxJust: 1", "{ \"operator\" : \"MapFuseable\" }: 2",
 						"{ \"operator\" : \"PeekFuseable\" }! false",
 						"{ \"operator\" : \"CollectList\" }! false", "MonoJust: [2]",
-						"{ \"operator\" : \"Otherwise\" }: [2]"});
+						"{ \"operator\" : \"OnErrorResume\" }: [2]"});
 
 		q.clear();
 
@@ -337,9 +331,9 @@ public class HooksTest {
 		try {
 
 			ConnectableFlux<?> t = Flux.empty()
-			    .then(() -> {
+			    .then(Mono.defer(() -> {
 				    throw new RuntimeException();
-			    }).flux().publish();
+			    })).flux().publish();
 
 			t.map(d -> d).subscribe(null,
 					e -> Assert.assertTrue(e.getSuppressed()[0].getMessage().contains
