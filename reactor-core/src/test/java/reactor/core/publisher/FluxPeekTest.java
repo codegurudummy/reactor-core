@@ -114,7 +114,7 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 				}, () -> {
 				}, () -> {
 					throw exception();
-				}, null, null)).producerEmpty(),
+				}, null, null, null)).producerEmpty(),
 
 				scenario(f -> Flux.doOnSignal(f, null, null, s -> {
 					if (s.getMessage()
@@ -124,7 +124,7 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 				}, () -> {
 				}, () -> {
 					throw exception();
-				}, null, null)).producerEmpty(),
+				}, null, null, null)).producerEmpty(),
 
 				scenario(f -> f.doOnComplete(() -> {
 					               throw exception();
@@ -195,7 +195,7 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 					}
 				}, null, () -> {
 					throw droppedException();
-				}, null, null)
+				}, null, null, null)
 				                  .doOnError(s -> {
 					                  throw Exceptions.errorCallbackNotImplemented(new Exception(
 							                  "unsupported"));
@@ -218,7 +218,7 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 					}
 				}, null, () -> {
 					throw droppedException();
-				}, null, null)
+				}, null, null, null)
 				                  .doOnError(s -> {
 					                  throw Exceptions.errorCallbackNotImplemented(s);
 				                  })).verifier(step -> {
@@ -240,7 +240,7 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 					}
 				}, null, () -> {
 					throw droppedException();
-				}, null, null)
+				}, null, null, null)
 				                  .doOnError(s -> {
 					                  throw exception();
 				                  })).fusionMode(Fuseable.NONE).verifier(step -> {
@@ -260,7 +260,7 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 
 	@Test(expected = NullPointerException.class)
 	public void nullSource() {
-		new FluxPeek<>(null, null, null, null, null, null, null, null);
+		new FluxPeek<>(null, null, null, null, null, null, null, null, null);
 	}
 
 	@Test
@@ -283,7 +283,8 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 				() -> onComplete.set(true),
 				() -> onAfterComplete.set(true),
 				onRequest::set,
-				() -> onCancel.set(true)).subscribe(ts);
+				() -> onCancel.set(true),
+				null).subscribe(ts);
 
 		Assert.assertNotNull(onSubscribe.get());
 		Assert.assertEquals((Integer) 1, onNext.get());
@@ -313,7 +314,8 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 				() -> onComplete.set(true),
 				() -> onAfterComplete.set(true),
 				onRequest::set,
-				() -> onCancel.set(true)).subscribe(ts);
+				() -> onCancel.set(true),
+				null).subscribe(ts);
 
 		Assert.assertNotNull(onSubscribe.get());
 		Assert.assertNull(onNext.get());
@@ -343,7 +345,8 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 				() -> onComplete.set(true),
 				() -> onAfterComplete.set(true),
 				onRequest::set,
-				() -> onCancel.set(true)).subscribe(ts);
+				() -> onCancel.set(true),
+				null).subscribe(ts);
 
 		Assert.assertNotNull(onSubscribe.get());
 		Assert.assertNull(onNext.get());
@@ -373,7 +376,8 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 				() -> onComplete.set(true),
 				() -> onAfterComplete.set(true),
 				onRequest::set,
-				() -> onCancel.set(true)).subscribe(ts);
+				() -> onCancel.set(true),
+				null).subscribe(ts);
 
 		Assert.assertNotNull(onSubscribe.get());
 		Assert.assertNull(onNext.get());
@@ -403,7 +407,8 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 				() -> onComplete.set(true),
 				() -> onAfterComplete.set(true),
 				onRequest::set,
-				() -> onCancel.set(true)).subscribe(ts);
+				() -> onCancel.set(true),
+				null).subscribe(ts);
 
 		Assert.assertNotNull(onSubscribe.get());
 		Assert.assertNull(onNext.get());
@@ -498,6 +503,7 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 						null,
 						null,
 						null,
+						null,
 						null);
 
 		AssertSubscriber<String> ts = AssertSubscriber.create();
@@ -584,7 +590,7 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 					throw err;
 				},
 				null,
-				null);
+				null, null);
 
 		AssertSubscriber<String> ts = AssertSubscriber.create();
 
@@ -614,7 +620,7 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 					throw fatal;
 				},
 				null,
-				null);
+				null, null);
 
 		AssertSubscriber<String> ts = AssertSubscriber.create();
 
@@ -641,7 +647,7 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 					throw fatal;
 				},
 				null,
-				null);
+				null, null);
 
 		ts = AssertSubscriber.create();
 
@@ -668,7 +674,7 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 			throw err2;
 		}, null, () -> {
 			throw err;
-		}, null, null);
+		}, null, null, null);
 
 		AssertSubscriber<String> ts = AssertSubscriber.create();
 
@@ -696,7 +702,7 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 			throw error;
 		}, null, () -> {
 			throw afterTerminate;
-		}, null, null);
+		}, null, null, null);
 
 		AssertSubscriber<String> ts = AssertSubscriber.create();
 
@@ -961,7 +967,7 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
     public void scanSubscriber() {
         CoreSubscriber<Integer> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
         FluxPeek<Integer> peek = new FluxPeek<>(Flux.just(1), s -> {}, s -> {},
-        		e -> {}, () -> {}, () -> {}, r -> {}, () -> {});
+        		e -> {}, () -> {}, () -> {}, r -> {}, () -> {}, null);
         FluxPeek.PeekSubscriber<Integer> test = new FluxPeek.PeekSubscriber<>(actual, peek);
         Subscription parent = Operators.emptySubscription();
         test.onSubscribe(parent);
@@ -985,7 +991,7 @@ public class FluxPeekTest extends FluxOperatorTest<String, String> {
 
 	    Flux<Integer> test = new FluxPeek<>(source, null,
 			    v -> { throw nextError; },
-			    null, null, null, null, null)
+			    null, null, null, null, null, null)
 			    .hide()
 			    .onErrorContinue((t, s) -> {
 					resumedErrors.add(t);

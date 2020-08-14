@@ -20,6 +20,8 @@ import java.util.function.LongConsumer;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+
+import reactor.core.CoreSubscriber;
 import reactor.core.Scannable;
 import reactor.util.annotation.Nullable;
 import reactor.util.context.Context;
@@ -88,6 +90,16 @@ interface SignalPeek<T> extends Scannable {
 	 */
 	@Nullable
 	Runnable onCancelCall();
+
+	/**
+	 * A task that will run when a {@link reactor.core.CorePublisher} notifies its
+	 * {@link reactor.core.CoreSubscriber} that cancellation cleanup is done, via
+	 * {@link CoreSubscriber#onCancelled()}.
+	 *
+	 * @return A task that will run on {@link CoreSubscriber#onCancelled()}
+	 */
+	@Nullable
+	Runnable onAfterCancelledCall();
 
 	/**
 	 * A task that will run after (finally) {@link Subscriber#onNext(Object)}

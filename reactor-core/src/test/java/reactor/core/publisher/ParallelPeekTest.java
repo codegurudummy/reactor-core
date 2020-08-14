@@ -29,7 +29,7 @@ public class ParallelPeekTest {
 	@Test
 	public void parallelism() {
 		ParallelFlux<Integer> source = Flux.just(500, 300).parallel(10);
-		ParallelPeek<Integer> test = new ParallelPeek<>(source, null, null, null, null, null, null, null, null);
+		ParallelPeek<Integer> test = new ParallelPeek<>(source, null, null, null, null, null, null, null, null, null);
 
 		assertThat(test.parallelism())
 				.isEqualTo(source.parallelism())
@@ -39,7 +39,7 @@ public class ParallelPeekTest {
 	@Test
 	public void scanOperator() {
 		ParallelSource<Integer> source = new ParallelSource<>(Flux.just(500, 300), 10, 123, Queues.one());
-		ParallelPeek<Integer> test = new ParallelPeek<>(source, null, null, null, null, null, null, null, null);
+		ParallelPeek<Integer> test = new ParallelPeek<>(source, null, null, null, null, null, null, null, null, null);
 
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(source);
 		assertThat(test.scan(Scannable.Attr.PREFETCH))

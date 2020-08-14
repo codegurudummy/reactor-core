@@ -79,7 +79,7 @@ final class FluxArray<T> extends Flux<T> implements Fuseable, SourceProducer<T> 
 	}
 
 	static final class ArraySubscription<T>
-			implements InnerProducer<T>, SynchronousSubscription<T> {
+			implements InnerSubscription<T>, SynchronousSubscription<T> {
 
 		final CoreSubscriber<? super T> actual;
 
@@ -190,6 +190,9 @@ final class FluxArray<T> extends Flux<T> implements Fuseable, SourceProducer<T> 
 		@Override
 		public void cancel() {
 			cancelled = true;
+			//the array is not discarded because it might be reused by other subscriptions
+			//propagate onCancelled right away
+			actual.onCancelled();
 		}
 
 		@Override
@@ -234,12 +237,12 @@ final class FluxArray<T> extends Flux<T> implements Fuseable, SourceProducer<T> 
 			if (key == Attr.CANCELLED) return cancelled;
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return requested;
 
-			return InnerProducer.super.scanUnsafe(key);
+			return InnerSubscription.super.scanUnsafe(key);
 		}
 	}
 
 	static final class ArrayConditionalSubscription<T>
-			implements InnerProducer<T>, SynchronousSubscription<T> {
+			implements InnerSubscription<T>, SynchronousSubscription<T> {
 
 		final ConditionalSubscriber<? super T> actual;
 
@@ -358,6 +361,9 @@ final class FluxArray<T> extends Flux<T> implements Fuseable, SourceProducer<T> 
 		@Override
 		public void cancel() {
 			cancelled = true;
+			//the array is not discarded because it might be reused by other subscriptions
+			//propagate onCancelled right away
+			actual.onCancelled();
 		}
 
 		@Override
@@ -368,7 +374,7 @@ final class FluxArray<T> extends Flux<T> implements Fuseable, SourceProducer<T> 
 			if (key == Attr.CANCELLED) return cancelled;
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return requested;
 
-			return InnerProducer.super.scanUnsafe(key);
+			return InnerSubscription.super.scanUnsafe(key);
 		}
 
 		@Override

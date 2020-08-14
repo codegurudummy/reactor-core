@@ -40,6 +40,7 @@ final class ParallelPeek<T> extends ParallelFlux<T> implements SignalPeek<T>{
 	final Consumer<? super Subscription> onSubscribe;
 	final LongConsumer onRequest;
 	final Runnable onCancel;
+	final Runnable onAfterCancelled;
 
 	ParallelPeek(ParallelFlux<T> source,
 			@Nullable Consumer<? super T> onNext,
@@ -49,7 +50,8 @@ final class ParallelPeek<T> extends ParallelFlux<T> implements SignalPeek<T>{
 			@Nullable Runnable onAfterTerminated,
 			@Nullable Consumer<? super Subscription> onSubscribe,
 			@Nullable LongConsumer onRequest,
-			@Nullable Runnable onCancel
+			@Nullable Runnable onCancel,
+			@Nullable Runnable onAfterCancelled
 	) {
 		this.source = source;
 
@@ -61,6 +63,7 @@ final class ParallelPeek<T> extends ParallelFlux<T> implements SignalPeek<T>{
 		this.onSubscribe = onSubscribe;
 		this.onRequest = onRequest;
 		this.onCancel = onCancel;
+		this.onAfterCancelled = onAfterCancelled;
 	}
 
 	@Override
@@ -138,6 +141,11 @@ final class ParallelPeek<T> extends ParallelFlux<T> implements SignalPeek<T>{
 	@Nullable
 	public Runnable onCancelCall() {
 		return onCancel;
+	}
+
+	@Override
+	public Runnable onAfterCancelledCall() {
+		return onAfterCancelled;
 	}
 
 	@Override

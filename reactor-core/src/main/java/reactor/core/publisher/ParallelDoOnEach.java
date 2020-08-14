@@ -150,6 +150,11 @@ final class ParallelDoOnEach<T> extends ParallelFlux<T> implements Scannable {
 		}
 
 		@Override
+		public Runnable onAfterCancelledCall() {
+			return null;
+		}
+
+		@Override
 		public Object scanUnsafe(Attr key) {
 			return null;
 		}

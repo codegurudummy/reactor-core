@@ -252,7 +252,16 @@ final class ParallelSource<T> extends ParallelFlux<T> implements Scannable {
 			done = true;
 			drain();
 		}
-		
+
+		@Override
+		public void onCancelled() {
+			//TODO also discard here
+			CoreSubscriber<? super T>[] a = this.subscribers;
+			for (CoreSubscriber<? super T> rail : a) {
+				rail.onCancelled();
+			}
+		}
+
 		void cancel() {
 			if (!cancelled) {
 				cancelled = true;

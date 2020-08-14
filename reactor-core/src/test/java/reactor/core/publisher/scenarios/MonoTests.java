@@ -23,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -143,6 +144,22 @@ public class MonoTests {
 		peekSubscriber.assertNotSubscribed();
 		peekSubscriber.assertValues(1);
 		peekSubscriber.assertComplete();
+	}
+
+
+	@Test
+	public void doAfterCancelled() {
+		AtomicBoolean seen = new AtomicBoolean();
+
+		StepVerifier.create(
+				Mono.just("foo")
+				    .map(it -> it + it)
+				    .doAfterCancelled(() -> seen.set(true))
+		)
+		            .thenCancelWithAck()
+		            .verify(Duration.ofMillis(100));
+
+		Assertions.assertThat(seen).isTrue();
 	}
 
 	@Test

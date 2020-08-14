@@ -65,6 +65,8 @@ final class FluxPeek<T> extends FluxOperator<T, T> implements SignalPeek<T> {
 
 	final Runnable onCancelCall;
 
+	final Runnable onAfterCancelledCall;
+
 	FluxPeek(Flux<? extends T> source,
 			@Nullable Consumer<? super Subscription> onSubscribeCall,
 			@Nullable Consumer<? super T> onNextCall,
@@ -72,7 +74,8 @@ final class FluxPeek<T> extends FluxOperator<T, T> implements SignalPeek<T> {
 			@Nullable Runnable onCompleteCall,
 			@Nullable Runnable onAfterTerminateCall,
 			@Nullable LongConsumer onRequestCall,
-			@Nullable Runnable onCancelCall) {
+			@Nullable Runnable onCancelCall,
+			@Nullable Runnable onAfterCancelledCall) {
 		super(source);
 		this.onSubscribeCall = onSubscribeCall;
 		this.onNextCall = onNextCall;
@@ -81,6 +84,7 @@ final class FluxPeek<T> extends FluxOperator<T, T> implements SignalPeek<T> {
 		this.onAfterTerminateCall = onAfterTerminateCall;
 		this.onRequestCall = onRequestCall;
 		this.onCancelCall = onCancelCall;
+		this.onAfterCancelledCall = onAfterCancelledCall;
 	}
 
 	@Override
@@ -154,6 +158,21 @@ final class FluxPeek<T> extends FluxOperator<T, T> implements SignalPeek<T> {
 				}
 			}
 			s.cancel();
+		}
+
+		@Override
+		public void onCancelled() {
+			final Runnable onCancelledHook = parent.onAfterCancelledCall();
+			if (onCancelledHook != null) {
+				try {
+					onCancelledHook.run();
+				}
+				catch (Throwable e) {
+					onError(Operators.onOperatorError(s, e, actual.currentContext()));
+					return;
+				}
+			}
+			actual.onCancelled();
 		}
 
 		@Override
@@ -320,6 +339,12 @@ final class FluxPeek<T> extends FluxOperator<T, T> implements SignalPeek<T> {
 	@Nullable
 	public Runnable onCancelCall() {
 		return onCancelCall;
+	}
+
+	@Override
+	@Nullable
+	public Runnable onAfterCancelledCall() {
+		return onAfterCancelledCall;
 	}
 
 	/**

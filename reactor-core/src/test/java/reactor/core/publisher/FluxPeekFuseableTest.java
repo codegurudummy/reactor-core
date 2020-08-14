@@ -57,7 +57,7 @@ public class FluxPeekFuseableTest {
 
 	@Test(expected = NullPointerException.class)
 	public void nullSource() {
-		new FluxPeekFuseable<>(null, null, null, null, null, null, null, null);
+		new FluxPeekFuseable<>(null, null, null, null, null, null, null, null, null);
 	}
 
 	@Test
@@ -79,7 +79,8 @@ public class FluxPeekFuseableTest {
 				() -> onComplete.set(true),
 				() -> onAfterComplete.set(true),
 				onRequest::set,
-				() -> onCancel.set(true)).subscribe(ts);
+				() -> onCancel.set(true),
+				null).subscribe(ts);
 
 		Assert.assertNotNull(onSubscribe.get());
 		Assert.assertEquals((Integer) 1, onNext.get());
@@ -109,7 +110,8 @@ public class FluxPeekFuseableTest {
 				() -> onComplete.set(true),
 				() -> onAfterComplete.set(true),
 				onRequest::set,
-				() -> onCancel.set(true)).subscribe(ts);
+				() -> onCancel.set(true),
+				null).subscribe(ts);
 
 		Assert.assertNotNull(onSubscribe.get());
 		Assert.assertNull(onNext.get());
@@ -139,7 +141,8 @@ public class FluxPeekFuseableTest {
 				() -> onComplete.set(true),
 				() -> onAfterComplete.set(true),
 				onRequest::set,
-				() -> onCancel.set(true)).subscribe(ts);
+				() -> onCancel.set(true),
+				null).subscribe(ts);
 
 		Assert.assertNotNull(onSubscribe.get());
 		Assert.assertNull(onNext.get());
@@ -169,7 +172,8 @@ public class FluxPeekFuseableTest {
 				() -> onComplete.set(true),
 				() -> onAfterComplete.set(true),
 				onRequest::set,
-				() -> onCancel.set(true)).subscribe(ts);
+				() -> onCancel.set(true),
+				null).subscribe(ts);
 
 		Assert.assertNotNull(onSubscribe.get());
 		Assert.assertNull(onNext.get());
@@ -199,7 +203,8 @@ public class FluxPeekFuseableTest {
 				() -> onComplete.set(true),
 				() -> onAfterComplete.set(true),
 				onRequest::set,
-				() -> onCancel.set(true)).subscribe(ts);
+				() -> onCancel.set(true),
+				null).subscribe(ts);
 
 		Assert.assertNotNull(onSubscribe.get());
 		Assert.assertNull(onNext.get());
@@ -283,7 +288,7 @@ public class FluxPeekFuseableTest {
 		FluxPeekFuseable<String> flux = new FluxPeekFuseable<>(
 				Flux.error(new IllegalArgumentException("bar")), null, null,
 				e -> { throw err; },
-				null, null, null, null);
+				null, null, null, null, null);
 
 		AssertSubscriber<String> ts = AssertSubscriber.create();
 		flux.subscribe(ts);
@@ -359,7 +364,7 @@ public class FluxPeekFuseableTest {
 
 		FluxPeekFuseable<String> flux = new FluxPeekFuseable<>(
 				Flux.empty(), null, null, errorCallbackCapture::set, null,
-				() -> { throw err; }, null, null);
+				() -> { throw err; }, null, null, null);
 
 		AssertSubscriber<String> ts = AssertSubscriber.create();
 
@@ -383,7 +388,7 @@ public class FluxPeekFuseableTest {
 		Error fatal = new LinkageError();
 		FluxPeekFuseable<String> flux = new FluxPeekFuseable<>(
 				Flux.empty(), null, null, errorCallbackCapture::set, null,
-				() -> { throw fatal; }, null, null);
+				() -> { throw fatal; }, null, null, null);
 
 		AssertSubscriber<String> ts = AssertSubscriber.create();
 
@@ -404,7 +409,7 @@ public class FluxPeekFuseableTest {
 		errorCallbackCapture.set(null);
 		flux = new FluxPeekFuseable<>(
 				Flux.error(new NullPointerException()), null, null, errorCallbackCapture::set, null,
-				() -> { throw fatal; }, null, null);
+				() -> { throw fatal; }, null, null, null);
 
 		ts = AssertSubscriber.create();
 
@@ -429,7 +434,7 @@ public class FluxPeekFuseableTest {
 		FluxPeekFuseable<String> flux = new FluxPeekFuseable<>(
 				Flux.empty(), null, null, e -> { throw err2; },
 				null,
-				() -> { throw err; }, null, null);
+				() -> { throw err; }, null, null, null);
 
 		AssertSubscriber<String> ts = AssertSubscriber.create();
 
@@ -457,7 +462,7 @@ public class FluxPeekFuseableTest {
 				Flux.error(err),
 				null, null,
 				e -> { throw error; }, null, () -> { throw afterTerminate; },
-				null, null);
+				null, null, null);
 
 		AssertSubscriber<String> ts = AssertSubscriber.create();
 
@@ -840,7 +845,7 @@ public class FluxPeekFuseableTest {
     public void scanFuseableSubscriber() {
         CoreSubscriber<Integer> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
         FluxPeek<Integer> peek = new FluxPeek<>(Flux.just(1), s -> {}, s -> {},
-        		e -> {}, () -> {}, () -> {}, r -> {}, () -> {});
+        		e -> {}, () -> {}, () -> {}, r -> {}, () -> {}, null);
         PeekFuseableSubscriber<Integer> test = new PeekFuseableSubscriber<>(actual, peek);
         Subscription parent = Operators.emptySubscription();
         test.onSubscribe(parent);
@@ -858,7 +863,7 @@ public class FluxPeekFuseableTest {
 	    @SuppressWarnings("unchecked")
 	    Fuseable.ConditionalSubscriber<Integer> actual = Mockito.mock(MockUtils.TestScannableConditionalSubscriber.class);
         FluxPeek<Integer> peek = new FluxPeek<>(Flux.just(1), s -> {}, s -> {},
-        		e -> {}, () -> {}, () -> {}, r -> {}, () -> {});
+        		e -> {}, () -> {}, () -> {}, r -> {}, () -> {}, null);
         PeekFuseableConditionalSubscriber<Integer> test =
         		new PeekFuseableConditionalSubscriber<>(actual, peek);
         Subscription parent = Operators.emptySubscription();
@@ -918,6 +923,11 @@ public class FluxPeekFuseableTest {
 		@Nullable
 		@Override
 		public Runnable onCancelCall() {
+			return null;
+		}
+
+		@Override
+		public Runnable onAfterCancelledCall() {
 			return null;
 		}
 

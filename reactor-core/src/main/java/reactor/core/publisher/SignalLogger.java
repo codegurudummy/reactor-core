@@ -346,6 +346,14 @@ final class SignalLogger<IN> implements SignalPeek<IN> {
 	}
 
 	@Override
+	public Runnable onAfterCancelledCall() {
+		if ((options & CANCEL) == CANCEL && (level != Level.INFO || log.isInfoEnabled())) {
+			return () -> log(SignalType.ON_CANCELLED, "");
+		}
+		return null;
+	}
+
+	@Override
 	public String toString() {
 		return "/loggers/" + log.getName() + "/" + id;
 	}

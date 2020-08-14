@@ -61,7 +61,11 @@ public enum SignalType {
 	/**
 	 * A context update signal
 	 */
-	ON_CONTEXT;
+	ON_CONTEXT,
+	/**
+	 * A cancel-acknowledgement signal from a subscription to its subscriber.
+	 */
+	ON_CANCELLED;
 
 	@Override
 	public String toString() {
@@ -82,6 +86,8 @@ public enum SignalType {
 				return "currentContext";
 			case ON_CONTEXT:
 				return "onContextUpdate";
+			case ON_CANCELLED:
+				return "onCancelled";
 			case AFTER_TERMINATE:
 				return "afterTerminate";
 			default:

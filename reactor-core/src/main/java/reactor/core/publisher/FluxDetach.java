@@ -132,13 +132,21 @@ final class FluxDetach<T> extends FluxOperator<T, T> {
 		
 		@Override
 		public void cancel() {
-			Subscription a = s;
-			if (a != null) {
+			Subscription parent = s;
+			CoreSubscriber child = actual;
+
+			if (parent != null) {
 				actual = null;
 				s = null;
 				
-				a.cancel();
+				parent.cancel();
+				child.onCancelled();
 			}
+		}
+
+		@Override
+		public void onCancelled() {
+			//onCancelled signal propagated closer to cancel()
 		}
 	}
 }
