@@ -217,7 +217,7 @@ public class FluxOnAssemblyTest {
 		StringWriter sw = new StringWriter();
 		Flux<Integer> tested = Flux.range(1, 10)
 		                         .parallel(2)
-		                         .composeGroup(g -> g.map(i -> (Integer) null))
+		                         .transformGroups(g -> g.map(i -> (Integer) null))
 		                         .checkpoint()
 		                         .sequential()
 		                         .doOnError(t -> t.printStackTrace(new PrintWriter(sw)));
@@ -236,7 +236,7 @@ public class FluxOnAssemblyTest {
 		int baseline = getBaseline();
 		Flux<Integer> tested = Flux.range(1, 10)
 		                           .parallel(2)
-		                           .composeGroup(g -> g.map(i -> (Integer) null))
+		                           .transformGroups(g -> g.map(i -> (Integer) null))
 		                           .checkpoint("descriptionCorrelation1234", true)
 		                           .sequential()
 		                           .doOnError(t -> t.printStackTrace(new PrintWriter(sw)));
@@ -247,7 +247,7 @@ public class FluxOnAssemblyTest {
 		String debugStack = sw.toString();
 
 		assertThat(debugStack).contains("Assembly trace from producer [reactor.core.publisher.ParallelSource], described as [descriptionCorrelation1234] :\n"
-				+ "\treactor.core.publisher.ParallelFlux.checkpoint(ParallelFlux.java:227)\n"
+				+ "\treactor.core.publisher.ParallelFlux.checkpoint(ParallelFlux.java:228)\n"
 				+ "\treactor.core.publisher.FluxOnAssemblyTest.parallelFluxCheckpointDescriptionAndForceStack(FluxOnAssemblyTest.java:" + (baseline + 4) + ")\n");
 
 		Iterator<String> lines = seekToBacktrace(debugStack);
@@ -264,7 +264,7 @@ public class FluxOnAssemblyTest {
 		StringWriter sw = new StringWriter();
 		Flux<Integer> tested = Flux.range(1, 10)
 		                           .parallel(2)
-		                           .composeGroup(g -> g.map(i -> (Integer) null))
+		                           .transformGroups(g -> g.map(i -> (Integer) null))
 		                           .checkpoint("light checkpoint identifier")
 		                           .sequential()
 		                           .doOnError(t -> t.printStackTrace(new PrintWriter(sw)));

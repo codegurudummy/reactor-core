@@ -19,7 +19,7 @@ package reactor.core.publisher;
 import org.reactivestreams.Publisher;
 import reactor.core.Scannable;
 
-public abstract class InternalFluxOperator<I, O> extends FluxOperator<I, O> implements Scannable {
+abstract class InternalFluxOperator<I, O> extends FluxOperator<I, O> implements Scannable {
 
 	/**
 	 * Build a {@link InternalFluxOperator} wrapper around the passed parent {@link Publisher}

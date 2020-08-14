@@ -28,7 +28,7 @@ import reactor.core.Scannable;
  * @param <I> delegate {@link Publisher} type
  * @param <O> produced type
  */
-public abstract class InternalMonoOperator<I, O> extends MonoOperator<I, O> implements Scannable {
+abstract class InternalMonoOperator<I, O> extends MonoOperator<I, O> implements Scannable {
 
 	protected InternalMonoOperator(Mono<? extends I> source) {
 		super(source);
