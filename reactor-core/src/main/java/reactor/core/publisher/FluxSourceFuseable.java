@@ -46,6 +46,11 @@ final class FluxSourceFuseable<I> extends Flux<I> implements Fuseable, SourcePro
 	}
 
 	@Override
+	public CoreSubscriber<? super I> subscribeOrReturn(CoreSubscriber<? super I> actual) {
+		return actual;
+	}
+
+	@Override
 	@Nullable
 	public Object scanUnsafe(Scannable.Attr key) {
 		if (key == Scannable.Attr.PREFETCH) return getPrefetch();

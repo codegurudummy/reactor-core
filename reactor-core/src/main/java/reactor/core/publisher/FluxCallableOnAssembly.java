@@ -18,7 +18,6 @@ package reactor.core.publisher;
 
 import java.util.concurrent.Callable;
 
-import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.Fuseable;
 import reactor.core.publisher.FluxOnAssembly.AssemblySnapshot;
@@ -47,8 +46,8 @@ final class FluxCallableOnAssembly<T> extends FluxOperator<T, T>
 	}
 
 	@Override
-	public CoreSubscriber subscribeOrReturn(CoreSubscriber<? super T> actual) {
-		return FluxOnAssembly.mapSubscriber(actual, source, stacktrace);
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return FluxOnAssembly.wrapSubscriber(actual, source, stacktrace);
 	}
 
 	@SuppressWarnings("unchecked")

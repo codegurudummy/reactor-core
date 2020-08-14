@@ -52,6 +52,11 @@ final class MonoSource<I> extends Mono<I> implements Scannable, SourceProducer<I
 	}
 
 	@Override
+	public CoreSubscriber<? super I> subscribeOrReturn(CoreSubscriber<? super I> actual) {
+		return actual;
+	}
+
+	@Override
 	@Nullable
 	public Object scanUnsafe(Attr key) {
 		if (key == Attr.PARENT) {

@@ -26,7 +26,7 @@ import reactor.util.annotation.Nullable;
  *
  * @param <I> Upstream type
  */
-final class FluxSource<I> extends Flux<I> implements SourceProducer<I>, CoreOperator<I> {
+final class FluxSource<I> extends Flux<I> implements SourceProducer<I> {
 
 
 	final Publisher<? extends I> source;
@@ -49,16 +49,6 @@ final class FluxSource<I> extends Flux<I> implements SourceProducer<I>, CoreOper
 	@SuppressWarnings("unchecked")
 	public void subscribe(CoreSubscriber<? super I> actual) {
 		source.subscribe(actual);
-	}
-
-	@Override
-	public Publisher<? extends I> getSubscribeTarget() {
-		return source;
-	}
-
-	@Override
-	public CoreSubscriber<? super I> subscribeOrReturn(CoreSubscriber<? super I> actual) {
-		return actual;
 	}
 
 	@Override

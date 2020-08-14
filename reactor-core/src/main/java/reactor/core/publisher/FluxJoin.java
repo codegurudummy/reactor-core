@@ -46,8 +46,7 @@ import reactor.util.concurrent.Queues;
  * @see <a href="https://github.com/reactor/reactive-streams-commons">https://github.com/reactor/reactive-streams-commons</a>
  * @since 3.0
  */
-final class FluxJoin<TLeft, TRight, TLeftEnd, TRightEnd, R> extends
-                                                            FluxOperator<TLeft, R> {
+final class FluxJoin<TLeft, TRight, TLeftEnd, TRightEnd, R> extends FluxOperator<TLeft, R> {
 
 	final Publisher<? extends TRight> other;
 
@@ -70,7 +69,7 @@ final class FluxJoin<TLeft, TRight, TLeftEnd, TRightEnd, R> extends
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super R> actual) {
+	public CoreSubscriber<? super TLeft> subscribeOrReturn(CoreSubscriber<? super R> actual) {
 
 		JoinSubscription<TLeft, TRight, TLeftEnd, TRightEnd, R> parent =
 				new JoinSubscription<>(actual,
@@ -87,6 +86,7 @@ final class FluxJoin<TLeft, TRight, TLeftEnd, TRightEnd, R> extends
 
 		source.subscribe(left);
 		other.subscribe(right);
+		return null;
 	}
 
 	static final class JoinSubscription<TLeft, TRight, TLeftEnd, TRightEnd, R>

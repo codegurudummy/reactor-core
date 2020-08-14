@@ -15,13 +15,13 @@
  */
 package reactor.core.publisher;
 
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.function.Supplier;
 
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
-import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.Fuseable;
@@ -92,28 +92,9 @@ final class FluxOnAssembly<T> extends FluxOperator<T, T> implements Fuseable,
 	}
 
 	@SuppressWarnings("unchecked")
-	static <T> CoreSubscriber<? super T> mapSubscriber(CoreSubscriber<? super T> s,
-																		Flux<? extends T> source,
-																		@Nullable AssemblySnapshot snapshotStack) {
-
-		if(snapshotStack != null) {
-			if (s instanceof ConditionalSubscriber) {
-				ConditionalSubscriber<? super T> cs = (ConditionalSubscriber<? super T>) s;
-				return new OnAssemblyConditionalSubscriber<>(cs,
-						snapshotStack,
-						source);
-			}
-			else {
-				return new OnAssemblySubscriber<>(s, snapshotStack, source);
-			}
-		} else {
-			return s;
-		}
-	}
-
-	@Override
-	@SuppressWarnings("unchecked")
-	public CoreSubscriber subscribeOrReturn(CoreSubscriber<? super T> actual) {
+	static <T> CoreSubscriber<? super T> wrapSubscriber(CoreSubscriber<? super T> actual,
+														Flux<? extends T> source,
+														@Nullable AssemblySnapshot snapshotStack) {
 		if(snapshotStack != null) {
 			if (actual instanceof ConditionalSubscriber) {
 				ConditionalSubscriber<? super T> cs = (ConditionalSubscriber<? super T>) actual;
@@ -126,6 +107,12 @@ final class FluxOnAssembly<T> extends FluxOperator<T, T> implements Fuseable,
 		else {
 			return actual;
 		}
+	}
+
+	@Override
+	@SuppressWarnings("unchecked")
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return wrapSubscriber(actual, source, snapshotStack);
 	}
 
 	/**
@@ -331,6 +318,7 @@ final class FluxOnAssembly<T> extends FluxOperator<T, T> implements Fuseable,
 					sb.append(message);
 					sb.append("\n");
 				}
+				sb.append("Stack trace:");
 				return sb.toString();
 			}
 		}
@@ -438,6 +426,27 @@ final class FluxOnAssembly<T> extends FluxOperator<T, T> implements Fuseable,
 				}
 
 				t = Exceptions.addSuppressed(t, onAssemblyException);
+				final StackTraceElement[] stackTrace = t.getStackTrace();
+				if (stackTrace.length > 0) {
+					StackTraceElement[] newStackTrace = new StackTraceElement[stackTrace.length];
+					int i = 0;
+					for (StackTraceElement stackTraceElement : stackTrace) {
+						String className = stackTraceElement.getClassName();
+
+						if (className.startsWith("reactor.core.publisher.") && className.contains("OnAssembly")) {
+							continue;
+						}
+
+						newStackTrace[i] = stackTraceElement;
+						i++;
+					}
+					newStackTrace = Arrays.copyOf(newStackTrace, i);
+
+					onAssemblyException.setStackTrace(newStackTrace);
+					t.setStackTrace(new StackTraceElement[] {
+							stackTrace[0]
+					});
+				}
 			}
 
 			onAssemblyException.add(parent, snapshotStack);

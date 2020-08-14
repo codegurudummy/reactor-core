@@ -41,10 +41,12 @@ final class MonoDelaySubscription<T, U> extends MonoOperator<T, T>
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		other.subscribe(new FluxDelaySubscription.DelaySubscriptionOtherSubscriber<>(
 				actual, this));
+		return null;
 	}
+
 	@Override
 	public void accept(FluxDelaySubscription.DelaySubscriptionOtherSubscriber<T, U> s) {
 		source.subscribe(new FluxDelaySubscription.DelaySubscriptionMainSubscriber<>(s.actual, s));

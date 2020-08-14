@@ -49,16 +49,15 @@ final class FluxSubscribeOn<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	@SuppressWarnings("unchecked")
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		Worker worker;
-		
+
 		try {
 			worker = Objects.requireNonNull(scheduler.createWorker(),
 					"The scheduler returned a null Function");
 		} catch (Throwable e) {
 			Operators.error(actual, Operators.onOperatorError(e, actual.currentContext()));
-			return;
+			return null;
 		}
 
 		SubscribeOnSubscriber<T> parent = new SubscribeOnSubscriber<>(source,
@@ -74,6 +73,7 @@ final class FluxSubscribeOn<T> extends FluxOperator<T, T> {
 						actual.currentContext()));
 			}
 		}
+		return null;
 	}
 
 	static final class SubscribeOnSubscriber<T>

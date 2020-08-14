@@ -21,10 +21,11 @@ import java.util.function.Function;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import reactor.core.publisher.Hooks;
+import reactor.util.annotation.Nullable;
 import reactor.util.context.Context;
 
 /**
- * A {@link CoreSubscriber} aware publisher.
+ * A {@link CoreSubscriber} aware publisher that can also directly decorate subscribers instead of recursively subscribing.
  *
  *
  * @param <T> the {@link CoreSubscriber} data type
@@ -32,6 +33,16 @@ import reactor.util.context.Context;
  * @since 3.3.0
  */
 public interface CorePublisher<T> extends Publisher<T> {
+
+	/**
+	 * Will return a parent {@link CorePublisher} if available or "null". When "null" is returned, it usually signals the start of a reactor operator chain.
+	 *
+	 * @return any parent {@link CorePublisher} if any or "null" if the source is not a {@link CorePublisher} or there is no further parent
+	 */
+	@Nullable
+	default CorePublisher<?> source() {
+		return null;
+	}
 
 	/**
 	 * An internal {@link Publisher#subscribe(Subscriber)} that will bypass
@@ -45,4 +56,12 @@ public interface CorePublisher<T> extends Publisher<T> {
 	 */
 	void subscribe(CoreSubscriber<? super T> subscriber);
 
+	/**
+	 * Return next {@link CoreSubscriber} or "null" if the subscription was already done inside the method
+	 * @return next {@link CoreSubscriber} or "null" if the subscription was already done inside the method
+	 */
+	@Nullable
+	default CoreSubscriber<?> subscribeOrReturn(CoreSubscriber<? super T> subscriber) {
+		return subscriber;
+	}
 }
