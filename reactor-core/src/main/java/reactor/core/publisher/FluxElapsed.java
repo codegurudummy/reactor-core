@@ -29,7 +29,7 @@ import reactor.util.function.Tuples;
 /**
  * @author Stephane Maldini
  */
-final class FluxElapsed<T> extends FluxOperator<T, Tuple2<Long, T>> implements Fuseable {
+final class FluxElapsed<T> extends InternalFluxOperator<T, Tuple2<Long, T>> implements Fuseable {
 
 	final Scheduler scheduler;
 
@@ -39,13 +39,14 @@ final class FluxElapsed<T> extends FluxOperator<T, Tuple2<Long, T>> implements F
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super Tuple2<Long, T>> actual) {
-		source.subscribe(new ElapsedSubscriber<>(actual, scheduler));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super Tuple2<Long, T>> actual) {
+		return new ElapsedSubscriber<>(actual, scheduler);
 	}
 
 	@Override
 	public Object scanUnsafe(Attr key) {
 		if (key == Attr.RUN_ON) return scheduler;
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 		return super.scanUnsafe(key);
 	}
@@ -73,6 +74,7 @@ final class FluxElapsed<T> extends FluxOperator<T, Tuple2<Long, T>> implements F
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.RUN_ON) return scheduler;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

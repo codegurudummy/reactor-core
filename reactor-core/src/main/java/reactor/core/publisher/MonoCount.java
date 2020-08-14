@@ -35,8 +35,14 @@ final class MonoCount<T> extends MonoFromFluxOperator<T, Long> implements Fuseab
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super Long> actual) {
-		source.subscribe(new CountSubscriber<>(actual));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super Long> actual) {
+		return new CountSubscriber<>(actual);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class CountSubscriber<T> extends Operators.MonoSubscriber<T, Long>  {
@@ -53,6 +59,7 @@ final class MonoCount<T> extends MonoFromFluxOperator<T, Long> implements Fuseab
 		@Nullable
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return s;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return super.scanUnsafe(key);
 		}

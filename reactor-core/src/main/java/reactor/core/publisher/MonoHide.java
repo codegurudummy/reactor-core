@@ -16,6 +16,7 @@
 package reactor.core.publisher;
 
 import reactor.core.CoreSubscriber;
+import reactor.core.Scannable;
 
 /**
  * Wraps another Publisher/Mono and hides its identity, including its
@@ -27,14 +28,20 @@ import reactor.core.CoreSubscriber;
  * @param <T> the value type
  * 
  */
-final class MonoHide<T> extends MonoOperator<T, T> {
+final class MonoHide<T> extends InternalMonoOperator<T, T> {
 
     MonoHide(Mono<? extends T> source) {
         super(source);
     }
-    
+
     @Override
-    public void subscribe(CoreSubscriber<? super T> actual) {
-        source.subscribe(new FluxHide.HideSubscriber<>(actual));
+    public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+        return new FluxHide.HideSubscriber<>(actual);
+    }
+
+    @Override
+    public Object scanUnsafe(Attr key) {
+        if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+        return super.scanUnsafe(key);
     }
 }

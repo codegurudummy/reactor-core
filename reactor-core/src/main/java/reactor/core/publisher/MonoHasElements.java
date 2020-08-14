@@ -32,8 +32,14 @@ final class MonoHasElements<T> extends MonoFromFluxOperator<T, Boolean>
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super Boolean> actual) {
-		source.subscribe(new HasElementsSubscriber<>(actual));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super Boolean> actual) {
+		return new HasElementsSubscriber<>(actual);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class HasElementsSubscriber<T> extends Operators.MonoSubscriber<T, Boolean> {
@@ -47,6 +53,7 @@ final class MonoHasElements<T> extends MonoFromFluxOperator<T, Boolean>
 		@Nullable
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return s;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return super.scanUnsafe(key);
 		}

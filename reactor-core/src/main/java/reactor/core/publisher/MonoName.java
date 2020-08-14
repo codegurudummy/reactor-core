@@ -34,7 +34,7 @@ import reactor.util.function.Tuples;
  *
  * @author Stephane Maldini
  */
-final class MonoName<T> extends MonoOperator<T, T> {
+final class MonoName<T> extends InternalMonoOperator<T, T> {
 
 	final String name;
 
@@ -96,8 +96,8 @@ final class MonoName<T> extends MonoOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		source.subscribe(actual);
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return actual;
 	}
 
 	@Nullable
@@ -109,6 +109,10 @@ final class MonoName<T> extends MonoOperator<T, T> {
 
 		if (key == Attr.TAGS && tags != null) {
 			return tags.stream();
+		}
+
+		if (key == Attr.RUN_STYLE) {
+		    return Attr.RunStyle.SYNC;
 		}
 
 		return super.scanUnsafe(key);

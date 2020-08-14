@@ -23,6 +23,7 @@ import java.util.Queue;
 
 import org.junit.Test;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Operators;
 import reactor.test.DefaultStepVerifierBuilder.DefaultVerifySubscriber;
 import reactor.test.DefaultStepVerifierBuilder.DescriptionEvent;
 import reactor.test.DefaultStepVerifierBuilder.Event;
@@ -33,8 +34,7 @@ import reactor.test.DefaultStepVerifierBuilder.TaskEvent;
 import reactor.test.DefaultStepVerifierBuilder.WaitEvent;
 import reactor.test.scheduler.VirtualTimeScheduler;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.assertj.core.api.Assertions.*;
 
 /**
  * @author Stephane Maldini
@@ -56,6 +56,21 @@ public class DefaultStepVerifierBuilderTests {
 		assertThatExceptionOfType(AssertionError.class)
 				.isThrownBy(s::verify)
 				.withMessageStartingWith("expectation failed (an unexpected Subscription has been received");
+	}
+
+	@Test
+	public void subscribedTwiceDetectsSpecialSubscription() {
+		Flux<String> flux = Flux.never();
+
+		DefaultVerifySubscriber<String> s =
+				new DefaultStepVerifierBuilder<String>(StepVerifierOptions.create().initialRequest(Long.MAX_VALUE), null)
+						.expectErrorMessage("expected")
+				.toSubscriber();
+
+		flux.subscribe(s);
+		Operators.reportThrowInSubscribe(s, new RuntimeException("expected"));
+
+		s.verify(Duration.ofSeconds(1));
 	}
 
 	@Test(timeout = 4000)
@@ -109,6 +124,14 @@ public class DefaultStepVerifierBuilderTests {
 		catch (IllegalStateException e) {
 			assertThat(e).hasMessageContaining("VirtualTimeScheduler");
 		}
+	}
+
+	@Test
+	public void noSourceSupplierFailsFastWhenAttemptingVerify() {
+		StepVerifier stepVerifier = new DefaultStepVerifierBuilder<String>(StepVerifierOptions.create(), null).expectComplete();
+
+		assertThatIllegalArgumentException().isThrownBy(stepVerifier::verify)
+		                                    .withMessage("no source to automatically subscribe to for verification");
 	}
 
 	@Test

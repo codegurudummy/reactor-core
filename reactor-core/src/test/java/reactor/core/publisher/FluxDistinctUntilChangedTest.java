@@ -20,7 +20,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
@@ -40,7 +39,6 @@ import reactor.test.MockUtils;
 import reactor.test.StepVerifier;
 import reactor.test.publisher.FluxOperatorTest;
 import reactor.test.subscriber.AssertSubscriber;
-import reactor.test.util.RaceTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -229,7 +227,7 @@ public class FluxDistinctUntilChangedTest extends FluxOperatorTest<String, Strin
 
 	@Test
 	public void allDistinctConditional() {
-		DirectProcessor<Integer> dp = new DirectProcessor<>();
+		FluxIdentityProcessor<Integer> dp = Processors.more().multicastNoBackpressure();
 
 		AssertSubscriber<Integer> ts = dp.distinctUntilChanged()
 		                                 .filter(v -> true)
@@ -244,6 +242,13 @@ public class FluxDistinctUntilChangedTest extends FluxOperatorTest<String, Strin
 	}
 
 	@Test
+	public void scanOperator(){
+	    FluxDistinctUntilChanged<Integer, Integer> test = new FluxDistinctUntilChanged<>(Flux.just(1), v -> v, (k1, k2) -> true);
+
+	    assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
 	public void scanSubscriber() {
 		CoreSubscriber<String> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
 		DistinctUntilChangedSubscriber<String, Integer> test = new DistinctUntilChangedSubscriber<>(
@@ -253,6 +258,7 @@ public class FluxDistinctUntilChangedTest extends FluxOperatorTest<String, Strin
 
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
 		test.onError(new IllegalStateException("boom"));
@@ -270,6 +276,7 @@ public class FluxDistinctUntilChangedTest extends FluxOperatorTest<String, Strin
 
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
 		test.onError(new IllegalStateException("boom"));
@@ -353,9 +360,8 @@ public class FluxDistinctUntilChangedTest extends FluxOperatorTest<String, Strin
 
 		System.gc();
 		await().untilAsserted(() -> {
-			assertThat(retainedDetector.finalizedCount())
-					.as("none retained after cancel")
-					.isEqualTo(50);
+			System.gc();
+			retainedDetector.assertAllFinalized();
 		});
 	}
 
@@ -377,7 +383,7 @@ public class FluxDistinctUntilChangedTest extends FluxOperatorTest<String, Strin
 
 		await()
 				.atMost(2, TimeUnit.SECONDS)
-				.untilAsserted(() -> assertThat(retainedDetector.finalizedCount()).isOne());
+				.untilAsserted(retainedDetector::assertAllFinalized);
 	}
 
 	@Test
@@ -398,7 +404,7 @@ public class FluxDistinctUntilChangedTest extends FluxOperatorTest<String, Strin
 
 		await()
 				.atMost(2, TimeUnit.SECONDS)
-				.untilAsserted(() -> assertThat(retainedDetector.finalizedCount()).isOne());
+				.untilAsserted(retainedDetector::assertAllFinalized);
 	}
 
 	@Test
@@ -422,7 +428,7 @@ public class FluxDistinctUntilChangedTest extends FluxOperatorTest<String, Strin
 
 		await()
 				.atMost(2, TimeUnit.SECONDS)
-				.untilAsserted(() -> assertThat(retainedDetector.finalizedCount()).isOne());
+				.untilAsserted(retainedDetector::assertAllFinalized);
 	}
 
 	@Test
@@ -446,7 +452,7 @@ public class FluxDistinctUntilChangedTest extends FluxOperatorTest<String, Strin
 
 		await()
 				.atMost(2, TimeUnit.SECONDS)
-				.untilAsserted(() -> assertThat(retainedDetector.finalizedCount()).isOne());
+				.untilAsserted(retainedDetector::assertAllFinalized);
 	}
 
 	@Test
@@ -467,7 +473,7 @@ public class FluxDistinctUntilChangedTest extends FluxOperatorTest<String, Strin
 
 		await()
 				.atMost(2, TimeUnit.SECONDS)
-				.untilAsserted(() -> assertThat(retainedDetector.finalizedCount()).isOne());
+				.untilAsserted(retainedDetector::assertAllFinalized);
 	}
 
 	@Test
@@ -488,7 +494,7 @@ public class FluxDistinctUntilChangedTest extends FluxOperatorTest<String, Strin
 
 		await()
 				.atMost(2, TimeUnit.SECONDS)
-				.untilAsserted(() -> assertThat(retainedDetector.finalizedCount()).isOne());
+				.untilAsserted(retainedDetector::assertAllFinalized);
 	}
 
 }

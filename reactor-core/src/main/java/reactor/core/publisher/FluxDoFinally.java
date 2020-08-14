@@ -40,7 +40,7 @@ import reactor.util.annotation.Nullable;
  * @param <T> the value type
  * @author Simon Baslé
  */
-final class FluxDoFinally<T> extends FluxOperator<T, T> {
+final class FluxDoFinally<T> extends InternalFluxOperator<T, T> {
 
 	final Consumer<SignalType> onFinally;
 
@@ -69,8 +69,14 @@ final class FluxDoFinally<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		source.subscribe(createSubscriber(actual, onFinally, false));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return createSubscriber(actual, onFinally, false);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static class DoFinallySubscriber<T> implements InnerOperator<T, T> {
@@ -101,6 +107,7 @@ final class FluxDoFinally<T> extends FluxOperator<T, T> {
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.TERMINATED || key == Attr.CANCELLED)
 				return once == 1;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

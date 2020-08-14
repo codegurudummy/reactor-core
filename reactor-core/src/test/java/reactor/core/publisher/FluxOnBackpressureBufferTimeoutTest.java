@@ -286,15 +286,16 @@ public class FluxOnBackpressureBufferTimeoutTest implements Consumer<Object> {
 		TestPublisher<Integer> tp = TestPublisher.create();
 
 		StepVerifier.withVirtualTime(() -> tp.flux()
-		                                     .onBackpressureBuffer(Duration.ofMillis(600),
+											// Note: using sub-millis durations after gh-1734
+		                                     .onBackpressureBuffer(Duration.ofNanos(600),
 				                                     5, this).log(),
 				0)
 		            .expectSubscription()
 		            .then(() -> tp.next(1,2, 3, 4, 5, 6, 7)) //evict 2 elements
 		            .then(() -> assertThat(evicted).containsExactly(1, 2))
-		            .thenAwait(Duration.ofMillis(500))
+		            .thenAwait(Duration.ofNanos(500))
 		            .then(() -> tp.emit(8, 9, 10))
-		            .thenAwait(Duration.ofMillis(100)) // evict elements older than 8
+		            .thenAwait(Duration.ofNanos(100)) // evict elements older than 8
 		            .then(() -> assertThat(evicted).containsExactly(1, 2, 3, 4, 5, 6, 7))
 		            .thenRequest(10)
 		            .expectNext(8, 9, 10)
@@ -318,6 +319,7 @@ public class FluxOnBackpressureBufferTimeoutTest implements Consumer<Object> {
 		Scannable test  = (Scannable) Flux.never().onBackpressureBuffer(Duration.ofSeconds(1), 123, v -> {}, Schedulers.single());
 
 		assertThat(test.scan(Scannable.Attr.RUN_ON)).isSameAs(Schedulers.single());
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.ASYNC);
 	}
 
 	@Test
@@ -344,5 +346,6 @@ public class FluxOnBackpressureBufferTimeoutTest implements Consumer<Object> {
 		assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(Integer.MAX_VALUE);
 		assertThat(test.scan(Scannable.Attr.DELAY_ERROR)).isFalse();
 		assertThat(test.scan(Scannable.Attr.RUN_ON)).isSameAs(Schedulers.immediate());
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.ASYNC);
 	}
 }

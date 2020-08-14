@@ -25,6 +25,7 @@ import org.junit.Test;
 import org.reactivestreams.Subscription;
 
 import reactor.core.Fuseable;
+import reactor.core.Scannable;
 import reactor.test.StepVerifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,10 +46,12 @@ public class FluxDoFirstTest {
 	public void orderIsReversed_NoFusion() {
 		List<String> order = new ArrayList<>();
 
-		//noinspection divzero
+		@SuppressWarnings("divzero")
+		Function<Integer, Integer> divZero = i -> i / 0;
+
 		StepVerifier.create(
 				Flux.just(1)
-				    .map(i -> i / 0)
+				    .map(divZero)
 				    .hide()
 				    .doFirst(() -> order.add("one"))
 				    .doFirst(() -> order.add("two"))
@@ -64,10 +67,12 @@ public class FluxDoFirstTest {
 	public void orderIsReversed_Fused() {
 		List<String> order = new ArrayList<>();
 
-		//noinspection divzero
+		@SuppressWarnings("divzero")
+		Function<Integer, Integer> divZero = i -> i / 0;
+
 		StepVerifier.create(
 				Flux.just(1)
-				    .map(i -> i / 0)
+				    .map(divZero)
 				    .doFirst(() -> order.add("one"))
 				    .doFirst(() -> order.add("two"))
 				    .doFirst(() -> order.add("three"))
@@ -129,7 +134,7 @@ public class FluxDoFirstTest {
 
 		assertThat(test).as("doFirst not fuseable").isNotInstanceOf(Fuseable.class);
 		StepVerifier.create(test)
-		            .expectSubscriptionMatches(sub -> sub instanceof Operators.EmptySubscription)
+		            .expectSubscription()
 		            .verifyErrorMessage("expected");
 	}
 
@@ -142,7 +147,7 @@ public class FluxDoFirstTest {
 
 		assertThat(test).as("doFirst is fuseable").isInstanceOf(Fuseable.class);
 		StepVerifier.create(test)
-		            .expectSubscriptionMatches(sub -> sub instanceof Operators.EmptySubscription)
+		            .expectSubscription()
 		            .verifyErrorMessage("expected");
 	}
 
@@ -170,4 +175,21 @@ public class FluxDoFirstTest {
 		assertThat(subRef.get().getClass()).isEqualTo(FluxMapFuseable.MapFuseableSubscriber.class);
 	}
 
+	@Test
+	public void scanOperator(){
+		Flux<Integer> parent = Flux.just(1);
+		FluxDoFirst<Integer> test = new FluxDoFirst<>(parent, () -> {});
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
+	public void scanOperatorFuseable(){
+		Flux<Integer> parent = Flux.just(1);
+		FluxDoFirstFuseable<Integer> test = new FluxDoFirstFuseable<>(parent, () -> {});
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
 }

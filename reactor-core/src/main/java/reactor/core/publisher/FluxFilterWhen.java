@@ -50,7 +50,7 @@ import reactor.util.context.Context;
  * @author Simon Baslé
  */
 //adapted from RxJava2Extensions: https://github.com/akarnokd/RxJava2Extensions/blob/master/src/main/java/hu/akarnokd/rxjava2/operators/FlowableFilterAsync.java
-class FluxFilterWhen<T> extends FluxOperator<T, T> {
+class FluxFilterWhen<T> extends InternalFluxOperator<T, T> {
 
 	final Function<? super T, ? extends Publisher<Boolean>> asyncPredicate;
 
@@ -65,8 +65,14 @@ class FluxFilterWhen<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		source.subscribe(new FluxFilterWhenSubscriber<>(actual, asyncPredicate, bufferSize));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return new FluxFilterWhenSubscriber<>(actual, asyncPredicate, bufferSize);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class FluxFilterWhenSubscriber<T> implements InnerOperator<T, T> {
@@ -393,6 +399,7 @@ class FluxFilterWhen<T> extends FluxOperator<T, T> {
 				return Integer.MIN_VALUE;
 			}
 			if (key == Attr.PREFETCH) return bufferSize;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -475,6 +482,7 @@ class FluxFilterWhen<T> extends FluxOperator<T, T> {
 			if (key == Attr.TERMINATED) return done;
 			if (key == Attr.PREFETCH) return Integer.MAX_VALUE;
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return done ? 0L : 1L;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}

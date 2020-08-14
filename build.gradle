@@ -26,9 +26,8 @@ buildscript {
 
 
 plugins {
+	id "com.github.johnrengelman.shadow" version "4.0.2"
 	id 'org.asciidoctor.convert' version '1.5.11'
-	id "me.champeau.gradle.jmh" version "0.4.7" apply false
-	id "org.jetbrains.dokka" version "0.10.1" apply false
 	id "me.champeau.gradle.japicmp" version "0.2.6"
 	id "de.undercouch.download" version "3.4.3"
 	id "org.unbroken-dome.test-sets" version "3.0.0" apply false
@@ -56,19 +55,28 @@ ext {
 	 * Versions not necessarily bumped by a script (testing, etc...) below:
 	 */
 	// Misc not often upgraded
-	jsr305Version = '3.0.2'
+
+	// Used as a way to get jsr305 annotations.
+	// 3.0.1 is the last version that has the 'annotations' jar needed on the compile classpath
+	findbugsVersion = '3.0.1'
+	
 	jsr166BackportVersion = '1.0.0.RELEASE'
+
+	// Blockhound
+	blockhoundVersion = '1.0.3.RELEASE'
 
 	// Logging
 	slf4jVersion = '1.7.12'
 	logbackVersion = '1.1.2'
 
 	// Testing
+	jUnitPlatformVersion = '5.6.0'
 	jUnitVersion = '4.13'
 	assertJVersion = '3.11.1'
 	mockitoVersion = '2.23.0'
 	jUnitParamsVersion = '1.1.1'
 	awaitilityVersion = '3.1.2'
+	throwingFunctionVersion = '1.5.0'
 	javaObjectLayoutVersion = '0.9'
 	testNgVersion = '6.8.5'
 }
@@ -99,7 +107,7 @@ configure(subprojects) { p ->
 
 	repositories {
 		mavenLocal()
-		if (version.endsWith('BUILD-SNAPSHOT')) {
+		if (version.endsWith('-SNAPSHOT') || version.contains('-SNAPSHOT-')) { //classic or customized snapshots
 			maven { url 'https://repo.spring.io/libs-snapshot' }
 		}
 
