@@ -23,6 +23,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -88,11 +89,6 @@ import reactor.util.function.Tuple2;
  */
 public interface StepVerifier {
 
-
-	static <T> WithOptions<T> withOptions(Publisher<T> underTest) {
-		return new WithOptions<>(underTest);
-	}
-
 	/**
 	 * Default verification timeout (see {@link #verify()}) is "no timeout".
 	 *
@@ -125,6 +121,34 @@ public interface StepVerifier {
 	 */
 	static void resetDefaultTimeout() {
 		setDefaultTimeout(null);
+	}
+
+	/**
+	 * Return a new {@link StepVerifier}'s {@link FirstStep}, but with additional step
+	 * methods that can be used to set options (in the spirit of {@link StepVerifierOptions}).
+	 * This allows for a more fluent style of setting the options, which can be taken advantage
+	 * of in {@link reactor.core.publisher.Flux#as(Function)}:
+	 * <pre>
+	 *     Flux.range(1, 3)
+	 *         .as(StepVerifier::withOptions)
+	 *         .initialRequest(2)
+	 *         .scenarioName("Foo")
+	 *         .expectNext(1, 2)
+	 *         .thenRequest(1)
+	 *         .expectNext(3)
+	 *         .verifyComplete();
+	 * </pre>
+	 *
+	 * @param publisher the {@link Publisher} under test
+	 * @param <T> the type of data emitted by the publisher
+	 * @return a builder for verification options and initial expectations declaration
+	 */
+	static <T> OptionsStep<T> withOptions(Publisher<? extends T> publisher) {
+		return DefaultStepVerifierBuilder.withOptions(publisher);
+	}
+
+	static <T> FirstStep<T> test(Publisher<? extends T> publisher) {
+		return create(publisher);
 	}
 
 	/**
@@ -903,6 +927,10 @@ public interface StepVerifier {
 		 * @see Subscription#request(long)
 		 */
 		Step<T> thenRequest(long n);
+	}
+
+	interface OptionsStep<T> extends FirstStep<T>, StepVerifierOptionsBuilder<OptionsStep<T>> {
+
 	}
 
 	/**

@@ -73,7 +73,7 @@ import reactor.util.function.Tuples;
  * @since 1.0
  */
 final class DefaultStepVerifierBuilder<T>
-		implements StepVerifier.FirstStep<T> {
+		implements StepVerifier.OptionsStep<T> {
 
 	/**
 	 * the timeout used locally by {@link DefaultStepVerifier#verify()}, changed by
@@ -180,6 +180,10 @@ final class DefaultStepVerifierBuilder<T>
 		return new DefaultStepVerifierBuilder<>(options, scenarioSupplier);
 	}
 
+	static <T> StepVerifier.OptionsStep<T> withOptions(Publisher<? extends T> underTest) {
+		return new DefaultStepVerifierBuilder<>(StepVerifierOptions.create(), () -> underTest);
+	}
+
 	final         SignalEvent<T>                             defaultFirstStep;
 	final         List<Event<T>>                             script;
 	final         MessageFormatter                           messageFormatter;
@@ -209,6 +213,48 @@ final class DefaultStepVerifierBuilder<T>
 		this.script.add(defaultFirstStep);
 
 		this.hangCheckRequested = initialRequest;
+	}
+
+	@Override
+	public DefaultStepVerifierBuilder<T> checkUnderRequesting(boolean enabled) {
+		options.checkUnderRequesting(enabled);
+		return this;
+	}
+
+	@Override
+	public DefaultStepVerifierBuilder<T> initialRequest(long initialRequest) {
+		options.initialRequest(initialRequest);
+		return this;
+	}
+
+	@Override
+	public DefaultStepVerifierBuilder<T> valueFormatter(@Nullable ValueFormatters.ToStringConverter valueFormatter) {
+		options.valueFormatter(valueFormatter);
+		return this;
+	}
+
+	@Override
+	public <R> DefaultStepVerifierBuilder<T> extractor(ValueFormatters.Extractor<R> extractor) {
+		options.extractor(extractor);
+		return this;
+	}
+
+	@Override
+	public DefaultStepVerifierBuilder<T> virtualTimeSchedulerSupplier(Supplier<? extends VirtualTimeScheduler> vtsLookup) {
+		options.virtualTimeSchedulerSupplier(vtsLookup);
+		return this;
+	}
+
+	@Override
+	public DefaultStepVerifierBuilder<T> withInitialContext(Context context) {
+		options.withInitialContext(context);
+		return this;
+	}
+
+	@Override
+	public DefaultStepVerifierBuilder<T> scenarioName(@Nullable String scenarioName) {
+		options.scenarioName(scenarioName);
+		return this;
 	}
 
 	@Override

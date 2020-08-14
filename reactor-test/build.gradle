@@ -136,4 +136,5 @@ artifacts {
   archives kdocZip
 }
 
-jar.finalizedBy(downloadBaseline)
+check.dependsOn(jar) //ensures the jar is built and thus the japicmp check is done even before tests
+jar.finalizedBy(downloadBaseline) //this in turn triggers japicmp

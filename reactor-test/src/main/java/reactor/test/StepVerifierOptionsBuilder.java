@@ -26,7 +26,7 @@ import reactor.util.context.Context;
 /**
  * @author Simon Baslé
  */
-public interface StepVerifierOptionsBuilder {
+public interface StepVerifierOptionsBuilder<SELF extends StepVerifierOptionsBuilder> {
 
 	/**
 	 * Activate or deactivate the {@link StepVerifier} check of request amount
@@ -35,7 +35,7 @@ public interface StepVerifierOptionsBuilder {
 	 * @param enabled true if the check should be enabled.
 	 * @return this instance, to continue setting the options.
 	 */
-	StepVerifierOptionsBuilder checkUnderRequesting(boolean enabled);
+	SELF checkUnderRequesting(boolean enabled);
 
 	/**
 	 * Set the amount the {@link StepVerifier} should request initially. Defaults to
@@ -44,7 +44,7 @@ public interface StepVerifierOptionsBuilder {
 	 * @param initialRequest the initial request amount.
 	 * @return this instance, to continue setting the options.
 	 */
-	StepVerifierOptionsBuilder initialRequest(long initialRequest);
+	SELF initialRequest(long initialRequest);
 
 	/**
 	 * Set up a custom value formatter to be used in error messages when presenting
@@ -62,7 +62,7 @@ public interface StepVerifierOptionsBuilder {
 	 * custom formatting
 	 * @return this instance, to continue setting the options
 	 */
-	StepVerifierOptionsBuilder valueFormatter(@Nullable ValueFormatters.ToStringConverter valueFormatter);
+	SELF valueFormatter(@Nullable ValueFormatters.ToStringConverter valueFormatter);
 
 	/**
 	 * Add an {@link ValueFormatters.Extractor}, replacing any existing {@link ValueFormatters.Extractor} that targets the
@@ -77,7 +77,7 @@ public interface StepVerifierOptionsBuilder {
 	 * @param <T> the type of container considered by this extractor
 	 * @return this instance, to continue setting the options
 	 */
-	<T> StepVerifierOptionsBuilder extractor(ValueFormatters.Extractor<T> extractor);
+	<T> SELF extractor(ValueFormatters.Extractor<T> extractor);
 
 	/**
 	 * Set a supplier for a {@link VirtualTimeScheduler}, which is mandatory for a
@@ -86,7 +86,7 @@ public interface StepVerifierOptionsBuilder {
 	 * @param vtsLookup the supplier of {@link VirtualTimeScheduler} to use.
 	 * @return this instance, to continue setting the options.
 	 */
-	StepVerifierOptionsBuilder virtualTimeSchedulerSupplier(Supplier<? extends VirtualTimeScheduler> vtsLookup);
+	SELF virtualTimeSchedulerSupplier(Supplier<? extends VirtualTimeScheduler> vtsLookup);
 
 	/**
 	 * Set an initial {@link Context} to be propagated by the {@link StepVerifier} when it
@@ -95,7 +95,7 @@ public interface StepVerifierOptionsBuilder {
 	 * @param context the {@link Context} to propagate.
 	 * @return this instance, to continue setting the options.
 	 */
-	StepVerifierOptionsBuilder withInitialContext(Context context);
+	SELF withInitialContext(Context context);
 
 	/**
 	 * Give a name to the whole scenario tested by the configured {@link StepVerifier}. That
@@ -106,5 +106,5 @@ public interface StepVerifierOptionsBuilder {
 	 * @param scenarioName the name of the scenario, null to deactivate
 	 * @return this instance, to continue setting the options.
 	 */
-	StepVerifierOptionsBuilder scenarioName(@Nullable String scenarioName);
+	SELF scenarioName(@Nullable String scenarioName);
 }
