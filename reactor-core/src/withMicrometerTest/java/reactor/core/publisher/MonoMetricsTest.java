@@ -17,15 +17,19 @@
 package reactor.core.publisher;
 
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
+import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.assertj.core.api.SoftAssertions;
@@ -33,10 +37,12 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.core.Scannable;
-import reactor.core.publisher.MonoMetrics.MicrometerMonoMetricsSubscriber;
+import reactor.core.publisher.MonoMetrics.MetricsSubscriber;
+import reactor.test.StepVerifier;
 import reactor.test.publisher.TestPublisher;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -102,7 +108,7 @@ public class MonoMetricsTest {
 				.doOnSubscribe(subRef::set)
 				.subscribe();
 
-		assertThat(subRef.get()).isInstanceOf(MicrometerMonoMetricsSubscriber.class);
+		assertThat(subRef.get()).isInstanceOf(MetricsSubscriber.class);
 	}
 
 	@Test
@@ -122,15 +128,15 @@ public class MonoMetricsTest {
 
 		Timer unnamedMeter = registry
 				.find(METER_FLOW_DURATION)
-				.tag(TAG_STATUS, TAGVALUE_ON_ERROR)
-				.tag(TAG_EXCEPTION, ArithmeticException.class.getName())
+				.tags(Tags.of(TAG_ON_ERROR))
+				.tag(TAG_KEY_EXCEPTION, ArithmeticException.class.getName())
 				.tag(TAG_SEQUENCE_NAME, REACTOR_DEFAULT_NAME)
 				.timer();
 
 		Timer namedMeter = registry
 				.find(METER_FLOW_DURATION)
-				.tag(TAG_STATUS, TAGVALUE_ON_ERROR)
-				.tag(TAG_EXCEPTION, ArithmeticException.class.getName())
+				.tags(Tags.of(TAG_ON_ERROR))
+				.tag(TAG_KEY_EXCEPTION, ArithmeticException.class.getName())
 				.tag(TAG_SEQUENCE_NAME, "foo")
 				.timer();
 
@@ -153,7 +159,7 @@ public class MonoMetricsTest {
 
 		Timer meter = registry
 				.find(METER_FLOW_DURATION)
-				.tag(TAG_STATUS, TAGVALUE_ON_COMPLETE)
+				.tags(Tags.of(TAG_ON_COMPLETE))
 				.tag(TAG_SEQUENCE_NAME, "usesTags")
 				.tag("tag1", "A")
 				.tag("tag2", "foo")
@@ -201,40 +207,14 @@ public class MonoMetricsTest {
 		AtomicReference<Throwable> errorDropped = new AtomicReference<>();
 		Hooks.onErrorDropped(errorDropped::set);
 		Exception dropError = new IllegalStateException("malformedOnError");
-		try {
-			TestPublisher<Integer> testPublisher = TestPublisher.createNoncompliant(CLEANUP_ON_TERMINATE);
-			Mono<Integer> source = testPublisher.mono().hide();
-
-			new MonoMetrics<>(source, registry)
-					.subscribe();
-
-			testPublisher.complete()
-			             .error(dropError);
-
-			Counter malformedMeter = registry
-					.find(METER_MALFORMED)
-					.counter();
-
-			assertThat(malformedMeter).isNotNull();
-			assertThat(malformedMeter.count()).isEqualTo(1);
-			assertThat(errorDropped).hasValue(dropError);
-		}
-		finally{
-			Hooks.resetOnErrorDropped();
-		}
-	}
-
-	@Test
-	public void malformedOnComplete() {
 		TestPublisher<Integer> testPublisher = TestPublisher.createNoncompliant(CLEANUP_ON_TERMINATE);
 		Mono<Integer> source = testPublisher.mono().hide();
 
 		new MonoMetrics<>(source, registry)
-				.subscribe(v -> assertThat(v).isEqualTo(1),
-						e -> assertThat(e).hasMessage("malformedOnComplete"));
+				.subscribe();
 
-		testPublisher.error(new IllegalStateException("malformedOnComplete"))
-		             .complete();
+		testPublisher.complete()
+		             .error(dropError);
 
 		Counter malformedMeter = registry
 				.find(METER_MALFORMED)
@@ -242,6 +222,7 @@ public class MonoMetricsTest {
 
 		assertThat(malformedMeter).isNotNull();
 		assertThat(malformedMeter.count()).isEqualTo(1);
+		assertThat(errorDropped).hasValue(dropError);
 	}
 
 	@Test
@@ -252,15 +233,15 @@ public class MonoMetricsTest {
 				.block();
 
 		Timer stcCompleteTimer = registry.find(METER_FLOW_DURATION)
-		                                 .tag(TAG_STATUS, TAGVALUE_ON_COMPLETE)
+		                                 .tags(Tags.of(TAG_ON_COMPLETE))
 		                                 .timer();
 
 		Timer stcErrorTimer = registry.find(METER_FLOW_DURATION)
-		                              .tag(TAG_STATUS, TAGVALUE_ON_ERROR)
+		                              .tags(Tags.of(TAG_ON_ERROR))
 		                              .timer();
 
 		Timer stcCancelTimer = registry.find(METER_FLOW_DURATION)
-		                               .tag(TAG_STATUS, TAGVALUE_CANCEL)
+		                               .tags(Tags.of(TAG_CANCEL))
 		                               .timer();
 
 		assertThat(stcCompleteTimer.max(TimeUnit.MILLISECONDS))
@@ -271,9 +252,9 @@ public class MonoMetricsTest {
 				.as("subscribe to error timer is lazily registered")
 				.isNull();
 
-		assertThat(stcCancelTimer.max(TimeUnit.MILLISECONDS))
+		assertThat(stcCancelTimer)
 				.as("subscribe to cancel timer")
-				.isZero();
+				.isNull();
 	}
 
 	@Test
@@ -286,29 +267,29 @@ public class MonoMetricsTest {
 				.block();
 
 		Timer stcCompleteTimer = registry.find(METER_FLOW_DURATION)
-		                                 .tag(TAG_STATUS, TAGVALUE_ON_COMPLETE)
+		                                 .tags(Tags.of(TAG_ON_COMPLETE))
 		                                 .timer();
 
 		Timer stcErrorTimer = registry.find(METER_FLOW_DURATION)
-		                              .tag(TAG_STATUS, TAGVALUE_ON_ERROR)
+		                              .tags(Tags.of(TAG_ON_ERROR))
 		                              .timer();
 
 		Timer stcCancelTimer = registry.find(METER_FLOW_DURATION)
-		                               .tag(TAG_STATUS, TAGVALUE_CANCEL)
+		                               .tags(Tags.of(TAG_CANCEL))
 		                               .timer();
 
 		SoftAssertions.assertSoftly(softly -> {
-			softly.assertThat(stcCompleteTimer.max(TimeUnit.MILLISECONDS))
+			softly.assertThat(stcCompleteTimer)
 					.as("subscribe to complete timer")
-					.isZero();
+					.isNull();
 
 			softly.assertThat(stcErrorTimer.max(TimeUnit.MILLISECONDS))
 					.as("subscribe to error timer")
 					.isGreaterThanOrEqualTo(100);
 
-			softly.assertThat(stcCancelTimer.max(TimeUnit.MILLISECONDS))
+			assertThat(stcCancelTimer)
 					.as("subscribe to cancel timer")
-					.isZero();
+					.isNull();
 		});
 	}
 
@@ -321,21 +302,21 @@ public class MonoMetricsTest {
 		disposable.dispose();
 
 		Timer stcCompleteTimer = registry.find(METER_FLOW_DURATION)
-		                                 .tag(TAG_STATUS, TAGVALUE_ON_COMPLETE)
+		                                 .tags(Tags.of(TAG_ON_COMPLETE))
 		                                 .timer();
 
 		Timer stcErrorTimer = registry.find(METER_FLOW_DURATION)
-		                              .tag(TAG_STATUS, TAGVALUE_ON_ERROR)
+		                              .tags(Tags.of(TAG_ON_ERROR))
 		                              .timer();
 
 		Timer stcCancelTimer = registry.find(METER_FLOW_DURATION)
-		                               .tag(TAG_STATUS, TAGVALUE_CANCEL)
+		                               .tags(Tags.of(TAG_CANCEL))
 		                               .timer();
 
 		SoftAssertions.assertSoftly(softly -> {
-			softly.assertThat(stcCompleteTimer.max(TimeUnit.MILLISECONDS))
+			softly.assertThat(stcCompleteTimer)
 					.as("subscribe to complete timer")
-					.isZero();
+					.isNull();
 
 			softly.assertThat(stcErrorTimer)
 					.as("subscribe to error timer is lazily registered")
@@ -413,4 +394,37 @@ public class MonoMetricsTest {
 		assertThat(uniqueTagKeySets).hasSize(1);
 	}
 
+	@Test
+	public void ensureFuseablePropagateOnComplete_inCaseOfAsyncFusion() {
+		Mono<List<Integer>> source = Mono.fromSupplier(() -> Arrays.asList(1, 2, 3));
+
+		//smoke test that this form uses MonoMetricsFuseable
+		assertThat(source.metrics()).isInstanceOf(MonoMetricsFuseable.class);
+
+		//now use the test version with local registry
+		new MonoMetricsFuseable<List<Integer>>(source, registry)
+		    .flatMapIterable(Function.identity())
+		    .as(StepVerifier::create)
+		    .expectNext(1, 2, 3)
+		    .expectComplete()
+		    .verify(Duration.ofMillis(500));
+	}
+
+	@Test
+	public void ensureOnNextInAsyncModeIsCapableToPropagateNulls() {
+		Mono<List<Integer>> source = Mono.using(() -> "irrelevant",
+				irrelevant -> Mono.fromSupplier(() -> Arrays.asList(1, 2, 3)),
+				irrelevant -> { });
+
+		//smoke test that this form uses MonoMetricsFuseable
+		assertThat(source.metrics()).isInstanceOf(MonoMetricsFuseable.class);
+
+		//now use the test version with local registry
+		new MonoMetricsFuseable<List<Integer>>(source, registry)
+		    .flatMapIterable(Function.identity())
+		    .as(StepVerifier::create)
+		    .expectNext(1, 2, 3)
+		    .expectComplete()
+		    .verify(Duration.ofMillis(500));
+	}
 }
