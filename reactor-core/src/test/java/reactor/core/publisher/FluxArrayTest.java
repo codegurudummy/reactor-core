@@ -16,12 +16,15 @@
 
 package reactor.core.publisher;
 
+import java.time.Duration;
+
 import org.junit.Test;
 import org.mockito.Mockito;
 import reactor.core.CoreSubscriber;
 import reactor.core.Fuseable;
 import reactor.core.Scannable;
 import reactor.test.MockUtils;
+import reactor.test.StepVerifier;
 import reactor.test.subscriber.AssertSubscriber;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -203,5 +206,12 @@ public class FluxArrayTest {
 
 		actual.cancel();
 		actual.assertOnCancelled();
+	}
+
+	@Test
+	public void cancelAckSourceStepVerifier() {
+		StepVerifier.create(Flux.just("foo", "bar", "baz"))
+		            .thenCancelWithAck()
+		            .verify(Duration.ofMillis(100));
 	}
 }
