@@ -66,7 +66,8 @@ public abstract class ConnectableFlux<T> extends Flux<T> {
 
 	/**
 	 * Connects this {@link ConnectableFlux} to the upstream source when the specified amount of
-	 * {@link org.reactivestreams.Subscriber} subscribes and calls the supplied consumer with a runnable that allows disconnecting.
+	 * {@link org.reactivestreams.Subscriber} subscribes and calls the supplied consumer with a {@link Disposable}
+	 * that allows disconnecting.
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/autoConnectWithMinSubscribers.svg" alt="">
 	 *
@@ -89,7 +90,7 @@ public abstract class ConnectableFlux<T> extends Flux<T> {
 	}
 
 	/**
-	 * Connect this {@link ConnectableFlux} to its source and return a {@link Runnable} that
+	 * Connect this {@link ConnectableFlux} to its source and return a {@link Disposable} that
 	 * can be used for disconnecting.
 	 * @return the {@link Disposable} that allows disconnecting the connection after.
 	 */
@@ -104,13 +105,19 @@ public abstract class ConnectableFlux<T> extends Flux<T> {
 	 * can be used for disconnecting.
 	 *
 	 * <p>The call should be idempotent in respect of connecting the first
-	 * and subsequent times. In addition the disconnection should be also tied
-	 * to a particular connection (so two different connection can't disconnect the other).
+	 * and subsequent times. In addition, the disconnection should be tied
+	 * to a particular connection (so two different connections can't disconnect the
+	 * other).
 	 *
 	 * @param cancelSupport the callback is called with a Disposable instance that can
 	 * be called to disconnect the source, even synchronously.
 	 */
 	public abstract void connect(Consumer<? super Disposable> cancelSupport);
+
+	@Override
+	public final ConnectableFlux<T> hide() {
+		return new ConnectableFluxHide<>(this);
+	}
 
 	/**
 	 * Connects to the upstream source when the first {@link org.reactivestreams.Subscriber} subscribes and disconnects

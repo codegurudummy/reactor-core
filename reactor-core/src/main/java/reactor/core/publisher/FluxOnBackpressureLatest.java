@@ -32,20 +32,26 @@ import reactor.util.context.Context;
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxOnBackpressureLatest<T> extends FluxOperator<T, T> {
+final class FluxOnBackpressureLatest<T> extends InternalFluxOperator<T, T> {
 
 	FluxOnBackpressureLatest(Flux<? extends T> source) {
 		super(source);
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		source.subscribe(new LatestSubscriber<>(actual));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return new LatestSubscriber<>(actual);
 	}
 
 	@Override
 	public int getPrefetch() {
 		return Integer.MAX_VALUE;
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class LatestSubscriber<T>
@@ -235,6 +241,7 @@ final class FluxOnBackpressureLatest<T> extends FluxOperator<T, T> {
 			if (key == Attr.BUFFERED) return value != null ? 1 : 0;
 			if (key == Attr.ERROR) return error;
 			if (key == Attr.PREFETCH) return Integer.MAX_VALUE;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

@@ -18,6 +18,7 @@ package reactor.core.publisher;
 
 import org.junit.Test;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Scannable;
 import reactor.core.scheduler.Schedulers;
@@ -67,7 +68,7 @@ public class FluxOnBackpressureLatestTest {
 
 	@Test
 	public void backpressured() {
-		DirectProcessor<Integer> tp = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> tp = Processors.more().multicastNoBackpressure();
 
 		AssertSubscriber<Integer> ts = AssertSubscriber.create(0);
 
@@ -106,7 +107,7 @@ public class FluxOnBackpressureLatestTest {
 
 	@Test
 	public void error() {
-		DirectProcessor<Integer> tp = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> tp = Processors.more().multicastNoBackpressure();
 
 		AssertSubscriber<Integer> ts = AssertSubscriber.create(0);
 
@@ -122,7 +123,7 @@ public class FluxOnBackpressureLatestTest {
 
 	@Test
 	public void backpressureWithDrop() {
-		DirectProcessor<Integer> tp = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> tp = Processors.more().multicastNoBackpressure();
 
 		AssertSubscriber<Integer> ts = new AssertSubscriber<Integer>(0) {
 			@Override
@@ -149,6 +150,15 @@ public class FluxOnBackpressureLatestTest {
 	}
 
 	@Test
+	public void scanOperator(){
+		Flux<Integer> parent = Flux.just(1);
+		FluxOnBackpressureLatest<Integer> test = new FluxOnBackpressureLatest<>(parent);
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
     public void scanSubscriber() {
         CoreSubscriber<Integer> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
         FluxOnBackpressureLatest.LatestSubscriber<Integer> test =
@@ -158,6 +168,7 @@ public class FluxOnBackpressureLatestTest {
 
         assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
         assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
         test.requested = 35;
         assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(35);
         assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(Integer.MAX_VALUE);

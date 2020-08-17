@@ -42,22 +42,20 @@ import reactor.util.annotation.Nullable;
  * @param <T> the value type passing through
  * @see <a href="https://github.com/reactor/reactive-streams-commons">https://github.com/reactor/reactive-streams-commons</a>
  */
-final class ConnectableFluxOnAssembly<T> extends ConnectableFlux<T> implements
+final class ConnectableFluxOnAssembly<T> extends InternalConnectableFluxOperator<T, T> implements
                                                                     Fuseable, AssemblyOp,
                                                                     Scannable {
-
-	final ConnectableFlux<T> source;
 
 	final AssemblySnapshot stacktrace;
 
 	ConnectableFluxOnAssembly(ConnectableFlux<T> source, AssemblySnapshot stacktrace) {
-		this.source = source;
+		super(source);
 		this.stacktrace = stacktrace;
 	}
-	
+
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		FluxOnAssembly.subscribe(actual, source, stacktrace);
+	public final CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return FluxOnAssembly.wrapSubscriber(actual, source, stacktrace);
 	}
 
 	@Override
@@ -71,6 +69,7 @@ final class ConnectableFluxOnAssembly<T> extends ConnectableFlux<T> implements
 		if (key == Attr.PREFETCH) return getPrefetch();
 		if (key == Attr.PARENT) return source;
 		if (key == Attr.ACTUAL_METADATA) return !stacktrace.checkpointed;
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 		return null;
 	}

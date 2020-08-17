@@ -61,7 +61,7 @@ public interface Scheduler extends Disposable {
 	 * @param delay the delay amount, non-positive values indicate non-delayed scheduling
 	 * @param unit the unit of measure of the delay amount
 	 * @return the {@link Disposable} that let's one cancel this particular delayed task,
-	 * or throw a {@link RejectedExecutionException} if the Scheduler is not capable of scheduling periodically.
+	 * or throw a {@link RejectedExecutionException} if the Scheduler is not capable of scheduling with delay.
 	 */
 	default Disposable schedule(Runnable task, long delay, TimeUnit unit) {
 		throw Exceptions.failWithRejectedNotTimeCapable();
@@ -91,11 +91,22 @@ public interface Scheduler extends Disposable {
 
 	/**
 	 * Returns the "current time" notion of this scheduler.
+	 *
+	 * <p>
+	 *     <strong>Implementation Note:</strong> The default implementation uses {@link System#currentTimeMillis()}
+	 *     when requested with a {@code TimeUnit} of {@link TimeUnit#MILLISECONDS milliseconds} or coarser, and
+	 *     {@link System#nanoTime()} otherwise. As a consequence, results should not be interpreted as absolute timestamps
+	 *     in the latter case, only monotonicity inside the current JVM can be expected.
+	 * </p>
 	 * @param unit the target unit of the current time
 	 * @return the current time value in the target unit of measure
 	 */
 	default long now(TimeUnit unit) {
-		return unit.convert(System.currentTimeMillis(), TimeUnit.MILLISECONDS);
+		if (unit.compareTo(TimeUnit.MILLISECONDS) >= 0) {
+			return unit.convert(System.currentTimeMillis(), TimeUnit.MILLISECONDS);
+		} else {
+			return unit.convert(System.nanoTime(), TimeUnit.NANOSECONDS);
+		}
 	}
 	
 	/**

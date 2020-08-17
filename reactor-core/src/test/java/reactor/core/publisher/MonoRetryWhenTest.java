@@ -20,20 +20,66 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.assertj.core.data.Percentage;
 import org.junit.Test;
 
+import reactor.core.Scannable;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 import reactor.test.StepVerifier;
 import reactor.test.scheduler.VirtualTimeScheduler;
+import reactor.util.retry.Retry;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class MonoRetryWhenTest {
 
+	@Test
+	public void twoRetryNormalSupplier() {
+		AtomicInteger i = new AtomicInteger();
+		AtomicBoolean bool = new AtomicBoolean(true);
+
+		Mono<Integer> source = Mono
+				.fromCallable(i::incrementAndGet)
+				.doOnNext(v -> {
+					if (v < 4) {
+						throw new RuntimeException("test");
+					}
+					else {
+						bool.set(false);
+					}
+				})
+				.retryWhen(Retry.max(3).filter(e -> bool.get()));
+
+		StepVerifier.create(source)
+		            .expectNext(4)
+		            .expectComplete()
+		            .verify();
+	}
+
+	@Test
+	public void twoRetryErrorSupplier() {
+		AtomicInteger i = new AtomicInteger();
+		AtomicBoolean bool = new AtomicBoolean(true);
+
+		Mono<Integer> source = Mono
+				.fromCallable(i::incrementAndGet)
+				.doOnNext(v -> {
+					if (v < 4) {
+						if (v > 2) {
+							bool.set(false);
+						}
+						throw new RuntimeException("test");
+					}
+				})
+				.retryWhen(Retry.max(3).filter(e -> bool.get()));
+
+		StepVerifier.create(source)
+		            .verifyErrorMessage("test");
+	}
 
 	Mono<String> exponentialRetryScenario() {
 		AtomicInteger i = new AtomicInteger();
@@ -44,8 +90,9 @@ public class MonoRetryWhenTest {
 			else {
 				s.error(new RuntimeException("test " + i));
 			}
-		}).retryWhen(repeat -> repeat.zipWith(Flux.range(1, 3), (t1, t2) -> t2)
-		                             .flatMap(time -> Mono.delay(Duration.ofSeconds(time))));
+		}).retryWhen(Retry.from(companion -> companion
+				.zipWith(Flux.range(1, 3), (t1, t2) -> t2)
+				.flatMap(time -> Mono.delay(Duration.ofSeconds(time)))));
 	}
 
 	@Test
@@ -69,7 +116,10 @@ public class MonoRetryWhenTest {
 				    	errorCount.incrementAndGet();
 				    	elapsedList.add(Schedulers.parallel().now(TimeUnit.MILLISECONDS));
 				    })
-				    .retryBackoff(4, Duration.ofMillis(100), Duration.ofMillis(2000), 0.1)
+				    .retryWhen(Retry.backoff(4, Duration.ofMillis(100))
+						    .maxBackoff(Duration.ofMillis(2000))
+						    .jitter(0.1)
+				    )
 		)
 		            .thenAwait(Duration.ofMinutes(1)) //ensure whatever the jittered delay that we have time to fit 4 retries
 		            .expectErrorSatisfies(e -> assertThat(e).isInstanceOf(IllegalStateException.class)
@@ -103,7 +153,9 @@ public class MonoRetryWhenTest {
 				    	errorCount.incrementAndGet();
 				    	elapsedList.add(Schedulers.parallel().now(TimeUnit.MILLISECONDS));
 				    })
-				    .retryBackoff(4, Duration.ofMillis(100), Duration.ofMillis(2000))
+				    .retryWhen(Retry.backoff(4, Duration.ofMillis(100))
+						    .maxBackoff(Duration.ofMillis(2000))
+				    )
 		)
 		            .thenAwait(Duration.ofMinutes(1)) //ensure whatever the jittered delay that we have time to fit 4 retries
 		            .expectErrorSatisfies(e -> assertThat(e).isInstanceOf(IllegalStateException.class)
@@ -138,7 +190,7 @@ public class MonoRetryWhenTest {
 				    	errorCount.incrementAndGet();
 				    	elapsedList.add(Schedulers.parallel().now(TimeUnit.MILLISECONDS));
 				    })
-				    .retryBackoff(4, Duration.ofMillis(100))
+				    .retryWhen(Retry.backoff(4, Duration.ofMillis(100)))
 		)
 		            .thenAwait(Duration.ofMinutes(1)) //ensure whatever the jittered delay that we have time to fit 4 retries
 		            .expectErrorSatisfies(e -> assertThat(e).isInstanceOf(IllegalStateException.class)
@@ -172,7 +224,10 @@ public class MonoRetryWhenTest {
 				    	errorCount.incrementAndGet();
 				    	elapsedList.add(Schedulers.parallel().now(TimeUnit.MILLISECONDS));
 				    })
-				    .retryBackoff(4, Duration.ofMillis(100), Duration.ofMillis(220), 0.9)
+				    .retryWhen(Retry.backoff(4, Duration.ofMillis(100))
+				                    .maxBackoff(Duration.ofMillis(220))
+				                    .jitter(0.9)
+				    )
 		)
 		            .thenAwait(Duration.ofMinutes(1)) //ensure whatever the jittered delay that we have time to fit 4 retries
 		            .expectErrorSatisfies(e -> assertThat(e).isInstanceOf(IllegalStateException.class)
@@ -212,7 +267,10 @@ public class MonoRetryWhenTest {
 						    errorCount.incrementAndGet();
 						    elapsedList.add(Schedulers.parallel().now(TimeUnit.MILLISECONDS));
 					    })
-					    .retryBackoff(1, Duration.ofMillis(100), Duration.ofMillis(2000), 0.9)
+					    .retryWhen(Retry.backoff(1, Duration.ofMillis(100))
+							    .maxBackoff(Duration.ofMillis(2000))
+							    .jitter(0.9)
+					    )
 			)
 			            .thenAwait(Duration.ofMinutes(1)) //ensure whatever the jittered delay that we have time to fit 4 retries
 			            .expectErrorSatisfies(e -> assertThat(e).isInstanceOf(IllegalStateException.class)
@@ -241,7 +299,10 @@ public class MonoRetryWhenTest {
 					    errorCount.incrementAndGet();
 					    elapsedList.add(Schedulers.parallel().now(TimeUnit.MILLISECONDS));
 				    })
-				    .retryBackoff(4, Duration.ofMillis(100), Duration.ofMillis(2000), 0d)
+				    .retryWhen(Retry.backoff(4, Duration.ofMillis(100))
+						    .maxBackoff(Duration.ofMillis(2000))
+						    .jitter(0d)
+				    )
 		)
 		            .thenAwait(Duration.ofMinutes(1)) //ensure whatever the jittered delay that we have time to fit 4 retries
 		            .expectErrorSatisfies(e -> assertThat(e).isInstanceOf(IllegalStateException.class)
@@ -257,7 +318,6 @@ public class MonoRetryWhenTest {
 		assertThat(elapsedList.get(4) - elapsedList.get(3)).isEqualTo(800);
 	}
 
-
 	@Test
 	public void monoRetryBackoffWithGivenScheduler() {
 		VirtualTimeScheduler backoffScheduler = VirtualTimeScheduler.create();
@@ -268,7 +328,11 @@ public class MonoRetryWhenTest {
 		StepVerifier.create(
 				Mono.error(exception)
 				    .doOnError(t -> errorCount.incrementAndGet())
-				    .retryBackoff(4, Duration.ofMillis(10), Duration.ofMillis(100), 0, backoffScheduler)
+				    .retryWhen(Retry.backoff(4, Duration.ofMillis(10))
+						    .maxBackoff(Duration.ofMillis(100))
+						    .jitter(0)
+						    .scheduler(backoffScheduler)
+				    )
 		)
 		            .expectSubscription()
 		            .expectNoEvent(Duration.ofMillis(400))
@@ -293,8 +357,11 @@ public class MonoRetryWhenTest {
 		try {
 			StepVerifier.create(Mono.error(exception)
 			                        .doOnError(e -> threadNames.add(Thread.currentThread().getName().replaceFirst("-\\d+", "")))
-			                        .retryBackoff(2, Duration.ofMillis(10), Duration.ofMillis(100), 0.5d, backoffScheduler)
-
+			                        .retryWhen(Retry.backoff(2, Duration.ofMillis(10))
+					                        .maxBackoff(Duration.ofMillis(100))
+					                        .jitter(0.5d)
+					                        .scheduler(backoffScheduler)
+			                        )
 			)
 			            .expectErrorSatisfies(e -> assertThat(e).isInstanceOf(IllegalStateException.class)
 			                                                    .hasMessage("Retries exhausted: 2/2")
@@ -310,4 +377,12 @@ public class MonoRetryWhenTest {
 		}
 	}
 
+	@Test
+	public void scanOperator(){
+		Mono<String> parent = Mono.just("foo");
+		MonoRetryWhen<String> test = new MonoRetryWhen<>(parent, Retry.backoff(5, Duration.ofMinutes(30)));
+
+	    assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+	    assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
 }

@@ -30,17 +30,15 @@ import reactor.util.annotation.Nullable;
 /**
  * @author Simon Baslé
  */
-final class ConnectableLiftFuseable<I, O> extends ConnectableFlux<O>
+final class ConnectableLiftFuseable<I, O> extends InternalConnectableFluxOperator<I, O>
 		implements Scannable, Fuseable {
 
 	final BiFunction<Publisher, ? super CoreSubscriber<? super O>, ? extends CoreSubscriber<? super I>>
 			lifter;
 
-	final ConnectableFlux<I> source;
-
 	ConnectableLiftFuseable(ConnectableFlux<I> p,
 			BiFunction<Publisher, ? super CoreSubscriber<? super O>, ? extends CoreSubscriber<? super I>> lifter) {
-		this.source = Objects.requireNonNull(p, "source");
+		super(Objects.requireNonNull(p, "source"));
 		this.lifter = lifter;
 	}
 
@@ -59,6 +57,7 @@ final class ConnectableLiftFuseable<I, O> extends ConnectableFlux<O>
 	public Object scanUnsafe(Attr key) {
 		if (key == Attr.PREFETCH) return source.getPrefetch();
 		if (key == Attr.PARENT) return source;
+		if (key == Attr.RUN_STYLE) return Scannable.from(source).scanUnsafe(key);
 		return null;
 	}
 
@@ -67,11 +66,11 @@ final class ConnectableLiftFuseable<I, O> extends ConnectableFlux<O>
 		if (source instanceof Scannable) {
 			return Scannable.from(source).stepName();
 		}
-		return Scannable.super.stepName();
+		return super.stepName();
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super O> actual) {
+	public final CoreSubscriber<? super I> subscribeOrReturn(CoreSubscriber<? super O> actual) {
 		CoreSubscriber<? super I> input =
 				lifter.apply(source, actual);
 
@@ -83,6 +82,6 @@ final class ConnectableLiftFuseable<I, O> extends ConnectableFlux<O>
 			input = new FluxHide.SuppressFuseableSubscriber<>(input);
 		}
 		//otherwise QS is not required or user already made a compatible conversion
-		source.subscribe(input);
+		return input;
 	}
 }

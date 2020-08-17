@@ -28,6 +28,7 @@ import java.util.function.Supplier;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.core.Disposables;
@@ -45,7 +46,7 @@ import reactor.util.concurrent.Queues;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxWindowWhen<T, U, V> extends FluxOperator<T, Flux<T>> {
+final class FluxWindowWhen<T, U, V> extends InternalFluxOperator<T, Flux<T>> {
 
 	final Publisher<U> start;
 
@@ -70,21 +71,31 @@ final class FluxWindowWhen<T, U, V> extends FluxOperator<T, Flux<T>> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super Flux<T>> actual) {
+	@Nullable
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super Flux<T>> actual) {
 		WindowWhenMainSubscriber<T, U, V> main = new WindowWhenMainSubscriber<>(actual,
 				start, end, processorQueueSupplier);
 		actual.onSubscribe(main);
 
 		if (main.cancelled) {
-			return;
+			return null;
 		}
 		WindowWhenOpenSubscriber<T, U> os = new WindowWhenOpenSubscriber<>(main);
 
 		if (WindowWhenMainSubscriber.BOUNDARY.compareAndSet(main,null, os)) {
 			WindowWhenMainSubscriber.OPEN_WINDOW_COUNT.incrementAndGet(main);
 			start.subscribe(os);
-			source.subscribe(main);
+			return main;
 		}
+		else {
+			return null;
+		}
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class WindowWhenMainSubscriber<T, U, V>
@@ -101,7 +112,7 @@ final class FluxWindowWhen<T, U, V> extends FluxOperator<T, Flux<T>> {
 		static final AtomicReferenceFieldUpdater<WindowWhenMainSubscriber, Disposable> BOUNDARY =
 				AtomicReferenceFieldUpdater.newUpdater(WindowWhenMainSubscriber.class, Disposable.class, "boundary");
 
-		final List<UnicastProcessor<T>> windows;
+		final List<FluxIdentityProcessor<T>> windows;
 
 		volatile long openWindowCount;
 		static final AtomicLongFieldUpdater<WindowWhenMainSubscriber> OPEN_WINDOW_COUNT =
@@ -134,7 +145,7 @@ final class FluxWindowWhen<T, U, V> extends FluxOperator<T, Flux<T>> {
 				return;
 			}
 			if (fastEnter()) {
-				for (UnicastProcessor<T> w : windows) {
+				for (FluxIdentityProcessor<T> w : windows) {
 					w.onNext(t);
 				}
 				if (leave(-1) == 0) {
@@ -209,7 +220,7 @@ final class FluxWindowWhen<T, U, V> extends FluxOperator<T, Flux<T>> {
 		void drainLoop() {
 			final Queue<Object> q = queue;
 			final Subscriber<? super Flux<T>> a = actual;
-			final List<UnicastProcessor<T>> ws = this.windows;
+			final List<FluxIdentityProcessor<T>> ws = this.windows;
 			int missed = 1;
 
 			for (;;) {
@@ -225,12 +236,12 @@ final class FluxWindowWhen<T, U, V> extends FluxOperator<T, Flux<T>> {
 						Throwable e = error;
 						if (e != null) {
 							actual.onError(e);
-							for (UnicastProcessor<T> w : ws) {
+							for (FluxIdentityProcessor<T> w : ws) {
 								w.onError(e);
 							}
 						} else {
 							actual.onComplete();
-							for (UnicastProcessor<T> w : ws) {
+							for (FluxIdentityProcessor<T> w : ws) {
 								w.onComplete();
 							}
 						}
@@ -246,7 +257,7 @@ final class FluxWindowWhen<T, U, V> extends FluxOperator<T, Flux<T>> {
 						@SuppressWarnings("unchecked")
 						WindowOperation<T, U> wo = (WindowOperation<T, U>) o;
 
-						UnicastProcessor<T> w = wo.w;
+						FluxIdentityProcessor<T> w = wo.w;
 						if (w != null) {
 							if (ws.remove(wo.w)) {
 								wo.w.onComplete();
@@ -264,7 +275,7 @@ final class FluxWindowWhen<T, U, V> extends FluxOperator<T, Flux<T>> {
 						}
 
 
-						w = UnicastProcessor.create(processorQueueSupplier.get());
+						w = Processors.more().unicast(processorQueueSupplier.get());
 
 						long r = requested();
 						if (r != 0L) {
@@ -300,7 +311,7 @@ final class FluxWindowWhen<T, U, V> extends FluxOperator<T, Flux<T>> {
 						continue;
 					}
 
-					for (UnicastProcessor<T> w : ws) {
+					for (FluxIdentityProcessor<T> w : ws) {
 						@SuppressWarnings("unchecked")
 						T t = (T) o;
 						w.onNext(t);
@@ -328,12 +339,18 @@ final class FluxWindowWhen<T, U, V> extends FluxOperator<T, Flux<T>> {
 				drainLoop();
 			}
 		}
+
+		@Override
+		public Object scanUnsafe(Attr key) {
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+			return super.scanUnsafe(key);
+		}
 	}
 
 	static final class WindowOperation<T, U> {
-		final UnicastProcessor<T> w;
+		final FluxIdentityProcessor<T> w;
 		final U open;
-		WindowOperation(@Nullable UnicastProcessor<T> w, @Nullable U open) {
+		WindowOperation(@Nullable FluxIdentityProcessor<T> w, @Nullable U open) {
 			this.w = w;
 			this.open = open;
 		}
@@ -407,11 +424,11 @@ final class FluxWindowWhen<T, U, V> extends FluxOperator<T, Flux<T>> {
 				AtomicReferenceFieldUpdater.newUpdater(WindowWhenCloseSubscriber.class, Subscription.class, "subscription");
 
 		final WindowWhenMainSubscriber<T, ?, V> parent;
-		final UnicastProcessor<T>               w;
+		final FluxIdentityProcessor<T>               w;
 
 		boolean done;
 
-		WindowWhenCloseSubscriber(WindowWhenMainSubscriber<T, ?, V> parent, UnicastProcessor<T> w) {
+		WindowWhenCloseSubscriber(WindowWhenMainSubscriber<T, ?, V> parent, FluxIdentityProcessor<T> w) {
 			this.parent = parent;
 			this.w = w;
 		}

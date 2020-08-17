@@ -24,15 +24,15 @@ import reactor.core.Fuseable;
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxTakeLastOne<T> extends FluxOperator<T, T> implements Fuseable {
+final class FluxTakeLastOne<T> extends InternalFluxOperator<T, T> implements Fuseable {
 
 	FluxTakeLastOne(Flux<? extends T> source) {
 		super(source);
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		source.subscribe(new MonoTakeLastOne.TakeLastOneSubscriber<>(actual, null, false));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return new MonoTakeLastOne.TakeLastOneSubscriber<>(actual, null, false);
 	}
 
 	@Override
@@ -40,4 +40,9 @@ final class FluxTakeLastOne<T> extends FluxOperator<T, T> implements Fuseable {
 		return Integer.MAX_VALUE;
 	}
 
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
+	}
 }

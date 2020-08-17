@@ -135,7 +135,7 @@ public class FluxDoOnEachTest {
 		AtomicInteger invocationCount = new AtomicInteger();
 
 		Flux<String> sourceWithFusionAsync = Flux.just("foo")
-		                                         .publishOn(Schedulers.elastic())
+		                                         .publishOn(Schedulers.boundedElastic())
 		                                         .flatMap(v -> Flux.just("flatMap_" + v)
 		                                                           .doOnEach(sig -> invocationCount.incrementAndGet())
 		                                         );
@@ -551,7 +551,7 @@ public class FluxDoOnEachTest {
 		                          .matches(s -> s.get() == Boolean.TRUE);
 		assertThat(signals.get(1)).matches(Signal::isOnComplete);
 
-		List<Boolean> actualTryNext = ((FluxPeekFuseableTest.ConditionalAssertSubscriber<Boolean>) actual).next;
+		List<Boolean> actualTryNext = actual.next;
 		assertThat(actualTryNext).hasSize(2);
 		assertThat(actualTryNext.get(0)).isTrue();
 		assertThat(actualTryNext.get(1)).isFalse();
@@ -575,6 +575,24 @@ public class FluxDoOnEachTest {
 	}
 
 	@Test
+	public void scanOperator(){
+		Flux<Integer> parent = Flux.just(1);
+		FluxDoOnEach<Integer> test = new FluxDoOnEach<Integer>(parent, s -> {});
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
+	public void scanFuseableOperator(){
+		Flux<Integer> parent = Flux.just(1);
+		FluxDoOnEachFuseable<Integer> test = new FluxDoOnEachFuseable<>(parent, s -> {});
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
     public void scanSubscriber() {
         CoreSubscriber<Integer> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
 		FluxDoOnEach<Integer> peek =
@@ -586,6 +604,7 @@ public class FluxDoOnEachTest {
 
         assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
         assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
         assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
         test.onError(new IllegalStateException("boom"));
