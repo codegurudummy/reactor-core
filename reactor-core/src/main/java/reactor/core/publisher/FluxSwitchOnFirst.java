@@ -17,7 +17,9 @@
 package reactor.core.publisher;
 
 import java.util.Objects;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
+import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.function.BiFunction;
 
@@ -26,25 +28,25 @@ import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
 import reactor.core.Fuseable;
 import reactor.util.annotation.Nullable;
-import reactor.util.context.Context;
 
 /**
  * @author Oleh Dokuka
  * @param <T>
  * @param <R>
  */
-final class FluxSwitchOnFirst<T, R> extends FluxOperator<T, R> {
+final class FluxSwitchOnFirst<T, R> extends InternalFluxOperator<T, R> {
 
-    static final int STATE_INIT            = 0;
-    static final int STATE_SUBSCRIBED_ONCE = 1;
 
     final BiFunction<Signal<? extends T>, Flux<T>, Publisher<? extends R>> transformer;
+    final boolean cancelSourceOnComplete;
 
     FluxSwitchOnFirst(
             Flux<? extends T> source,
-            BiFunction<Signal<? extends T>, Flux<T>, Publisher<? extends R>> transformer) {
+            BiFunction<Signal<? extends T>, Flux<T>, Publisher<? extends R>> transformer,
+            boolean cancelSourceOnComplete) {
         super(source);
         this.transformer = Objects.requireNonNull(transformer, "transformer");
+        this.cancelSourceOnComplete = cancelSourceOnComplete;
     }
 
     @Override
@@ -54,129 +56,98 @@ final class FluxSwitchOnFirst<T, R> extends FluxOperator<T, R> {
 
     @Override
     @SuppressWarnings("unchecked")
-    public void subscribe(CoreSubscriber<? super R> actual) {
+    public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super R> actual) {
         if (actual instanceof Fuseable.ConditionalSubscriber) {
-            source.subscribe(new SwitchOnFirstConditionalInner<>((Fuseable.ConditionalSubscriber<? super R>) actual, transformer));
-            return;
+            return new SwitchOnFirstConditionalMain<>((Fuseable.ConditionalSubscriber<? super R>) actual, transformer, cancelSourceOnComplete);
         }
-        source.subscribe(new SwitchOnFirstInner<>(actual, transformer));
+        return new SwitchOnFirstMain<>(actual, transformer, cancelSourceOnComplete);
     }
 
-    static abstract class AbstractSwitchOnFirstInner<T, R> extends Flux<T>
+    static abstract class AbstractSwitchOnFirstMain<T, R> extends Flux<T>
             implements InnerOperator<T, R> {
 
-        final CoreSubscriber<? super R>                                        outer;
+        final ControlSubscriber<? super R>                                     outer;
         final BiFunction<Signal<? extends T>, Flux<T>, Publisher<? extends R>> transformer;
 
         Subscription s;
         Throwable    throwable;
         T            first;
+        boolean      requestedOnce;
         boolean      done;
-
-        volatile boolean cancelled;
 
         volatile CoreSubscriber<? super T> inner;
         @SuppressWarnings("rawtypes")
-        static final AtomicReferenceFieldUpdater<AbstractSwitchOnFirstInner, CoreSubscriber> INNER =
-                AtomicReferenceFieldUpdater.newUpdater(AbstractSwitchOnFirstInner.class, CoreSubscriber.class, "inner");
+        static final AtomicReferenceFieldUpdater<AbstractSwitchOnFirstMain, CoreSubscriber> INNER =
+                AtomicReferenceFieldUpdater.newUpdater(AbstractSwitchOnFirstMain.class, CoreSubscriber.class, "inner");
 
         volatile int wip;
         @SuppressWarnings("rawtypes")
-        static final AtomicIntegerFieldUpdater<AbstractSwitchOnFirstInner> WIP =
-                AtomicIntegerFieldUpdater.newUpdater(AbstractSwitchOnFirstInner.class, "wip");
-
-        volatile int state;
-        @SuppressWarnings("rawtypes")
-        static final AtomicIntegerFieldUpdater<AbstractSwitchOnFirstInner> STATE =
-                AtomicIntegerFieldUpdater.newUpdater(AbstractSwitchOnFirstInner.class, "state");
+        static final AtomicIntegerFieldUpdater<AbstractSwitchOnFirstMain> WIP =
+                AtomicIntegerFieldUpdater.newUpdater(AbstractSwitchOnFirstMain.class, "wip");
 
         @SuppressWarnings("unchecked")
-        AbstractSwitchOnFirstInner(
+        AbstractSwitchOnFirstMain(
                 CoreSubscriber<? super R> outer,
-                BiFunction<Signal<? extends T>, Flux<T>, Publisher<? extends R>> transformer) {
+                BiFunction<Signal<? extends T>, Flux<T>, Publisher<? extends R>> transformer,
+                boolean cancelSourceOnComplete) {
             this.outer = outer instanceof Fuseable.ConditionalSubscriber
-                ? new SwitchOnFirstConditionalInnerSubscriber<>(this, (Fuseable.ConditionalSubscriber<R>) outer)
-                : new SwitchOnFirstInnerSubscriber<>(this, outer);
+                ? new SwitchOnFirstConditionalControlSubscriber<>(this, (Fuseable.ConditionalSubscriber<R>) outer, cancelSourceOnComplete)
+                : new SwitchOnFirstControlSubscriber<>(this, outer, cancelSourceOnComplete);
             this.transformer = transformer;
         }
 
         @Override
         @Nullable
         public Object scanUnsafe(Attr key) {
-            if (key == Attr.CANCELLED) return cancelled;
-            if (key == Attr.TERMINATED) return done || cancelled;
+            final boolean isCancelled = this.inner == Operators.EMPTY_SUBSCRIBER;
+
+            if (key == Attr.CANCELLED) return isCancelled && !this.done;
+            if (key == Attr.TERMINATED) return this.done || isCancelled;
 
             return InnerOperator.super.scanUnsafe(key);
         }
 
         @Override
         public CoreSubscriber<? super R> actual() {
-            return outer;
-        }
-
-        @Override
-        public Context currentContext() {
-            CoreSubscriber<? super T> actual = inner;
-
-            if (actual != null) {
-                return actual.currentContext();
-            }
-
-            return outer.currentContext();
-        }
-
-        @Override
-        public void cancel() {
-            if (!cancelled) {
-                cancelled = true;
-                s.cancel();
-
-                if (WIP.getAndIncrement(this) == 0) {
-                    INNER.lazySet(this, null);
-
-                    T f = first;
-                    if (f != null) {
-                        first = null;
-                        Operators.onDiscard(f, currentContext());
-                    }
-                }
-            }
+            return this.outer;
         }
 
         @Override
         public void onSubscribe(Subscription s) {
             if (Operators.validate(this.s, s)) {
                 this.s = s;
-                s.request(1);
+                this.outer.sendSubscription();
+                if (this.inner != Operators.EMPTY_SUBSCRIBER) {
+                    s.request(1);
+                }
             }
         }
 
         @Override
         public void onNext(T t) {
-            if (done) {
+            final CoreSubscriber<? super T> i = this.inner;
+            if (this.done || i == Operators.EMPTY_SUBSCRIBER) {
                 Operators.onNextDropped(t, currentContext());
                 return;
             }
 
-            CoreSubscriber<? super T> i = inner;
-
             if (i == null) {
-                Publisher<? extends R> result;
-                CoreSubscriber<? super R> o = outer;
+                final Publisher<? extends R> result;
+                final CoreSubscriber<? super R> o = this.outer;
 
                 try {
                     result = Objects.requireNonNull(
-                        transformer.apply(Signal.next(t, o.currentContext()), this),
+                        this.transformer.apply(Signal.next(t, o.currentContext()), this),
                         "The transformer returned a null value"
                     );
                 }
                 catch (Throwable e) {
-                    done = true;
-                    Operators.error(o, Operators.onOperatorError(s, e, t, o.currentContext()));
+                    this.done = true;
+                    Operators.error(o, Operators.onOperatorError(this.s, e, t, o.currentContext()));
                     return;
                 }
 
-                first = t;
+                this.first = t;
                 result.subscribe(o);
                 return;
             }
@@ -186,29 +157,31 @@ final class FluxSwitchOnFirst<T, R> extends FluxOperator<T, R> {
 
         @Override
         public void onError(Throwable t) {
-            if (done) {
+            // read of the first should occur before the read of inner since otherwise
+            // first may be nulled while the previous read has shown that inner is still
+            // null hence double invocation of transformer occurs
+            final T f = this.first;
+            final CoreSubscriber<? super T> i = this.inner;
+            if (this.done || i == Operators.EMPTY_SUBSCRIBER) {
                 Operators.onErrorDropped(t, currentContext());
                 return;
             }
 
-            throwable = t;
-            done = true;
-            CoreSubscriber<? super T> i = inner;
-            T f = first;
+            this.throwable = t;
+            this.done = true;
 
-            if (f == null && i == null && !cancelled) {
-                Publisher<? extends R> result;
-                CoreSubscriber<? super R> o = outer;
-
+            if (f == null && i == null) {
+                final Publisher<? extends R> result;
+                final CoreSubscriber<? super R> o = this.outer;
                 try {
                     result = Objects.requireNonNull(
-                        transformer.apply(Signal.error(t, o.currentContext()), this),
+                        this.transformer.apply(Signal.error(t, o.currentContext()), this),
                         "The transformer returned a null value"
                     );
                 }
                 catch (Throwable e) {
-                    done = true;
-                    Operators.error(o, Operators.onOperatorError(s, e, t, o.currentContext()));
+                    this.done = true;
+                    Operators.error(o, Operators.onOperatorError(this.s, e, t, o.currentContext()));
                     return;
                 }
 
@@ -216,34 +189,35 @@ final class FluxSwitchOnFirst<T, R> extends FluxOperator<T, R> {
                 return;
             }
 
-            if (f == null) {
-                drain();
-            }
+            drain();
         }
 
         @Override
         public void onComplete() {
-            if (done) {
+            // read of the first should occur before the read of inner since otherwise
+            // first may be nulled while the previous read has shown that inner is still
+            // null hence double invocation of transformer occurs
+            final T f = this.first;
+            final CoreSubscriber<? super T> i = this.inner;
+            if (this.done || i == Operators.EMPTY_SUBSCRIBER) {
                 return;
             }
 
-            done = true;
-            CoreSubscriber<? super T> i = inner;
-            T f = first;
+            this.done = true;
 
-            if (f == null && i == null && !cancelled) {
-                Publisher<? extends R> result;
-                CoreSubscriber<? super R> o = outer;
+            if (f == null && i == null) {
+                final Publisher<? extends R> result;
+                final CoreSubscriber<? super R> o = outer;
 
                 try {
                     result = Objects.requireNonNull(
-                        transformer.apply(Signal.complete(o.currentContext()), this),
+                            this.transformer.apply(Signal.complete(o.currentContext()), this),
                         "The transformer returned a null value"
                     );
                 }
                 catch (Throwable e) {
-                    done = true;
-                    Operators.error(o, Operators.onOperatorError(s, e, null, o.currentContext()));
+                    this.done = true;
+                    Operators.error(o, Operators.onOperatorError(this.s, e, null, o.currentContext()));
                     return;
                 }
 
@@ -251,52 +225,34 @@ final class FluxSwitchOnFirst<T, R> extends FluxOperator<T, R> {
                 return;
             }
 
-            if (f == null) {
-                drain();
-            }
-        }
-
-        abstract void drain();
-
-    }
-
-    static final class SwitchOnFirstInner<T, R> extends AbstractSwitchOnFirstInner<T, R> {
-
-        SwitchOnFirstInner(
-                CoreSubscriber<? super R> outer,
-                BiFunction<Signal<? extends T>, Flux<T>, Publisher<? extends R>> transformer) {
-            super(outer, transformer);
+            drain();
         }
 
         @Override
-        public void subscribe(CoreSubscriber<? super T> actual) {
-            if (state == STATE_INIT && STATE.compareAndSet(this, STATE_INIT, STATE_SUBSCRIBED_ONCE)) {
-                if (first == null && done) {
-                    if (throwable != null) {
-                        Operators.error(actual, throwable);
-                    }
-                    else {
-                        Operators.complete(actual);
-                    }
-                    return;
-                }
-                INNER.lazySet(this, actual);
-                actual.onSubscribe(this);
+        public void cancel() {
+            if (INNER.getAndSet(this, Operators.EMPTY_SUBSCRIBER) == Operators.EMPTY_SUBSCRIBER) {
+                return;
             }
-            else {
-                Operators.error(actual, new IllegalStateException("FluxSwitchOnFirst allows only one Subscriber"));
+
+            this.s.cancel();
+
+            if (WIP.getAndIncrement(this) == 0) {
+                final T f = this.first;
+                if (f != null) {
+                    this.first = null;
+                    Operators.onDiscard(f, currentContext());
+                }
             }
         }
 
         @Override
         public void request(long n) {
             if (Operators.validate(n)) {
-                if (first != null) {
-                    drain();
-
-                    if (n != Long.MAX_VALUE) {
+                if (this.first != null) {
+                    this.requestedOnce = true;
+                    if (drain() && n != Long.MAX_VALUE) {
                         if (--n > 0) {
-                            s.request(n);
+                            this.s.request(n);
                             return;
                         }
 
@@ -304,114 +260,164 @@ final class FluxSwitchOnFirst<T, R> extends FluxOperator<T, R> {
                     }
                 }
 
-                s.request(n);
+                this.s.request(n);
             }
         }
 
-        @Override
-        void drain() {
+        @SuppressWarnings("unchecked")
+        boolean drain() {
             if (WIP.getAndIncrement(this) != 0) {
-                return;
+                return false;
             }
 
-            T f = first;
+            T f = this.first;
             int m = 1;
-            CoreSubscriber<? super T> a = inner;
+            boolean sent = false;
+            CoreSubscriber<? super T> a;
 
             for (;;) {
-                if (f != null) {
-                    first = null;
+                a = this.inner;
 
-                    if (cancelled) {
-                        Operators.onDiscard(f, a.currentContext());
-                        return;
+                // check for the case where upstream terminates before downstream has subscribed at all
+                if (a != null) {
+                    if (f != null && this.requestedOnce) {
+                        this.first = null;
+
+                        if (a == Operators.EMPTY_SUBSCRIBER) {
+                            Operators.onDiscard(f, currentContext());
+                            return false;
+                        }
+
+                        sent = tryOnNext(a, f);
+                        f = null;
+                        // check if not cancelled if it has just been sent (next + cancel case)
+                        a = this.inner;
                     }
 
-                    a.onNext(f);
-                    f = null;
-                }
-
-                if (cancelled) {
-                    return;
-                }
-
-                if (done) {
-                    Throwable t = throwable;
-                    if (t != null) {
-                        a.onError(t);
-                    } else {
-                        a.onComplete();
+                    if (a == Operators.EMPTY_SUBSCRIBER) {
+                        return false;
                     }
-                    return;
+
+                    if (this.done && f == null) {
+                        Throwable t = this.throwable;
+                        if (t != null) {
+                            a.onError(t);
+                        } else {
+                            a.onComplete();
+                        }
+                        INNER.lazySet(this, Operators.EMPTY_SUBSCRIBER);
+                        return sent;
+                    }
                 }
 
                 m = WIP.addAndGet(this, -m);
-
                 if (m == 0) {
-                    return;
+                    return sent;
                 }
             }
         }
+
+        abstract boolean tryOnNext(CoreSubscriber<? super T> actual, T value);
+
     }
 
+    static final class SwitchOnFirstMain<T, R> extends AbstractSwitchOnFirstMain<T, R> {
 
-    static final class SwitchOnFirstConditionalInner<T, R> extends AbstractSwitchOnFirstInner<T, R>
-            implements Fuseable.ConditionalSubscriber<T> {
-
-        SwitchOnFirstConditionalInner(
-                Fuseable.ConditionalSubscriber<? super R> outer,
-                BiFunction<Signal<? extends T>, Flux<T>, Publisher<? extends R>> transformer) {
-            super(outer, transformer);
+        SwitchOnFirstMain(
+                CoreSubscriber<? super R> outer,
+                BiFunction<Signal<? extends T>, Flux<T>, Publisher<? extends R>> transformer,
+                boolean cancelSourceOnComplete) {
+            super(outer, transformer, cancelSourceOnComplete);
         }
 
         @Override
         public void subscribe(CoreSubscriber<? super T> actual) {
-            if (state == STATE_INIT && STATE.compareAndSet(this, STATE_INIT, STATE_SUBSCRIBED_ONCE)) {
-                if (first == null && done) {
-                    if (throwable != null) {
-                        Operators.error(actual, throwable);
+            if (this.inner == null && INNER.compareAndSet(this, null, actual)) {
+                if (this.first == null && this.done) {
+                    final Throwable t = this.throwable;
+                    if (t != null) {
+                        Operators.error(actual, t);
                     }
                     else {
                         Operators.complete(actual);
                     }
                     return;
                 }
-                INNER.lazySet(this, Operators.toConditionalSubscriber(actual));
                 actual.onSubscribe(this);
             }
-            else {
+            else if (this.inner != Operators.EMPTY_SUBSCRIBER) {
                 Operators.error(actual, new IllegalStateException("FluxSwitchOnFirst allows only one Subscriber"));
+            } else {
+                Operators.error(actual, new CancellationException("FluxSwitchOnFirst has already been cancelled"));
+            }
+        }
+
+        @Override
+        boolean tryOnNext(CoreSubscriber<? super T> actual, T t) {
+            actual.onNext(t);
+            return true;
+        }
+    }
+
+    static final class SwitchOnFirstConditionalMain<T, R> extends AbstractSwitchOnFirstMain<T, R>
+            implements Fuseable.ConditionalSubscriber<T> {
+
+        SwitchOnFirstConditionalMain(
+                Fuseable.ConditionalSubscriber<? super R> outer,
+                BiFunction<Signal<? extends T>, Flux<T>, Publisher<? extends R>> transformer,
+                boolean cancelSourceOnComplete) {
+            super(outer, transformer, cancelSourceOnComplete);
+        }
+
+        @Override
+        public void subscribe(CoreSubscriber<? super T> actual) {
+            if (this.inner == null && INNER.compareAndSet(this, null, Operators.toConditionalSubscriber(actual))) {
+                if (this.first == null && this.done) {
+                    final Throwable t = this.throwable;
+                    if (t != null) {
+                        Operators.error(actual, t);
+                    }
+                    else {
+                        Operators.complete(actual);
+                    }
+                    return;
+                }
+                actual.onSubscribe(this);
+            }
+            else if (this.inner != Operators.EMPTY_SUBSCRIBER) {
+                Operators.error(actual, new IllegalStateException("FluxSwitchOnFirst allows only one Subscriber"));
+            } else {
+                Operators.error(actual, new CancellationException("FluxSwitchOnFirst has already been cancelled"));
             }
         }
 
         @Override
         public boolean tryOnNext(T t) {
-            if (done) {
+            @SuppressWarnings("unchecked")
+            final Fuseable.ConditionalSubscriber<? super T> i =
+                    (Fuseable.ConditionalSubscriber<? super T>) this.inner;
+            if (this.done || i == Operators.EMPTY_SUBSCRIBER) {
                 Operators.onNextDropped(t, currentContext());
                 return false;
             }
 
-            @SuppressWarnings("unchecked")
-            Fuseable.ConditionalSubscriber<? super T> i =
-                    (Fuseable.ConditionalSubscriber<? super T>) inner;
-
             if (i == null) {
-                Publisher<? extends R> result;
-                CoreSubscriber<? super R> o = outer;
+                final Publisher<? extends R> result;
+                final CoreSubscriber<? super R> o = this.outer;
 
                 try {
                     result = Objects.requireNonNull(
-                        transformer.apply(Signal.next(t, o.currentContext()), this),
+                        this.transformer.apply(Signal.next(t, o.currentContext()), this),
                         "The transformer returned a null value"
                     );
                 }
                 catch (Throwable e) {
-                    done = true;
-                    Operators.error(o, Operators.onOperatorError(s, e, t, o.currentContext()));
+                    this.done = true;
+                    Operators.error(o, Operators.onOperatorError(this.s, e, t, o.currentContext()));
                     return false;
                 }
 
-                first = t;
+                this.first = t;
                 result.subscribe(o);
                 return true;
             }
@@ -420,187 +426,195 @@ final class FluxSwitchOnFirst<T, R> extends FluxOperator<T, R> {
         }
 
         @Override
-        public void request(long n) {
-            if (Operators.validate(n)) {
-                if (first != null) {
-                    if (drainRegular() && n != Long.MAX_VALUE) {
-                        if (--n > 0) {
-                            s.request(n);
-                            return;
-                        }
-
-                        return;
-                    }
-                }
-
-                s.request(n);
-            }
-        }
-
-        @Override
-        void drain() {
-            drainRegular();
-        }
-
-        boolean drainRegular() {
-            if (WIP.getAndIncrement(this) != 0) {
-                return false;
-            }
-
-            T f = first;
-            int m = 1;
-            boolean sent = false;
-            @SuppressWarnings("unchecked")
-            Fuseable.ConditionalSubscriber<? super T> a =
-                    (Fuseable.ConditionalSubscriber<? super T>) inner;
-
-            for (;;) {
-                if (f != null) {
-                    first = null;
-
-                    if (cancelled) {
-                        Operators.onDiscard(f, a.currentContext());
-                        return false;
-                    }
-
-                    sent = a.tryOnNext(f);
-                    f = null;
-                }
-
-                if (cancelled) {
-                    return false;
-                }
-
-                if (done) {
-                    Throwable t = throwable;
-                    if (t != null) {
-                        a.onError(t);
-                    } else {
-                        a.onComplete();
-                    }
-                    return sent;
-                }
-
-                m = WIP.addAndGet(this, -m);
-
-                if (m == 0) {
-                    return sent;
-                }
-            }
+        @SuppressWarnings("unchecked")
+        boolean tryOnNext(CoreSubscriber<? super T> actual, T t) {
+            return ((Fuseable.ConditionalSubscriber<? super T>) actual).tryOnNext(t);
         }
     }
 
-    static final class SwitchOnFirstInnerSubscriber<T> implements InnerConsumer<T> {
+    static final class SwitchOnFirstControlSubscriber<T> extends Operators.DeferredSubscription implements InnerOperator<T,
+            T>, ControlSubscriber<T> {
 
-        final AbstractSwitchOnFirstInner<?, T> parent;
-        final CoreSubscriber<? super T> inner;
+        final AbstractSwitchOnFirstMain<?, T> parent;
+        final CoreSubscriber<? super T> delegate;
+        final boolean cancelSourceOnComplete;
 
-        SwitchOnFirstInnerSubscriber(
-                AbstractSwitchOnFirstInner<?, T> parent,
-                CoreSubscriber<? super T> inner) {
+        SwitchOnFirstControlSubscriber(
+                AbstractSwitchOnFirstMain<?, T> parent,
+                CoreSubscriber<? super T> delegate,
+                boolean cancelSourceOnComplete) {
             this.parent = parent;
-            this.inner = inner;
+            this.delegate = delegate;
+            this.cancelSourceOnComplete = cancelSourceOnComplete;
         }
 
         @Override
-        public Context currentContext() {
-            return inner.currentContext();
+        public void sendSubscription() {
+            delegate.onSubscribe(this);
         }
 
         @Override
         public void onSubscribe(Subscription s) {
-            inner.onSubscribe(s);
+            set(s);
+        }
+
+        @Override
+        public CoreSubscriber<? super T> actual() {
+            return this.delegate;
         }
 
         @Override
         public void onNext(T t) {
-            inner.onNext(t);
+            this.delegate.onNext(t);
         }
 
         @Override
         public void onError(Throwable throwable) {
+            if (this.requested == STATE_CANCELLED) {
+                Operators.onErrorDropped(throwable, currentContext());
+                return;
+            }
+
+            final AbstractSwitchOnFirstMain<?, T> parent = this.parent;
             if (!parent.done) {
                 parent.cancel();
             }
 
-            inner.onError(throwable);
+            this.delegate.onError(throwable);
         }
 
         @Override
         public void onComplete() {
-            if (!parent.done) {
+            if (this.requested == STATE_CANCELLED) {
+                return;
+            }
+
+            final AbstractSwitchOnFirstMain<?, T> parent = this.parent;
+            if (!parent.done && cancelSourceOnComplete) {
                 parent.cancel();
             }
 
-            inner.onComplete();
+            this.delegate.onComplete();
+        }
+
+        @Override
+        public void cancel() {
+            final long state = REQUESTED.getAndSet(this, STATE_CANCELLED);
+            if (state == STATE_CANCELLED) {
+                return;
+            }
+
+            if (state == STATE_SUBSCRIBED) {
+                this.s.cancel();
+            }
+
+            this.parent.cancel();
         }
 
         @Override
         public Object scanUnsafe(Attr key) {
             if (key == Attr.PARENT) return parent;
-            if (key == Attr.ACTUAL) return inner;
+            if (key == Attr.ACTUAL) return delegate;
 
             return null;
         }
     }
 
-    static final class SwitchOnFirstConditionalInnerSubscriber<T> implements InnerConsumer<T>,
+    static final class SwitchOnFirstConditionalControlSubscriber<T> extends Operators.DeferredSubscription implements InnerOperator<T, T>, ControlSubscriber<T>,
                                                                              Fuseable.ConditionalSubscriber<T> {
 
-        final AbstractSwitchOnFirstInner<?, ? super T>  parent;
-        final Fuseable.ConditionalSubscriber<? super T> inner;
+        final AbstractSwitchOnFirstMain<?, T> parent;
+        final Fuseable.ConditionalSubscriber<? super T> delegate;
+        final boolean terminateUpstreamOnComplete;
 
-        SwitchOnFirstConditionalInnerSubscriber(
-                AbstractSwitchOnFirstInner<?, ? super T> parent,
-                Fuseable.ConditionalSubscriber<? super T> inner) {
+        SwitchOnFirstConditionalControlSubscriber(
+                AbstractSwitchOnFirstMain<?, T> parent,
+                Fuseable.ConditionalSubscriber<? super T> delegate,
+                boolean terminateUpstreamOnComplete) {
             this.parent = parent;
-            this.inner = inner;
+            this.delegate = delegate;
+            this.terminateUpstreamOnComplete = terminateUpstreamOnComplete;
         }
 
         @Override
-        public Context currentContext() {
-            return inner.currentContext();
+        public void sendSubscription() {
+            delegate.onSubscribe(this);
         }
 
         @Override
         public void onSubscribe(Subscription s) {
-            inner.onSubscribe(s);
+            set(s);
+        }
+
+        @Override
+        public CoreSubscriber<? super T> actual() {
+            return this.delegate;
         }
 
         @Override
         public void onNext(T t) {
-            inner.onNext(t);
+            this.delegate.onNext(t);
         }
 
         @Override
         public boolean tryOnNext(T t) {
-            return inner.tryOnNext(t);
+            return this.delegate.tryOnNext(t);
         }
 
         @Override
         public void onError(Throwable throwable) {
+            if (this.requested == STATE_CANCELLED) {
+                Operators.onErrorDropped(throwable, currentContext());
+                return;
+            }
+
+            final AbstractSwitchOnFirstMain<?, T> parent = this.parent;
             if (!parent.done) {
                 parent.cancel();
             }
 
-            inner.onError(throwable);
+            this.delegate.onError(throwable);
         }
 
         @Override
         public void onComplete() {
-            if (!parent.done) {
+            if (this.requested == STATE_CANCELLED) {
+                return;
+            }
+
+            final AbstractSwitchOnFirstMain<?, T> parent = this.parent;
+            if (!parent.done && terminateUpstreamOnComplete) {
                 parent.cancel();
             }
 
-            inner.onComplete();
+            this.delegate.onComplete();
+        }
+
+        @Override
+        public void cancel() {
+            final long state = REQUESTED.getAndSet(this, STATE_CANCELLED);
+            if (state == STATE_CANCELLED) {
+                return;
+            }
+
+            if (state == STATE_SUBSCRIBED) { // mean subscription happened so we can just cancel upstream only
+                this.s.cancel();
+            }
+
+            this.parent.cancel();
         }
 
         @Override
         public Object scanUnsafe(Attr key) {
             if (key == Attr.PARENT) return parent;
-            if (key == Attr.ACTUAL) return inner;
+            if (key == Attr.ACTUAL) return delegate;
 
             return null;
         }
+    }
+
+    interface ControlSubscriber<T> extends CoreSubscriber<T> {
+
+        void sendSubscription();
     }
 }

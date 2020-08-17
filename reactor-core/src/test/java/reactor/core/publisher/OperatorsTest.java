@@ -16,6 +16,7 @@
 
 package reactor.core.publisher;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -33,7 +34,6 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
-
 import javax.annotation.Nullable;
 
 import org.assertj.core.api.Assertions;
@@ -41,6 +41,7 @@ import org.junit.Test;
 import org.mockito.Mockito;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.Fuseable;
@@ -51,6 +52,8 @@ import reactor.core.publisher.Operators.EmptySubscription;
 import reactor.core.publisher.Operators.MonoSubscriber;
 import reactor.core.publisher.Operators.MultiSubscriptionSubscriber;
 import reactor.core.publisher.Operators.ScalarSubscription;
+import reactor.test.StepVerifier;
+import reactor.test.subscriber.AssertSubscriber;
 import reactor.test.util.RaceTestUtils;
 import reactor.util.context.Context;
 
@@ -162,38 +165,33 @@ public class OperatorsTest {
 	public void drainSubscriber() {
 		AtomicBoolean requested = new AtomicBoolean();
 		AtomicBoolean errored = new AtomicBoolean();
-		try {
-			Hooks.onErrorDropped(e -> {
-				assertThat(Exceptions.isErrorCallbackNotImplemented(e)).isTrue();
-				assertThat(e.getCause()).hasMessage("test");
-				errored.set(true);
+		Hooks.onErrorDropped(e -> {
+			assertThat(Exceptions.isErrorCallbackNotImplemented(e)).isTrue();
+			assertThat(e.getCause()).hasMessage("test");
+			errored.set(true);
+		});
+		Flux.from(s -> {
+			assertThat(s).isEqualTo(Operators.drainSubscriber());
+			s.onSubscribe(new Subscription() {
+				@Override
+				public void request(long n) {
+					assertThat(n).isEqualTo(Long.MAX_VALUE);
+					requested.set(true);
+				}
+
+				@Override
+				public void cancel() {
+
+				}
 			});
-			Flux.from(s -> {
-				assertThat(s).isEqualTo(Operators.drainSubscriber());
-				s.onSubscribe(new Subscription() {
-					@Override
-					public void request(long n) {
-						assertThat(n).isEqualTo(Long.MAX_VALUE);
-						requested.set(true);
-					}
+			s.onNext("ignored"); //dropped
+			s.onComplete(); //dropped
+			s.onError(new Exception("test"));
+		})
+		    .subscribe(Operators.drainSubscriber());
 
-					@Override
-					public void cancel() {
-
-					}
-				});
-				s.onNext("ignored"); //dropped
-				s.onComplete(); //dropped
-				s.onError(new Exception("test"));
-			})
-			    .subscribe(Operators.drainSubscriber());
-
-			assertThat(requested.get()).isTrue();
-			assertThat(errored.get()).isTrue();
-		}
-		finally {
-			Hooks.resetOnErrorDropped();
-		}
+		assertThat(requested.get()).isTrue();
+		assertThat(errored.get()).isTrue();
 	}
 
 	@Test
@@ -310,20 +308,13 @@ public class OperatorsTest {
 		Exception error = new IllegalStateException("boom");
 		DeferredSubscription s = new Operators.DeferredSubscription();
 
-		try {
-			assertThat(s.isCancelled()).as("s initially cancelled").isFalse();
+		assertThat(s.isCancelled()).as("s initially cancelled").isFalse();
 
-			Throwable e = Operators.onNextError("foo", error, c, s);
-			assertThat(e).isNull();
-			assertThat(nextDropped).containsExactly("foo");
-			assertThat(errorDropped).containsExactly(error);
-			assertThat(s.isCancelled()).as("s cancelled").isFalse();
-		}
-		finally {
-			Hooks.resetOnNextDropped();
-			Hooks.resetOnErrorDropped();
-			Hooks.resetOnNextError();
-		}
+		Throwable e = Operators.onNextError("foo", error, c, s);
+		assertThat(e).isNull();
+		assertThat(nextDropped).containsExactly("foo");
+		assertThat(errorDropped).containsExactly(error);
+		assertThat(s.isCancelled()).as("s cancelled").isFalse();
 	}
 
 	@Test
@@ -335,18 +326,12 @@ public class OperatorsTest {
 
 		Context c = Context.of(OnNextFailureStrategy.KEY_ON_NEXT_ERROR_STRATEGY, OnNextFailureStrategy.RESUME_DROP);
 		Exception error = new IllegalStateException("boom");
-		try {
-			assertThat(Hooks.onNextErrorHook).as("no global hook").isNull();
+		assertThat(Hooks.onNextErrorHook).as("no global hook").isNull();
 
-			RuntimeException e = Operators.onNextPollError("foo", error, c);
-			assertThat(e).isNull();
-			assertThat(nextDropped).containsExactly("foo");
-			assertThat(errorDropped).containsExactly(error);
-		}
-		finally {
-			Hooks.resetOnNextDropped();
-			Hooks.resetOnErrorDropped();
-		}
+		RuntimeException e = Operators.onNextPollError("foo", error, c);
+		assertThat(e).isNull();
+		assertThat(nextDropped).containsExactly("foo");
+		assertThat(errorDropped).containsExactly(error);
 	}
 
 	@Test
@@ -756,10 +741,11 @@ public class OperatorsTest {
 
 	@Test
 	public void convertConditionalToConditionalShouldReturnTheSameInstance() {
-		Fuseable.ConditionalSubscriber original = Mockito.mock(Fuseable.ConditionalSubscriber.class);
+		@SuppressWarnings("unchecked")
+		Fuseable.ConditionalSubscriber<String> original = Mockito.mock(Fuseable.ConditionalSubscriber.class);
 
 		Assertions.assertThat(Operators.toConditionalSubscriber(original))
-		          .isEqualTo(original);
+		          .isSameAs(original);
 	}
 
 	@Test
@@ -902,6 +888,7 @@ public class OperatorsTest {
 				return n;
 			}
 		};
+		@SuppressWarnings("unchecked")
 		List<Integer> mock = Mockito.mock(List.class);
 		Mockito.when(mock.iterator()).thenReturn(failingIterator);
 
@@ -970,5 +957,19 @@ public class OperatorsTest {
 		Operators.onDiscardMultiple(failingIterator, true, hookContext);
 
 		assertThat(discardedCount).hasValue(2);
+	}
+
+	// see https://github.com/reactor/reactor-core/issues/2152
+	@Test
+	public void reportThrowInSubscribeWithFuseableErrorResumed() {
+		AssertSubscriber<Integer> assertSubscriber = AssertSubscriber.create();
+		FluxOnErrorResume.ResumeSubscriber<Integer> resumeSubscriber = new FluxOnErrorResume.ResumeSubscriber<>(
+				assertSubscriber, t -> Mono.just(123));
+		FluxMapFuseable.MapFuseableSubscriber<String, Integer> fuseableSubscriber = new FluxMapFuseable.MapFuseableSubscriber<>(
+				resumeSubscriber, String::length);
+
+		Operators.reportThrowInSubscribe(fuseableSubscriber, new RuntimeException("boom"));
+
+		assertSubscriber.assertNoError().awaitAndAssertNextValues(123);
 	}
 }

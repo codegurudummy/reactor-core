@@ -33,7 +33,7 @@ import reactor.core.CoreSubscriber;
  * @param <T> the value type
  * @author Simon Baslé
  */
-final class MonoDoFirst<T> extends MonoOperator<T, T> {
+final class MonoDoFirst<T> extends InternalMonoOperator<T, T> {
 
 	final Runnable onFirst;
 
@@ -43,15 +43,9 @@ final class MonoDoFirst<T> extends MonoOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		try {
-			onFirst.run();
-		}
-		catch (Throwable error) {
-			Operators.error(actual, error);
-			return;
-		}
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		onFirst.run();
 
-		source.subscribe(actual);
+		return actual;
 	}
 }

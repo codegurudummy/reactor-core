@@ -26,6 +26,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.assertj.core.api.Assertions;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
@@ -57,10 +59,46 @@ public class FluxZipTest extends FluxOperatorTest<String, String> {
 					.prefetch(3),
 
 				scenario(f -> f.zipWith(Flux.<String>error(exception()),
-						(a, b) -> a)).shouldHitDropErrorHookAfterTerminate(false),
+						(a, b) -> a)).shouldHitDropErrorHookAfterTerminate(false)
+		);
+	}
 
-				scenario(f -> f.zipWith(Flux.<String>error(exception()).hide(),
-						(a, b) -> a)));
+	@ParameterizedTest
+	@CsvSource({
+			"false, false, first",
+			"true, false, first",
+			"false, true, second",
+			"true, true, first",
+	})
+	public void testTwoErrors(boolean firstIsScalar, boolean secondIsScalar, String expectedMessage) {
+		Flux<Object> first = Flux.error(new Exception("first")).as(f -> firstIsScalar ? f : f.hide());
+		Flux<Object> second = Flux.error(new Exception("second")).as(f -> secondIsScalar ? f : f.hide());
+		StepVerifier.create(first.zipWith(second)).verifyErrorMessage(expectedMessage);
+	}
+
+	@ParameterizedTest
+	@CsvSource({
+			"false, false, first",
+			"true, false, first",
+			"false, true, first",
+			"true, true, first",
+	})
+	public void testTwoErrorsFusion(boolean firstIsFuseable, boolean secondIsFuseable, String expectedMessage) {
+		Flux<Object> first = Flux
+				.just(1)
+				.map(i -> {
+					throw new RuntimeException("first");
+				})
+				.as(f -> firstIsFuseable ? f : f.hide());
+
+		Flux<Object> second = Flux
+				.just(1)
+				.map(i -> {
+					throw new RuntimeException("second");
+				})
+				.as(f -> secondIsFuseable ? f : f.hide());
+
+		StepVerifier.create(first.zipWith(second)).verifyErrorMessage(expectedMessage);
 	}
 
 	/*@Test
@@ -715,7 +753,6 @@ public class FluxZipTest extends FluxOperatorTest<String, String> {
 			s.onError(new Exception("test2"));
 		}))
 		            .verifyErrorMessage("test");
-		Hooks.resetOnErrorDropped();
 	}
 
 	@Test //FIXME use Violation.NO_CLEANUP_ON_TERMINATE
@@ -743,21 +780,16 @@ public class FluxZipTest extends FluxOperatorTest<String, String> {
 		DirectProcessor<Integer> d1 = DirectProcessor.create();
 		Hooks.onErrorDropped(e -> {
 		});
-		try {
-			StepVerifier.create(Flux.zip(obj -> 0, Flux.just(1), d1, s -> {
-				CoreSubscriber<?> a =
-						((DirectProcessor.DirectInner) d1.inners().findFirst().get())
-								.actual;
+		StepVerifier.create(Flux.zip(obj -> 0, Flux.just(1), d1, s -> {
+			CoreSubscriber<?> a =
+					((DirectProcessor.DirectInner) d1.inners().findFirst().get())
+							.actual;
 
-				s.onSubscribe(Operators.emptySubscription());
-				s.onComplete();
-				a.onError(new Exception("test"));
-			}))
-			            .verifyComplete();
-		}
-		finally {
-			Hooks.resetOnErrorDropped();
-		}
+			s.onSubscribe(Operators.emptySubscription());
+			s.onComplete();
+			a.onError(new Exception("test"));
+		}))
+		            .verifyComplete();
 	}
 
 	@Test //FIXME use Violation.NO_CLEANUP_ON_TERMINATE
@@ -866,59 +898,57 @@ public class FluxZipTest extends FluxOperatorTest<String, String> {
 	}
 
 	@Test
+	@SuppressWarnings("rawtypes")
 	public void backpressuredAsyncFusedError() {
 		Hooks.onErrorDropped(c -> {
 			assertThat(c).hasMessage("test2");
 		});
-		try {
-			UnicastProcessor<Integer> up = UnicastProcessor.create();
-			StepVerifier.create(Flux.zip(obj -> (int) obj[0] + (int) obj[1],
-					1,
-					up,
-					Flux.just(2, 3, 5)), 0)
-			            .then(() -> up.onNext(1))
-			            .thenRequest(1)
-			            .expectNext(3)
-			            .then(() -> up.onNext(2))
-			            .thenRequest(1)
-			            .expectNext(5)
-			            .then(() -> up.actual.onError(new Exception("test")))
-			            .then(() -> up.actual.onError(new Exception("test2")))
-			            .verifyErrorMessage("test");
-		}
-		finally {
-			Hooks.resetOnErrorDropped();
-		}
+		UnicastProcessor<Integer> up = UnicastProcessor.create();
+		FluxZip.ZipInner[] inner = new FluxZip.ZipInner[1];
+		StepVerifier.create(Flux.zip(obj -> (int) obj[0] + (int) obj[1],
+				1,
+				up,
+				Flux.just(2, 3, 5)), 0)
+					.expectSubscription()
+					.then(() -> inner[0] = ((FluxZip.ZipInner) up.actual))
+		            .then(() -> up.onNext(1))
+		            .thenRequest(1)
+		            .expectNext(3)
+		            .then(() -> up.onNext(2))
+		            .thenRequest(1)
+		            .expectNext(5)
+		            .then(() -> inner[0].onError(new Exception("test")))
+		            .then(() -> inner[0].onError(new Exception("test2")))
+		            .verifyErrorMessage("test");
 	}
 
 	@Test
+	@SuppressWarnings("rawtypes")
 	public void backpressuredAsyncFusedErrorHideAll() {
 		Hooks.onErrorDropped(c -> {
 			assertThat(c).hasMessage("test2");
 		});
 		UnicastProcessor<Integer> up = UnicastProcessor.create();
-		try {
-			StepVerifier.create(Flux.zip(obj -> (int) obj[0] + (int) obj[1], 1, up, s -> {
-				assertThat(((FluxZip.ZipInner) up.actual).parent.subscribers[1].done).isFalse();
-				Flux.just(2, 3, 5)
-				    .subscribe(s);
-			})
-			                        .hide(), 0)
-			            .then(() -> up.onNext(1))
-			            .thenRequest(1)
-			            .expectNext(3)
-			            .then(() -> up.onNext(2))
-			            .thenRequest(1)
-			            .expectNext(5)
-			            .then(() -> assertThat(((FluxZip.ZipInner) up.actual).done).isFalse())
-			            .then(() -> up.actual.onError(new Exception("test")))
-			            .then(() -> assertThat(((FluxZip.ZipInner) up.actual).done).isTrue())
-			            .then(() -> up.actual.onError(new Exception("test2")))
-			            .verifyErrorMessage("test");
-		}
-		finally {
-			Hooks.resetOnErrorDropped();
-		}
+		FluxZip.ZipInner[] inner = new FluxZip.ZipInner[1];
+		StepVerifier.create(Flux.zip(obj -> (int) obj[0] + (int) obj[1], 1, up, s -> {
+			assertThat(((FluxZip.ZipInner) up.actual).parent.subscribers[1].done).isFalse();
+			Flux.just(2, 3, 5)
+			    .subscribe(s);
+		})
+		                        .hide(), 0)
+					.expectSubscription()
+					.then(() -> inner[0] = ((FluxZip.ZipInner) up.actual))
+		            .then(() -> up.onNext(1))
+		            .thenRequest(1)
+		            .expectNext(3)
+		            .then(() -> up.onNext(2))
+		            .thenRequest(1)
+		            .expectNext(5)
+		            .then(() -> assertThat(inner[0].done).isFalse())
+		            .then(() -> inner[0].onError(new Exception("test")))
+		            .then(() -> assertThat(inner[0].done).isTrue())
+		            .then(() -> inner[0].onError(new Exception("test2")))
+		            .verifyErrorMessage("test");
 	}
 
 	@Test

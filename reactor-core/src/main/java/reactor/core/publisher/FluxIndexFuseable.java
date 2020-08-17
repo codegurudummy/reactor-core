@@ -51,7 +51,7 @@ import reactor.util.function.Tuple2;
  *
  * @author Simon Baslé
  */
-final class FluxIndexFuseable<T, I> extends FluxOperator<T, I>
+final class FluxIndexFuseable<T, I> extends InternalFluxOperator<T, I>
 		implements Fuseable {
 
 	private final BiFunction<? super Long, ? super T, ? extends I> indexMapper;
@@ -59,18 +59,19 @@ final class FluxIndexFuseable<T, I> extends FluxOperator<T, I>
 	FluxIndexFuseable(Flux<T> source,
 			BiFunction<? super Long, ? super T, ? extends I> indexMapper) {
 		super(source);
-		this.indexMapper = Objects.requireNonNull(indexMapper, "indexMapper must be non null");
+		this.indexMapper = FluxIndex.NullSafeIndexMapper.create(Objects.requireNonNull(indexMapper,
+				"indexMapper must be non null"));
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super I> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super I> actual) {
 		if (actual instanceof ConditionalSubscriber) {
 			@SuppressWarnings("unchecked") ConditionalSubscriber<? super I> cs =
 					(ConditionalSubscriber<? super I>) actual;
-			source.subscribe(new IndexFuseableConditionalSubscriber<>(cs, indexMapper));
+			return new IndexFuseableConditionalSubscriber<>(cs, indexMapper);
 		}
 		else {
-			source.subscribe(new IndexFuseableSubscriber<>(actual, indexMapper));
+			return new IndexFuseableSubscriber<>(actual, indexMapper);
 		}
 	}
 
@@ -108,9 +109,7 @@ final class FluxIndexFuseable<T, I> extends FluxOperator<T, I>
 			T v = s.poll();
 			if (v != null) {
 				long i = this.index;
-				I indexed = Objects.requireNonNull(indexMapper.apply(i, v),
-						"indexMapper returned a null value at raw index " +
-								i + " for value " + v);
+				I indexed = indexMapper.apply(i, v);
 				this.index = i + 1;
 				return indexed;
 			}
@@ -130,9 +129,7 @@ final class FluxIndexFuseable<T, I> extends FluxOperator<T, I>
 
 				long i = this.index;
 				try {
-					I indexed = Objects.requireNonNull(indexMapper.apply(i, t),
-							"indexMapper returned a null value at raw index " + i +
-									" for value " + t);
+					I indexed = indexMapper.apply(i, t);
 					this.index = i + 1L;
 					actual.onNext(indexed);
 				}
@@ -253,9 +250,7 @@ final class FluxIndexFuseable<T, I> extends FluxOperator<T, I>
 			T v = s.poll();
 			if (v != null) {
 				long i = this.index;
-				I indexed = Objects.requireNonNull(indexMapper.apply(i, v),
-						"indexMapper returned a null value at raw index " +
-								i + " for value " + v);
+				I indexed = indexMapper.apply(i, v);
 				this.index = i + 1;
 				return indexed;
 			}
@@ -272,9 +267,7 @@ final class FluxIndexFuseable<T, I> extends FluxOperator<T, I>
 			I indexed;
 			long i = this.index;
 			try {
-				indexed = Objects.requireNonNull(indexMapper.apply(i, t),
-						"indexMapper returned a null value at raw index " + i +
-								" for value " + t);
+				indexed = indexMapper.apply(i, t);
 				this.index = i + 1L;
 			}
 			catch (Throwable e) {
@@ -298,9 +291,7 @@ final class FluxIndexFuseable<T, I> extends FluxOperator<T, I>
 
 				long i = this.index;
 				try {
-					I indexed = Objects.requireNonNull(indexMapper.apply(i, t),
-							"indexMapper returned a null value at raw index " + i +
-									" for value " + t);
+					I indexed = indexMapper.apply(i, t);
 					this.index = i + 1L;
 					actual.onNext(indexed);
 				}

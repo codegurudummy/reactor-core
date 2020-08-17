@@ -27,12 +27,12 @@ import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.core.Scannable;
 import reactor.util.annotation.Nullable;
+import reactor.util.context.Context;
 
 /**
  * A base processor that exposes {@link Flux} API for {@link Processor}.
  *
- * Implementors include {@link UnicastProcessor}, {@link EmitterProcessor},
- * {@link ReplayProcessor}, {@link WorkQueueProcessor} and {@link TopicProcessor}.
+ * Implementors include {@link UnicastProcessor}, {@link EmitterProcessor}, {@link ReplayProcessor}.
  *
  * @author Stephane Maldini
  *
@@ -166,6 +166,11 @@ public abstract class FluxProcessor<IN, OUT> extends Flux<OUT>
 		if (key == Attr.CAPACITY) return getBufferSize();
 
 		return null;
+	}
+
+	@Override
+	public Context currentContext() {
+		return Context.empty();
 	}
 
 	/**

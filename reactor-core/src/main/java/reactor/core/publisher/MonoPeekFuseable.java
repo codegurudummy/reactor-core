@@ -31,16 +31,12 @@ import reactor.util.annotation.Nullable;
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  *
  */
-final class MonoPeekFuseable<T> extends MonoOperator<T, T>
+final class MonoPeekFuseable<T> extends InternalMonoOperator<T, T>
 		implements Fuseable, SignalPeek<T> {
 
 	final Consumer<? super Subscription> onSubscribeCall;
 
 	final Consumer<? super T> onNextCall;
-
-	final Consumer<? super Throwable> onErrorCall;
-
-	final Runnable onCompleteCall;
 
 	final LongConsumer onRequestCall;
 
@@ -49,29 +45,24 @@ final class MonoPeekFuseable<T> extends MonoOperator<T, T>
 	MonoPeekFuseable(Mono<? extends T> source,
 			@Nullable Consumer<? super Subscription> onSubscribeCall,
 			@Nullable Consumer<? super T> onNextCall,
-			@Nullable Consumer<? super Throwable> onErrorCall,
-			@Nullable Runnable onCompleteCall,
 			@Nullable LongConsumer onRequestCall,
 			@Nullable Runnable onCancelCall) {
 		super(source);
 
 		this.onSubscribeCall = onSubscribeCall;
 		this.onNextCall = onNextCall;
-		this.onErrorCall = onErrorCall;
-		this.onCompleteCall = onCompleteCall;
 		this.onRequestCall = onRequestCall;
 		this.onCancelCall = onCancelCall;
 	}
 
 	@Override
 	@SuppressWarnings("unchecked")
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		if (actual instanceof ConditionalSubscriber) {
-			source.subscribe(new FluxPeekFuseable.PeekFuseableConditionalSubscriber<>((ConditionalSubscriber<?
-					super T>) actual, this));
-			return;
+			return new FluxPeekFuseable.PeekFuseableConditionalSubscriber<>((ConditionalSubscriber<?
+					super T>) actual, this);
 		}
-		source.subscribe(new FluxPeekFuseable.PeekFuseableSubscriber<>(actual, this));
+		return new FluxPeekFuseable.PeekFuseableSubscriber<>(actual, this);
 	}
 
 	@Override
@@ -89,13 +80,13 @@ final class MonoPeekFuseable<T> extends MonoOperator<T, T>
 	@Override
 	@Nullable
 	public Consumer<? super Throwable> onErrorCall() {
-		return onErrorCall;
+		return null;
 	}
 
 	@Override
 	@Nullable
 	public Runnable onCompleteCall() {
-		return onCompleteCall;
+		return null;
 	}
 
 	@Override

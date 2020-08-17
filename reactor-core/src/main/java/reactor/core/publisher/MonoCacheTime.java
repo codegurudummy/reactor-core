@@ -26,6 +26,7 @@ import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
 import reactor.util.Logger;
 import reactor.util.Loggers;
 import reactor.util.annotation.Nullable;
@@ -37,7 +38,9 @@ import reactor.util.context.Context;
  *
  * @author Simon Baslé
  */
-class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
+class MonoCacheTime<T> extends InternalMonoOperator<T, T> implements Runnable {
+
+	private static final Duration DURATION_INFINITE = Duration.ofMillis(Long.MAX_VALUE);
 
 	private static final Logger LOGGER = Loggers.getLogger(MonoCacheTime.class);
 
@@ -54,8 +57,13 @@ class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
 		super(source);
 		this.ttlGenerator = ignoredSignal -> ttl;
 		this.clock = clock;
-		//noinspection unchecked
-		this.state = (Signal<T>) EMPTY;
+		@SuppressWarnings("unchecked")
+		Signal<T> state = (Signal<T>) EMPTY;
+		this.state = state;
+	}
+
+	MonoCacheTime(Mono<? extends T> source) {
+		this(source, sig -> DURATION_INFINITE, Schedulers.immediate());
 	}
 
 	MonoCacheTime(Mono<? extends T> source, Function<? super Signal<T>, Duration> ttlGenerator,
@@ -63,8 +71,9 @@ class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
 		super(source);
 		this.ttlGenerator = ttlGenerator;
 		this.clock = clock;
-		//noinspection unchecked
-		this.state = (Signal<T>) EMPTY;
+		@SuppressWarnings("unchecked")
+		Signal<T> state = (Signal<T>) EMPTY;
+		this.state = state;
 	}
 
 	MonoCacheTime(Mono<? extends T> source,
@@ -92,7 +101,7 @@ class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		CacheMonoSubscriber<T> inner = new CacheMonoSubscriber<>(actual);
 		actual.onSubscribe(inner);
 		for(;;){
@@ -139,6 +148,7 @@ class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
 				break;
 			}
 		}
+		return null;
 	}
 
 	static final class CoordinatorSubscriber<T> implements InnerConsumer<T>, Signal<T> {
@@ -354,7 +364,6 @@ class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
 
 		private static final Operators.MonoSubscriber[] TERMINATED        = new Operators.MonoSubscriber[0];
 		private static final Operators.MonoSubscriber[] EMPTY             = new Operators.MonoSubscriber[0];
-		private static final Duration                   DURATION_INFINITE = Duration.ofMillis(Long.MAX_VALUE);
 	}
 
 	static final class CacheMonoSubscriber<T> extends Operators.MonoSubscriber<T, T> {

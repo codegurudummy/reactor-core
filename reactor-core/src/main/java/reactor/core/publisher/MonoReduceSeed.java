@@ -50,19 +50,11 @@ final class MonoReduceSeed<T, R> extends MonoFromFluxOperator<T, R>
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super R> actual) {
-		R initialValue;
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super R> actual) {
+		R initialValue = Objects.requireNonNull(initialSupplier.get(),
+				"The initial value supplied is null");
 
-		try {
-			initialValue = Objects.requireNonNull(initialSupplier.get(),
-					"The initial value supplied is null");
-		}
-		catch (Throwable e) {
-			Operators.error(actual, Operators.onOperatorError(e, actual.currentContext()));
-			return;
-		}
-
-		source.subscribe(new ReduceSeedSubscriber<>(actual, accumulator, initialValue));
+		return new ReduceSeedSubscriber<>(actual, accumulator, initialValue);
 	}
 
 	static final class ReduceSeedSubscriber<T, R> extends Operators.MonoSubscriber<T, R>  {
