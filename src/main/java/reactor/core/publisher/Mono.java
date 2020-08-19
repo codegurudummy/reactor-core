@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -2049,7 +2049,7 @@ public abstract class Mono<T> implements Publisher<T> {
 	 * @see Flux#flatMap(Function, Function, Supplier)
 	 */
 	public final <R> Flux<R> flatMapMany(Function<? super T, ? extends Publisher<? extends R>> mapperOnNext,
-			Function<Throwable, ? extends Publisher<? extends R>> mapperOnError,
+			Function<? super Throwable, ? extends Publisher<? extends R>> mapperOnError,
 			Supplier<? extends Publisher<? extends R>> mapperOnComplete) {
 
 		return Flux.onAssembly(new FluxFlatMap<>(
@@ -2366,7 +2366,7 @@ public abstract class Mono<T> implements Publisher<T> {
 	 *
 	 * @return a transformed {@link Mono}
 	 */
-	public final Mono<T> onErrorMap(Function<Throwable, ? extends Throwable> mapper) {
+	public final Mono<T> onErrorMap(Function<? super Throwable, ? extends Throwable> mapper) {
 		return onErrorResume(e -> Mono.error(mapper.apply(e)));
 	}
 
