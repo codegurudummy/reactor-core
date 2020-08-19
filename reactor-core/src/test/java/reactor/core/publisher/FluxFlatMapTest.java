@@ -124,7 +124,13 @@ public class FluxFlatMapTest {
 		inner.addAll(Arrays.asList(1, 2, 3, 4, 5));
 
 		FluxFlatMap.FlatMapMain<?, Integer> parent = new FluxFlatMap.FlatMapMain<>(
-				AssertSubscriber.create(0), v -> Mono.empty(), false, 8, Queues.small(), 4, Queues.small());
+				AssertSubscriber.create(0),
+				ignored -> Mono.empty(),
+				false,
+				8,
+				Queues.small(),
+				4,
+				Queues.small());
 		FluxFlatMap.FlatMapInner<Integer> flatMapInner = new FluxFlatMap.FlatMapInner<>(parent, 4);
 		flatMapInner.onSubscribe(inner);
 
