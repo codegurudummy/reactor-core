@@ -358,6 +358,23 @@ public abstract class ParallelFlux<T> implements CorePublisher<T> {
 	}
 
 	/**
+	 * Add behavior (side-effect) triggered after the {@link ParallelFlux} has been cancelled in case the source
+	 * acknowledges cancellation is done.
+	 * <p>
+	 * This is only possible between a {@link Publisher} and a {@link Subscriber} that are both Reactor
+	 * implementations.
+	 *
+	 * @param afterCancelled the callback to call after cancellation has been acknowledged
+	 *
+	 * @return an observed  {@link ParallelFlux}
+	 */
+//TODO diagram
+	public final ParallelFlux<T> doAfterCancelled(Runnable afterCancelled) {
+		Objects.requireNonNull(afterCancelled, "afterCancelled");
+		return doOnSignal(this, null, null, null, null, null, null, null, null, afterCancelled);
+	}
+
+	/**
 	 * Run the specified runnable when a 'rail' completes or signals an error.
 	 *
 	 * @param afterTerminate the callback
@@ -366,7 +383,7 @@ public abstract class ParallelFlux<T> implements CorePublisher<T> {
 	 */
 	public final ParallelFlux<T> doAfterTerminate(Runnable afterTerminate) {
 		Objects.requireNonNull(afterTerminate, "afterTerminate");
-		return doOnSignal(this, null, null, null, null, afterTerminate, null, null, null);
+		return doOnSignal(this, null, null, null, null, afterTerminate, null, null, null, null);
 	}
 
 	/**
@@ -378,7 +395,7 @@ public abstract class ParallelFlux<T> implements CorePublisher<T> {
 	 */
 	public final ParallelFlux<T> doOnCancel(Runnable onCancel) {
 		Objects.requireNonNull(onCancel, "onCancel");
-		return doOnSignal(this, null, null, null, null, null, null, null, onCancel);
+		return doOnSignal(this, null, null, null, null, null, null, null, onCancel, null);
 	}
 
 	/**
@@ -390,7 +407,7 @@ public abstract class ParallelFlux<T> implements CorePublisher<T> {
 	 */
 	public final ParallelFlux<T> doOnComplete(Runnable onComplete) {
 		Objects.requireNonNull(onComplete, "onComplete");
-		return doOnSignal(this, null, null, null, onComplete, null, null, null, null);
+		return doOnSignal(this, null, null, null, onComplete, null, null, null, null, null);
 	}
 
 	/**
@@ -435,7 +452,7 @@ public abstract class ParallelFlux<T> implements CorePublisher<T> {
 	 */
 	public final ParallelFlux<T> doOnError(Consumer<? super Throwable> onError) {
 		Objects.requireNonNull(onError, "onError");
-		return doOnSignal(this, null, null, onError, null, null, null, null, null);
+		return doOnSignal(this, null, null, onError, null, null, null, null, null, null);
 	}
 
 	/**
@@ -452,7 +469,7 @@ public abstract class ParallelFlux<T> implements CorePublisher<T> {
 	 */
 	public final ParallelFlux<T> doOnSubscribe(Consumer<? super Subscription> onSubscribe) {
 		Objects.requireNonNull(onSubscribe, "onSubscribe");
-		return doOnSignal(this, null, null, null, null, null, onSubscribe, null, null);
+		return doOnSignal(this, null, null, null, null, null, onSubscribe, null, null, null);
 	}
 
 	/**
@@ -464,7 +481,7 @@ public abstract class ParallelFlux<T> implements CorePublisher<T> {
 	 */
 	public final ParallelFlux<T> doOnNext(Consumer<? super T> onNext) {
 		Objects.requireNonNull(onNext, "onNext");
-		return doOnSignal(this, onNext, null, null, null, null, null, null, null);
+		return doOnSignal(this, onNext, null, null, null, null, null, null, null, null);
 	}
 
 	/**
@@ -477,7 +494,7 @@ public abstract class ParallelFlux<T> implements CorePublisher<T> {
 	 */
 	public final ParallelFlux<T> doOnRequest(LongConsumer onRequest) {
 		Objects.requireNonNull(onRequest, "onRequest");
-		return doOnSignal(this, null, null, null, null, null, null, onRequest, null);
+		return doOnSignal(this, null, null, null, null, null, null, onRequest, null, null);
 	}
 
 	/**
@@ -493,6 +510,7 @@ public abstract class ParallelFlux<T> implements CorePublisher<T> {
 				null,
 				e -> onTerminate.run(),
 				onTerminate,
+				null,
 				null,
 				null,
 				null,
@@ -1242,7 +1260,8 @@ public abstract class ParallelFlux<T> implements CorePublisher<T> {
 			@Nullable Runnable onAfterTerminate,
 			@Nullable Consumer<? super Subscription> onSubscribe,
 			@Nullable LongConsumer onRequest,
-			@Nullable Runnable onCancel) {
+			@Nullable Runnable onCancel,
+			@Nullable Runnable onAfterCancelled) {
 		return onAssembly(new ParallelPeek<>(source,
 				onNext,
 				onAfterNext,
@@ -1251,7 +1270,8 @@ public abstract class ParallelFlux<T> implements CorePublisher<T> {
 				onAfterTerminate,
 				onSubscribe,
 				onRequest,
-				onCancel));
+				onCancel,
+				onAfterCancelled));
 	}
 
 	static final <T> List<T> sortedMerger(List<T> a, List<T> b, Comparator<? super T> comparator) {

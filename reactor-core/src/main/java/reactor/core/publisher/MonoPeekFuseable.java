@@ -57,13 +57,16 @@ final class MonoPeekFuseable<T> extends MonoOperator<T, T>
 
 	final Runnable onCancelCall;
 
+	final Runnable onAfterCancelledCall;
+
 	MonoPeekFuseable(Mono<? extends T> source,
 			@Nullable Consumer<? super Subscription> onSubscribeCall,
 			@Nullable Consumer<? super T> onNextCall,
 			@Nullable Consumer<? super Throwable> onErrorCall,
 			@Nullable Runnable onCompleteCall,
 			@Nullable LongConsumer onRequestCall,
-			@Nullable Runnable onCancelCall) {
+			@Nullable Runnable onCancelCall,
+			@Nullable Runnable onAfterCancelledCall) {
 		super(source);
 
 		this.onSubscribeCall = onSubscribeCall;
@@ -72,6 +75,7 @@ final class MonoPeekFuseable<T> extends MonoOperator<T, T>
 		this.onCompleteCall = onCompleteCall;
 		this.onRequestCall = onRequestCall;
 		this.onCancelCall = onCancelCall;
+		this.onAfterCancelledCall = onAfterCancelledCall;
 	}
 
 	@Override
@@ -125,5 +129,10 @@ final class MonoPeekFuseable<T> extends MonoOperator<T, T>
 	@Nullable
 	public Runnable onCancelCall() {
 		return onCancelCall;
+	}
+
+	@Override
+	public Runnable onAfterCancelledCall() {
+		return onAfterCancelledCall;
 	}
 }

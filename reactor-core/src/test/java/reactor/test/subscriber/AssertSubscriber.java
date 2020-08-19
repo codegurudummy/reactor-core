@@ -110,6 +110,8 @@ public class AssertSubscriber<T>
 
 	volatile long requested;
 
+	volatile boolean onCancelled;
+
 	volatile List<T> values = new LinkedList<>();
 
 	/**
@@ -542,6 +544,15 @@ public class AssertSubscriber<T>
 	}
 
 	/**
+	 * Assert cancellation has not yet been acknowledged via {@link CoreSubscriber#onCancelled()}
+	 * @return this
+	 */
+	public final AssertSubscriber<T> assertNotOnCancelled() {
+		if (!onCancelled) return this;
+		throw new AssertionError("onCancelled called");
+	}
+
+	/**
 	 * Assert no complete successfully or error signal has been received.
 	 * @return this
 	 */
@@ -567,6 +578,15 @@ public class AssertSubscriber<T>
 		}
 
 		return this;
+	}
+
+	/**
+	 * Assert cancellation occurred AND was acknowledged via {@link CoreSubscriber#onCancelled()}
+	 * @return this
+	 */
+	public final AssertSubscriber<T> assertOnCancelled() {
+		if (onCancelled) return this;
+		throw new AssertionError("onCancelled not called");
 	}
 
 	/**
@@ -839,7 +859,7 @@ public class AssertSubscriber<T>
 
 	@Override
 	public void onCancelled() {
-		//TODO add an assert for onCancelled / cancellation ack?
+		onCancelled = true;
 	}
 
 	final boolean isCancelled() {

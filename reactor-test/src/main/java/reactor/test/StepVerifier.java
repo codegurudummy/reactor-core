@@ -460,6 +460,20 @@ public interface StepVerifier {
 		 */
 		StepVerifier thenCancel();
 
+		/**
+		 * Cancel the underlying subscription and instruct the StepVerifer to expect an
+		 * acknowledgment of said cancellation at the verify step, which should only be
+		 * guaranteed with Reactor sources.
+		 * This happens sequentially after the previous step.
+		 * <p>
+		 * Note that time-manipulating operators like {@link Step#expectNoEvent(Duration)}
+		 * are detected and waited for before cancellation occurs.
+		 *
+		 * @return the built verification scenario, ready to be verified
+		 *
+		 * @see #thenCancel()
+		 */
+		StepVerifier thenCancelWithAck();
 
 		/**
 		 * Trigger the {@link #verify() verification}, expecting an unspecified error

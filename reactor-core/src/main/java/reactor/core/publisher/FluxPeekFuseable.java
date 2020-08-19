@@ -67,6 +67,8 @@ final class FluxPeekFuseable<T> extends FluxOperator<T, T>
 
 	final Runnable onCancelCall;
 
+	final Runnable onAfterCancelledCall;
+
 	FluxPeekFuseable(Flux<? extends T> source,
 			@Nullable Consumer<? super Subscription> onSubscribeCall,
 			@Nullable Consumer<? super T> onNextCall,
@@ -74,7 +76,8 @@ final class FluxPeekFuseable<T> extends FluxOperator<T, T>
 			@Nullable Runnable onCompleteCall,
 			@Nullable Runnable onAfterTerminateCall,
 			@Nullable LongConsumer onRequestCall,
-			@Nullable Runnable onCancelCall) {
+			@Nullable Runnable onCancelCall,
+			@Nullable Runnable onAfterCancelledCall) {
 		super(source);
 
 		this.onSubscribeCall = onSubscribeCall;
@@ -84,6 +87,7 @@ final class FluxPeekFuseable<T> extends FluxOperator<T, T>
 		this.onAfterTerminateCall = onAfterTerminateCall;
 		this.onRequestCall = onRequestCall;
 		this.onCancelCall = onCancelCall;
+		this.onAfterCancelledCall = onAfterCancelledCall;
 	}
 
 	@Override
@@ -162,6 +166,21 @@ final class FluxPeekFuseable<T> extends FluxOperator<T, T>
 				}
 			}
 			s.cancel();
+		}
+
+		@Override
+		public void onCancelled() {
+			final Runnable onCancelledHook = parent.onAfterCancelledCall();
+			if (onCancelledHook != null) {
+				try {
+					onCancelledHook.run();
+				}
+				catch (Throwable e) {
+					onError(Operators.onOperatorError(s, e, actual.currentContext()));
+					return;
+				}
+			}
+			actual.onCancelled();
 		}
 
 		@SuppressWarnings("unchecked")
@@ -727,6 +746,11 @@ final class FluxPeekFuseable<T> extends FluxOperator<T, T>
 		return onCancelCall;
 	}
 
+	@Override
+	public Runnable onAfterCancelledCall() {
+		return onAfterCancelledCall;
+	}
+
 	static final class PeekConditionalSubscriber<T>
 			implements ConditionalSubscriber<T>, InnerOperator<T, T> {
 
@@ -780,6 +804,21 @@ final class FluxPeekFuseable<T> extends FluxOperator<T, T>
 				}
 			}
 			s.cancel();
+		}
+
+		@Override
+		public void onCancelled() {
+			final Runnable onCancelledHook = parent.onAfterCancelledCall();
+			if (onCancelledHook != null) {
+				try {
+					onCancelledHook.run();
+				}
+				catch (Throwable e) {
+					onError(Operators.onOperatorError(s, e, actual.currentContext()));
+					return;
+				}
+			}
+			actual.onCancelled();
 		}
 
 		@Override

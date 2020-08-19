@@ -291,6 +291,21 @@ public class FluxTests extends AbstractReactorTest {
 	}
 
 	@Test
+	public void doAfterCancelled() {
+		AtomicBoolean seen = new AtomicBoolean();
+
+		StepVerifier.create(
+				Flux.just("foo")
+				    .map(it -> it + it)
+				    .doAfterCancelled(() -> seen.set(true))
+		)
+		            .thenCancelWithAck()
+		            .verify(Duration.ofMillis(100));
+
+		Assertions.assertThat(seen).isTrue();
+	}
+
+	@Test
 	public void testThenPublisherVoid() throws InterruptedException {
 		Mono<Void> testVoidPublisher = Flux
 				.just("A", "B")

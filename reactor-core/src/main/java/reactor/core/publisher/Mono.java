@@ -1944,6 +1944,23 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	}
 
 	/**
+	 * Add behavior (side-effect) triggered after the {@link Mono} has been cancelled in case the source
+	 * acknowledges cancellation is done.
+	 * <p>
+	 * This is only possible between a {@link Publisher} and a {@link Subscriber} that are
+	 * both Reactor implementations.
+	 *
+	 * @param afterCancelled the callback to call after cancellation has been acknowledged
+	 *
+	 * @return an observed  {@link Mono}
+	 */
+	//TODO diagram
+	public final Mono<T> doAfterCancelled(Runnable afterCancelled) {
+		Objects.requireNonNull(afterCancelled, "afterCancelled");
+		return doOnSignal(this, null, null, null, null, null, null, afterCancelled);
+	}
+
+	/**
 	 * Add behavior triggered after the {@link Mono} terminates, either by completing downstream successfully or with an error.
 	 * The arguments will be null depending on success, success with data and error:
 	 * <ul>
@@ -2018,7 +2035,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 */
 	public final Mono<T> doOnCancel(Runnable onCancel) {
 		Objects.requireNonNull(onCancel, "onCancel");
-		return doOnSignal(this, null, null, null, null, null, onCancel);
+		return doOnSignal(this, null, null, null, null, null, onCancel, null);
 	}
 
 	/**
@@ -2060,7 +2077,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 */
 	public final Mono<T> doOnNext(Consumer<? super T> onNext) {
 		Objects.requireNonNull(onNext, "onNext");
-		return doOnSignal(this, null, onNext, null, null, null, null);
+		return doOnSignal(this, null, onNext, null, null, null, null, null);
 	}
 
 	/**
@@ -2124,7 +2141,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 */
 	public final Mono<T> doOnError(Consumer<? super Throwable> onError) {
 		Objects.requireNonNull(onError, "onError");
-		return doOnSignal(this, null, null, onError, null, null, null);
+		return doOnSignal(this, null, null, onError, null, null, null, null);
 	}
 
 
@@ -2183,7 +2200,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 */
 	public final Mono<T> doOnRequest(final LongConsumer consumer) {
 		Objects.requireNonNull(consumer, "consumer");
-		return doOnSignal(this, null, null, null, null, consumer, null);
+		return doOnSignal(this, null, null, null, null, consumer, null, null);
 	}
 
 	/**
@@ -2201,7 +2218,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 */
 	public final Mono<T> doOnSubscribe(Consumer<? super Subscription> onSubscribe) {
 		Objects.requireNonNull(onSubscribe, "onSubscribe");
-		return doOnSignal(this, onSubscribe, null, null,  null, null, null);
+		return doOnSignal(this, onSubscribe, null, null,  null, null, null, null);
 	}
 
 	/**
@@ -2242,6 +2259,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 				null,
 				e -> onTerminate.run(),
 				onTerminate,
+				null,
 				null,
 				null);
 	}
@@ -4346,21 +4364,24 @@ public abstract class Mono<T> implements CorePublisher<T> {
 			@Nullable Consumer<? super Throwable> onError,
 			@Nullable Runnable onComplete,
 			@Nullable LongConsumer onRequest,
-			@Nullable Runnable onCancel) {
+			@Nullable Runnable onCancel,
+			@Nullable Runnable onAfterCancelled) {
 		if (source instanceof Fuseable) {
 			return onAssembly(new MonoPeekFuseable<>(source,
 					onSubscribe,
 					onNext,
 					onError,
 					onComplete, onRequest,
-					onCancel));
+					onCancel,
+					onAfterCancelled));
 		}
 		return onAssembly(new MonoPeek<>(source,
 				onSubscribe,
 				onNext,
 				onError,
 				onComplete, onRequest,
-				onCancel));
+				onCancel,
+				onAfterCancelled));
 	}
 
 	@SuppressWarnings("unchecked")

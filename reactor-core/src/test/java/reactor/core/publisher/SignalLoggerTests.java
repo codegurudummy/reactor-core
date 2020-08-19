@@ -79,7 +79,8 @@ public class SignalLoggerTests {
 	@Test
 	public void testLogCollectionSubscription() {
 		Flux<Integer> source = Flux.just(1, 2, 3);
-		FluxPeekFuseable<Integer> flux = new FluxPeekFuseable<>(source, null, null, null, null, null, null, null);
+		FluxPeekFuseable<Integer> flux = new FluxPeekFuseable<>(source, null, null, null, null, null,
+				null, null, null);
 		SignalLogger<Integer> signalLogger = new SignalLogger<>(flux,
 				"test",
 				Level.INFO,
@@ -105,7 +106,8 @@ public class SignalLoggerTests {
 		Flux<Flux<Integer>> source = Flux.just(1, 2, 3)
 				.window(2); //windows happen to be UnicastProcessor, which implements QueueSubscription directly :o
 
-		FluxPeek<Flux<Integer>> flux = new FluxPeek<>(source, null, null, null, null, null, null, null);
+		FluxPeek<Flux<Integer>> flux = new FluxPeek<>(source, null, null, null, null, null,
+				null, null, null);
 		SignalLogger<Flux<Integer>> signalLogger = new SignalLogger<>(flux,
 				"test",
 				Level.INFO,
