@@ -28,6 +28,7 @@ import java.util.stream.Stream;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
+import reactor.core.Disposable;
 import reactor.core.Exceptions;
 import reactor.core.Fuseable;
 import reactor.core.Scannable;
@@ -54,7 +55,7 @@ import reactor.util.context.Context;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxWindowPredicate<T> extends FluxOperator<T, Flux<T>>
+final class FluxWindowPredicate<T> extends InternalFluxOperator<T, Flux<T>>
 		implements Fuseable{
 
 	final Supplier<? extends Queue<T>> groupQueueSupplier;
@@ -87,18 +88,24 @@ final class FluxWindowPredicate<T> extends FluxOperator<T, Flux<T>>
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super Flux<T>> actual) {
-		source.subscribe(new WindowPredicateMain<>(actual,
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super Flux<T>> actual) {
+		return new WindowPredicateMain<>(actual,
 				mainQueueSupplier.get(),
 				groupQueueSupplier,
 				prefetch,
 				predicate,
-				mode));
+				mode);
 	}
 
 	@Override
 	public int getPrefetch() {
 		return prefetch;
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class WindowPredicateMain<T>
@@ -267,6 +274,7 @@ final class FluxWindowPredicate<T> extends FluxOperator<T, Flux<T>>
 		public void onError(Throwable t) {
 			if (Exceptions.addThrowable(ERROR, this, t)) {
 				done = true;
+				cleanup();
 				drain();
 			}
 			else {
@@ -279,6 +287,7 @@ final class FluxWindowPredicate<T> extends FluxOperator<T, Flux<T>>
 			if(done) {
 				return;
 			}
+			cleanup();
 
 			WindowFlux<T> g = window;
 			if (g != null) {
@@ -288,6 +297,13 @@ final class FluxWindowPredicate<T> extends FluxOperator<T, Flux<T>>
 			done = true;
 			WINDOW_COUNT.decrementAndGet(this);
 			drain();
+		}
+
+		void cleanup() {
+			// necessary cleanup if predicate contains a state
+			if (predicate instanceof Disposable) {
+				((Disposable) predicate).dispose();
+			}
 		}
 
 		@Override
@@ -300,6 +316,7 @@ final class FluxWindowPredicate<T> extends FluxOperator<T, Flux<T>>
 			if (key == Attr.BUFFERED) return queue.size();
 			if (key == Attr.ERROR) return error;
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return requested;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -338,6 +355,7 @@ final class FluxWindowPredicate<T> extends FluxOperator<T, Flux<T>>
 			if (CANCELLED.compareAndSet(this, 0, 1)) {
 				if (WINDOW_COUNT.decrementAndGet(this) == 0) {
 					s.cancel();
+					cleanup();
 				}
 				else if (!outputFused) {
 					if (WIP.getAndIncrement(this) == 0) {
@@ -354,6 +372,7 @@ final class FluxWindowPredicate<T> extends FluxOperator<T, Flux<T>>
 						if (WIP.decrementAndGet(this) == 0) {
 							if (!done && WINDOW_COUNT.get(this) == 0) {
 								s.cancel();
+								cleanup();
 							}
 							else {
 								CANCELLED.set(this, 2);
@@ -371,6 +390,7 @@ final class FluxWindowPredicate<T> extends FluxOperator<T, Flux<T>>
 				//no new window should have been created
 				if (WINDOW_COUNT.get(this) == 0) {
 					s.cancel();
+					cleanup();
 				}
 				//next one to call cancel in state 2 that decrements to 0 will cancel outer
 			}
@@ -383,6 +403,7 @@ final class FluxWindowPredicate<T> extends FluxOperator<T, Flux<T>>
 			window = null;
 			if (WINDOW_COUNT.decrementAndGet(this) == 0) {
 				s.cancel();
+				cleanup();
 			}
 		}
 
@@ -882,6 +903,7 @@ final class FluxWindowPredicate<T> extends FluxOperator<T, Flux<T>>
 			if (key == Attr.BUFFERED) return queue == null ? 0 : queue.size();
 			if (key == Attr.ERROR) return error;
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return requested;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

@@ -37,7 +37,7 @@ import reactor.core.publisher.FluxDistinct.DistinctFuseableSubscriber;
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
 final class FluxDistinctFuseable<T, K, C>
-		extends FluxOperator<T, T> implements Fuseable {
+		extends InternalFluxOperator<T, T> implements Fuseable {
 
 	final Function<? super T, ? extends K> keyExtractor;
 	final Supplier<C>                      collectionSupplier;
@@ -55,19 +55,17 @@ final class FluxDistinctFuseable<T, K, C>
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		C collection;
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		C collection = Objects.requireNonNull(collectionSupplier.get(),
+				"The collectionSupplier returned a null collection");
 
-		try {
-			collection = Objects.requireNonNull(collectionSupplier.get(),
-					"The collectionSupplier returned a null collection");
-		}
-		catch (Throwable e) {
-			Operators.error(actual, Operators.onOperatorError(e, actual.currentContext()));
-			return;
-		}
+		return new DistinctFuseableSubscriber<>(actual, collection, keyExtractor,
+				distinctPredicate, cleanupCallback);
+	}
 
-		source.subscribe(new DistinctFuseableSubscriber<>(actual, collection, keyExtractor,
-				distinctPredicate, cleanupCallback));
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 }

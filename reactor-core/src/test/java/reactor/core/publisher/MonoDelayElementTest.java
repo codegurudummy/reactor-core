@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Test;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.Scannable;
@@ -52,6 +53,17 @@ public class MonoDelayElementTest {
 				defaultSchedulerForDelay()).log())
 	                .expectSubscription()
 	                .expectNoEvent(Duration.ofSeconds(2))
+	                .expectNext("foo")
+	                .verifyComplete();
+	}
+
+	@Test
+	public void subMillisDelay() {
+		Mono<String> source = Mono.just("foo");
+
+		StepVerifier.withVirtualTime(() -> source.delayElement(Duration.ofNanos(5000L)).log())
+	                .expectSubscription()
+	                .expectNoEvent(Duration.ofNanos(5000L))
 	                .expectNext("foo")
 	                .verifyComplete();
 	}
@@ -131,17 +143,13 @@ public class MonoDelayElementTest {
 		AtomicReference<Throwable> errorDropped = new AtomicReference<>();
 		Hooks.onErrorDropped(errorDropped::set);
 
-		try {
-			StepVerifier.withVirtualTime(() ->
-					new MonoDelayElement<>(source.mono(), 2, TimeUnit.SECONDS, defaultSchedulerForDelay()))
-			            .expectSubscription()
-			            .then(() -> source.next("foo").error(new IllegalStateException("boom")))
-			            .expectNoEvent(Duration.ofSeconds(2))
-			            .expectNext("foo")
-			            .verifyComplete();
-		} finally {
-			Hooks.resetOnErrorDropped();
-		}
+		StepVerifier.withVirtualTime(() ->
+				new MonoDelayElement<>(source.mono(), 2, TimeUnit.SECONDS, defaultSchedulerForDelay()))
+		            .expectSubscription()
+		            .then(() -> source.next("foo").error(new IllegalStateException("boom")))
+		            .expectNoEvent(Duration.ofSeconds(2))
+		            .expectNext("foo")
+		            .verifyComplete();
 
 		assertThat(errorDropped.get()).isNull();
 	}
@@ -287,19 +295,14 @@ public class MonoDelayElementTest {
 			s.onError(new IllegalStateException("boom"));
 		});
 
-		try {
-			StepVerifier.withVirtualTime(() -> new MonoDelayElement<>(source,
-					2,
-					TimeUnit.SECONDS,
-					defaultSchedulerForDelay()))
-			            .expectSubscription()
-			            .expectNoEvent(Duration.ofSeconds(2))
-			            .expectNext("foo")
-			            .verifyComplete();
-		}
-		finally {
-			Hooks.resetOnErrorDropped();
-		}
+		StepVerifier.withVirtualTime(() -> new MonoDelayElement<>(source,
+				2,
+				TimeUnit.SECONDS,
+				defaultSchedulerForDelay()))
+		            .expectSubscription()
+		            .expectNoEvent(Duration.ofSeconds(2))
+		            .expectNext("foo")
+		            .verifyComplete();
 		assertThat(dropped.get()).hasMessage("boom")
 		                         .isInstanceOf(IllegalStateException.class);
 	}
@@ -314,8 +317,9 @@ public class MonoDelayElementTest {
 				.doOnSubscribe(s -> {
 					assertThat(s).isInstanceOf(MonoDelayElement.DelayElementSubscriber.class);
 
-					MonoDelayElement.DelayElementSubscriber delayedSubscriber =
-							(MonoDelayElement.DelayElementSubscriber) s;
+					@SuppressWarnings("unchecked")
+					MonoDelayElement.DelayElementSubscriber<Integer> delayedSubscriber =
+							(MonoDelayElement.DelayElementSubscriber<Integer>) s;
 
 					upstream.set(delayedSubscriber.scan(Scannable.Attr.PARENT));
 				}))
@@ -336,7 +340,7 @@ public class MonoDelayElementTest {
 			s.onNext("foo");
 		})
 		.doOnCancel(sourceOnCancel::incrementAndGet)
-		.doOnSuccessOrError((v, e) -> sourceOnTerminate.incrementAndGet());
+		.doOnTerminate(sourceOnTerminate::incrementAndGet);
 
 
 		StepVerifier.withVirtualTime(() -> new MonoDelayElement<>(source,
@@ -344,7 +348,7 @@ public class MonoDelayElementTest {
 				TimeUnit.SECONDS,
 				defaultSchedulerForDelay())
 				.doOnCancel(onCancel::incrementAndGet)
-				.doOnSuccessOrError((v, e) -> onTerminate.incrementAndGet()))
+				.doOnTerminate(onTerminate::incrementAndGet))
 		            .expectSubscription()
 		            .expectNoEvent(Duration.ofSeconds(2))
 		            .expectNext("foo")
@@ -361,6 +365,7 @@ public class MonoDelayElementTest {
 		MonoDelayElement<String> test = new MonoDelayElement<>(Mono.empty(), 1, TimeUnit.SECONDS, Schedulers.immediate());
 
 		assertThat(test.scan(Scannable.Attr.RUN_ON)).isSameAs(Schedulers.immediate());
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.ASYNC);
 	}
 
 	@Test
@@ -373,6 +378,7 @@ public class MonoDelayElementTest {
 
 		assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(Integer.MAX_VALUE);
 		assertThat(test.scan(Scannable.Attr.RUN_ON)).isSameAs(Schedulers.single());
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.ASYNC);
 
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);

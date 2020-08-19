@@ -19,7 +19,7 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.function.BooleanSupplier;
 
-import org.reactivestreams.Publisher;
+import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 
 /**
@@ -29,7 +29,7 @@ import reactor.core.CoreSubscriber;
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxRepeatPredicate<T> extends FluxOperator<T, T> {
+final class FluxRepeatPredicate<T> extends InternalFluxOperator<T, T> {
 
 	final BooleanSupplier predicate;
 
@@ -39,7 +39,7 @@ final class FluxRepeatPredicate<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		RepeatPredicateSubscriber<T> parent = new RepeatPredicateSubscriber<>(source,
 				actual, predicate);
 
@@ -48,12 +48,19 @@ final class FluxRepeatPredicate<T> extends FluxOperator<T, T> {
 		if (!parent.isCancelled()) {
 			parent.resubscribe();
 		}
+		return null;
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class RepeatPredicateSubscriber<T>
 			extends Operators.MultiSubscriptionSubscriber<T, T> {
 
-		final Publisher<? extends T> source;
+		final CorePublisher<? extends T> source;
 
 		final BooleanSupplier predicate;
 
@@ -64,7 +71,7 @@ final class FluxRepeatPredicate<T> extends FluxOperator<T, T> {
 
 		long produced;
 
-		RepeatPredicateSubscriber(Publisher<? extends T> source,
+		RepeatPredicateSubscriber(CorePublisher<? extends T> source,
 				CoreSubscriber<? super T> actual, BooleanSupplier predicate) {
 			super(actual);
 			this.source = source;
@@ -113,6 +120,12 @@ final class FluxRepeatPredicate<T> extends FluxOperator<T, T> {
 
 				} while (WIP.decrementAndGet(this) != 0);
 			}
+		}
+
+		@Override
+		public Object scanUnsafe(Attr key) {
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+			return super.scanUnsafe(key);
 		}
 	}
 }

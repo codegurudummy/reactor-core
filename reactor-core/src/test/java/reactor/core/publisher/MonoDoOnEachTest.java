@@ -23,18 +23,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.stream.Stream;
 
 import org.assertj.core.api.Assertions;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.Scannable;
 import reactor.test.StepVerifier;
 import reactor.test.subscriber.AssertSubscriber;
 import reactor.util.context.Context;
+import reactor.util.context.ContextView;
 import reactor.util.function.Tuple2;
 import reactor.util.function.Tuples;
 
@@ -88,12 +91,10 @@ public class MonoDoOnEachTest {
 		test.filter(t -> true)
 		    .subscribe();
 
-		Class expected = FluxDoOnEach.DoOnEachConditionalSubscriber.class;
-		assertThat(ref.get()
-		              .actuals()
-		              .map(Object::getClass)
-		)
-				.contains(expected);
+		Class<?> expected = FluxDoOnEach.DoOnEachConditionalSubscriber.class;
+		Stream<Class<?>> streamOfClasses = ref.get().actuals().map(Object::getClass);
+
+		assertThat(streamOfClasses).contains(expected);
 	}
 
 	@Test
@@ -249,7 +250,7 @@ public class MonoDoOnEachTest {
 
 	@Test
 	public void nextComplete() {
-		List<Tuple2<Signal, Context>> signalsAndContext = new ArrayList<>();
+		List<Tuple2<Signal, ContextView>> signalsAndContext = new ArrayList<>();
 		Mono.just(1)
 		    .hide()
 		    .doOnEach(s -> signalsAndContext.add(Tuples.of(s, s.getContext())))
@@ -271,7 +272,7 @@ public class MonoDoOnEachTest {
 
 	@Test
 	public void nextError() {
-		List<Tuple2<Signal, Context>> signalsAndContext = new ArrayList<>();
+		List<Tuple2<Signal, ContextView>> signalsAndContext = new ArrayList<>();
 		Mono.just(0)
 		    .map(i -> 10 / i)
 		    .doOnEach(s -> signalsAndContext.add(Tuples.of(s,s.getContext())))
@@ -402,16 +403,12 @@ public class MonoDoOnEachTest {
 				    		throw new IllegalStateException("boomChild");
 					    }
 				    })
-				    .doOnSuccessOrError((v, e) -> {
-					    if (e == null) eventOrder.add("childSuccess");
-					    else eventOrder.add("childError");
-				    })
+				    .doOnSuccess(v -> eventOrder.add("childSuccess"))
+				    .doOnError(e -> eventOrder.add("childError"))
 		    )
 		    .doOnEach(sig -> eventOrder.add("parentEach" + sig))
-		    .doOnSuccessOrError((v, e) -> {
-			    if (e == null) eventOrder.add("parentSuccess");
-			    else eventOrder.add("parentError");
-		    })
+		    .doOnSuccess(v -> eventOrder.add("parentSuccess"))
+		    .doOnError(e -> eventOrder.add("parentError"))
 		    .onErrorReturn("boom expected")
 		    .block();
 
@@ -435,16 +432,12 @@ public class MonoDoOnEachTest {
 				                            throw new IllegalStateException("boomChild");
 			                            }
 		                            })
-		                            .doOnSuccessOrError((v, e) -> {
-			                            if (e == null) eventOrder.add("childSuccess");
-			                            else eventOrder.add("childError");
-		                            })
+		                            .doOnSuccess(v -> eventOrder.add("childSuccess"))
+		                            .doOnError(e -> eventOrder.add("childError"))
 		    )
 		    .doOnEach(sig -> eventOrder.add("parentEach" + sig))
-		    .doOnSuccessOrError((v, e) -> {
-			    if (e == null) eventOrder.add("parentSuccess");
-			    else eventOrder.add("parentError");
-		    })
+		    .doOnSuccess(v -> eventOrder.add("parentSuccess"))
+		    .doOnError(e -> eventOrder.add("parentError"))
 		    .onErrorReturn("boom expected")
 		    .block();
 
@@ -527,4 +520,19 @@ public class MonoDoOnEachTest {
 
 		assertThat(errorHandlerCount).as("error handler invoked on top on complete").hasValue(1);
 	}
+
+	@Test
+	public void scanOperator(){
+		final MonoDoOnEach<String> test = new MonoDoOnEach<>(Mono.just("foo"), s -> { });
+
+	    assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
+	public void scanFuseableOperator(){
+		final MonoDoOnEachFuseable<String> test = new MonoDoOnEachFuseable<>(Mono.just("foo"), s -> { });
+
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
 }

@@ -15,6 +15,7 @@
  */
 package reactor.test.publisher;
 
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.Test;
@@ -212,6 +213,21 @@ public class DefaultTestPublisherTests {
 	}
 
 	@Test
+	public void misbehavingMonoCanAvoidCompleteAfterOnNext() {
+		TestPublisher<String> publisher = TestPublisher.createNoncompliant(Violation.CLEANUP_ON_TERMINATE);
+		AtomicLong terminalCount = new AtomicLong();
+
+		publisher.mono()
+		         .subscribe(countingSubscriber(terminalCount));
+
+		assertThat(terminalCount).as("before onNext").hasValue(0L);
+
+		publisher.next("foo");
+
+		assertThat(terminalCount).as("after onNext").hasValue(0L);
+	}
+
+	@Test
 	public void expectSubscribers() {
 		TestPublisher<String> publisher = TestPublisher.create();
 
@@ -362,7 +378,7 @@ public class DefaultTestPublisherTests {
 		TestPublisher<String> publisher = TestPublisher.create();
 
 		assertThatExceptionOfType(NullPointerException.class)
-				.isThrownBy(() -> publisher.next(null, null)) //this causes a compiler warning, on purpose
+				.isThrownBy(() -> publisher.next(null, (String[]) null)) //end users forgetting to cast would see compiler warning as well
 				.withMessage("rest array is null, please cast to T if null T required");
 	}
 
@@ -371,7 +387,7 @@ public class DefaultTestPublisherTests {
 		TestPublisher<String> publisher = TestPublisher.create();
 
 		assertThatExceptionOfType(NullPointerException.class)
-				.isThrownBy(() -> publisher.emit(null)) //this causes a compiler warning, on purpose
+				.isThrownBy(() -> publisher.emit((String[]) null)) //end users forgetting to cast would see compiler warning as well
 				.withMessage("values array is null, please cast to T if null T required");
 	}
 

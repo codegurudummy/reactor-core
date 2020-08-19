@@ -26,14 +26,17 @@ import org.assertj.core.api.Assertions;
 import org.junit.Before;
 import org.junit.Test;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.Scannable;
+import reactor.test.LoggerUtils;
 import reactor.test.StepVerifier;
+import reactor.test.util.TestLogger;
 
-import static org.hamcrest.CoreMatchers.instanceOf;
-import static org.hamcrest.CoreMatchers.is;
-import static org.junit.Assert.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotSame;
 import static reactor.core.Fuseable.*;
 
 public class FluxDoFinallyTest implements Consumer<SignalType> {
@@ -138,7 +141,7 @@ public class FluxDoFinallyTest implements Consumer<SignalType> {
 
 	@Test
 	public void asyncFused() {
-		UnicastProcessor<Integer> up = UnicastProcessor.create();
+		FluxIdentityProcessor<Integer> up = Processors.unicast();
 		up.onNext(1);
 		up.onNext(2);
 		up.onNext(3);
@@ -158,7 +161,7 @@ public class FluxDoFinallyTest implements Consumer<SignalType> {
 
 	@Test
 	public void asyncFusedThreadBarrier() {
-		UnicastProcessor<Integer> up = UnicastProcessor.create();
+		FluxIdentityProcessor<Object> up = Processors.unicast();
 		up.onNext(1);
 		up.onNext(2);
 		up.onNext(3);
@@ -280,7 +283,7 @@ public class FluxDoFinallyTest implements Consumer<SignalType> {
 
 	@Test
 	public void asyncFusedConditional() {
-		UnicastProcessor<Integer> up = UnicastProcessor.create();
+		FluxIdentityProcessor<Object> up = Processors.unicast();
 		up.onNext(1);
 		up.onNext(2);
 		up.onNext(3);
@@ -301,7 +304,7 @@ public class FluxDoFinallyTest implements Consumer<SignalType> {
 
 	@Test
 	public void asyncFusedThreadBarrierConditional() {
-		UnicastProcessor<Integer> up = UnicastProcessor.create();
+		FluxIdentityProcessor<Object> up = Processors.unicast();
 		up.onNext(1);
 		up.onNext(2);
 		up.onNext(3);
@@ -339,7 +342,7 @@ public class FluxDoFinallyTest implements Consumer<SignalType> {
 		catch (Throwable e) {
 			Throwable _e = Exceptions.unwrap(e);
 			assertNotSame(e, _e);
-			assertThat(_e, is(instanceOf(IllegalStateException.class)));
+			assertThat(_e).isInstanceOf(IllegalStateException.class);
 		}
 	}
 
@@ -358,7 +361,7 @@ public class FluxDoFinallyTest implements Consumer<SignalType> {
 		catch (Throwable e) {
 			Throwable _e = Exceptions.unwrap(e);
 			assertNotSame(e, _e);
-			assertThat(_e, is(instanceOf(IllegalStateException.class)));
+			assertThat(_e).isInstanceOf(IllegalStateException.class);
 		}
 	}
 
@@ -377,6 +380,24 @@ public class FluxDoFinallyTest implements Consumer<SignalType> {
 	}
 
 	@Test
+	public void scanOperator(){
+		Flux<Integer> parent = Flux.just(1);
+		FluxDoFinally test = new FluxDoFinally<>(parent, v -> {});
+
+		Assertions.assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		Assertions.assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
+	public void scanFuseableOperator(){
+		Flux<Integer> parent = Flux.just(1);
+		FluxDoFinallyFuseable<Integer> test = new FluxDoFinallyFuseable<>(parent, s -> {});
+
+		Assertions.assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		Assertions.assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
 	public void scanSubscriber() {
 		CoreSubscriber<String> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
 		FluxDoFinally.DoFinallySubscriber<String> test = new FluxDoFinally.DoFinallySubscriber<>(actual, st -> {});
@@ -385,6 +406,7 @@ public class FluxDoFinallyTest implements Consumer<SignalType> {
 
 		Assertions.assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
 		Assertions.assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		Assertions.assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		Assertions.assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
 		Assertions.assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
@@ -473,18 +495,26 @@ public class FluxDoFinallyTest implements Consumer<SignalType> {
 	@Test
 	//see https://github.com/reactor/reactor-core/issues/951
 	public void gh951_withoutDoOnError() {
-		List<String> events = new ArrayList<>();
+		TestLogger testLogger = new TestLogger();
+		LoggerUtils.addAppender(testLogger, Operators.class);
+		try {
+			List<String> events = new ArrayList<>();
 
-		Assertions.assertThatExceptionOfType(UnsupportedOperationException.class)
-		          .isThrownBy(Mono.just(true)
-		                          .map(this::throwError)
-		                          .doFinally(any -> events.add("doFinally " + any.toString()))
-		                          ::subscribe)
-		          .withMessage("java.lang.IllegalStateException: boom");
+			Mono.just(true)
+			    .map(this::throwError)
+			    .doFinally(any -> events.add("doFinally " + any.toString()))
+			    .subscribe();
 
-		Assertions.assertThat(events)
-		          .as("withoutDoOnError")
-		          .containsExactly("doFinally onError");
+			Assertions.assertThat(events)
+			          .as("withoutDoOnError")
+			          .containsExactly("doFinally onError");
+			Assertions.assertThat(testLogger.getErrContent())
+			          .contains("Operator called default onErrorDropped")
+			          .contains("reactor.core.Exceptions$ErrorCallbackNotImplemented: java.lang.IllegalStateException: boom");
+		}
+		finally {
+			LoggerUtils.resetAppender(Operators.class);
+		}
 	}
 
 	private Boolean throwError(Boolean x) {
