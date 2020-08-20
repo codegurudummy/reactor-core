@@ -34,7 +34,7 @@ import reactor.core.Fuseable;
  * @param <T> the value type
  * @author Simon Baslé
  */
-final class MonoDoFirstFuseable<T> extends MonoOperator<T, T> implements Fuseable {
+final class MonoDoFirstFuseable<T> extends InternalMonoOperator<T, T> implements Fuseable {
 
 	final Runnable onFirst;
 
@@ -44,15 +44,9 @@ final class MonoDoFirstFuseable<T> extends MonoOperator<T, T> implements Fuseabl
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		try {
-			onFirst.run();
-		}
-		catch (Throwable error) {
-			Operators.error(actual, error);
-			return;
-		}
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		onFirst.run();
 
-		source.subscribe(actual);
+		return actual;
 	}
 }

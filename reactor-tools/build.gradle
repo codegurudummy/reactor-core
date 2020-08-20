@@ -1,0 +1,200 @@
+/*
+ * Copyright (c) 2019-Present Pivotal Software Inc, All Rights Reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *       https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+plugins {
+    id 'net.bytebuddy.byte-buddy-gradle-plugin' version '1.10.9' apply false
+}
+
+apply plugin: 'com.github.johnrengelman.shadow'
+apply plugin: 'org.unbroken-dome.test-sets'
+
+description = 'Reactor Tools'
+
+testSets {
+    jarFileTest
+    javaAgentTest
+    buildPluginTest
+}
+
+configurations {
+    shaded
+}
+
+dependencies {
+    compile project(':reactor-core')
+
+    shaded 'net.bytebuddy:byte-buddy-agent:1.10.9'
+    shaded 'net.bytebuddy:byte-buddy:1.10.9'
+    for (dependency in project.configurations.shaded.dependencies) {
+        compileOnly(dependency)
+        testRuntime(dependency)
+        javaAgentTestRuntime(dependency)
+    }
+
+    testImplementation platform("org.junit:junit-bom:${jUnitPlatformVersion}")
+    testImplementation "org.junit.jupiter:junit-jupiter-api"
+    testRuntime "org.junit.jupiter:junit-jupiter-engine"
+
+    testCompile "org.assertj:assertj-core:$assertJVersion"
+    testCompile 'cglib:cglib:3.3.0'
+
+    jarFileTestCompile 'org.assertj:assertj-core:3.12.2' //FIXME bump in root and use property
+}
+
+test {
+    // Creates a JVM per test because the agent can be installed only once
+    forkEvery = 1
+    maxParallelForks = 1
+    jvmArgs = [
+            "-Xverify:all",
+            JavaVersion.current().isJava9Compatible()
+                    ? "-Xlog:redefine+class*=warning"
+                    : "-XX:TraceRedefineClasses=2"
+    ]
+
+    testLogging {
+        displayGranularity 1
+        showStackTraces = true
+        showStandardStreams = true
+        exceptionFormat = 'full'
+        events "STARTED", "PASSED", "FAILED", "SKIPPED"
+    }
+}
+
+jar {
+    archiveClassifier.set('original')
+
+    manifest {
+        attributes(
+                'Can-Retransform-Classes': 'true',
+                'Can-Redefine-Classes': 'true',
+                'Premain-Class': 'reactor.tools.agent.ReactorDebugAgent',
+        )
+    }
+}
+
+shadowJar {
+    classifier = null
+
+    dependsOn(project.tasks.jar)
+    manifest {
+        inheritFrom project.tasks.jar.manifest
+    }
+
+    configurations = [project.configurations.shaded]
+
+    project.afterEvaluate {
+        dependencies {
+            def shadedDependencies = project.configurations
+                    .shaded
+                    .dependencies
+                    .collect { "${it.group}:${it.name}".toString() }
+                    .toSet()
+
+            // Exclude every compile-scoped dependency (including the transitive ones)
+            for (id in project.configurations.compile.resolvedConfiguration.resolvedArtifacts*.moduleVersion*.id) {
+                def module = "${id.group}:${id.name}".toString()
+                if (!shadedDependencies.contains(module)) {
+                    project.configurations.shaded.exclude(group: id.group, module: id.name)
+                    exclude(dependency(module))
+                }
+            }
+        }
+    }
+
+    exclude 'module-info.class'
+    exclude 'META-INF/*'
+    exclude 'META-INF/maven*/**'
+    exclude 'META-INF/versions/*'
+    exclude 'META-INF/licenses/*'
+
+    // TODO discuss with ByteBuddy folks how to shade it
+    exclude 'win32-x86*/**'
+}
+
+project.tasks.build.dependsOn(shadowJar)
+
+task relocateShadowJar(type: com.github.jengelman.gradle.plugins.shadow.tasks.ConfigureShadowRelocation) {
+    target = tasks.shadowJar
+    prefix = "reactor.tools.shaded"
+}
+
+tasks.shadowJar.dependsOn tasks.relocateShadowJar
+
+project.tasks.jarFileTest.configure {
+    systemProperty("jarFile", shadowJar.outputs.files.singleFile)
+    dependsOn(shadowJar)
+}
+project.tasks.check.dependsOn(jarFileTest)
+
+task shadedJarTest(type: Test) {
+    testClassesDirs = sourceSets.test.output.classesDirs
+
+    Set<? super File> mainOutputs = [
+            project.sourceSets.main.output.resourcesDir,
+            project.sourceSets.main.java.outputDir,
+    ]
+
+    classpath = shadowJar.outputs.files
+    // Exclude main outputs since we have the shaded JAR on the classpath already
+    classpath += sourceSets.test.runtimeClasspath.filter { !(it in mainOutputs) }
+
+    dependsOn(shadowJar)
+}
+project.tasks.check.dependsOn(shadedJarTest)
+
+javaAgentTest {
+    dependsOn(tasks.shadowJar)
+
+    jvmArgs = [
+            "-javaagent:${shadowJar.outputs.files.singleFile}",
+            "-Xverify:all",
+            JavaVersion.current().isJava9Compatible()
+                    ? "-Xlog:redefine+class*=warning"
+                    : "-XX:TraceRedefineClasses=2"
+    ]
+}
+project.tasks.check.dependsOn(javaAgentTest)
+
+// See https://github.com/raphw/byte-buddy/issues/833
+compileBuildPluginTestJava.doLast(
+        new net.bytebuddy.build.gradle.TransformationAction(
+                project,
+                new net.bytebuddy.build.gradle.ByteBuddyExtension(project).tap {
+                    transformation {
+                        plugin = "reactor.tools.agent.ReactorDebugByteBuddyPlugin"
+                    }
+                },
+                compileBuildPluginTestJava
+        )
+)
+project.tasks.check.dependsOn(buildPluginTest)
+
+tasks.withType(Test).all {
+    useJUnitPlatform()
+}
+
+// make the shadow jar the default artifact
+['apiElements', 'runtimeElements'].each {
+    configurations.getByName(it).outgoing {
+        artifacts.clear()
+        artifact(shadowJar)
+    }
+}
+configurations.runtime.outgoing.artifacts.clear()
+
+//add original jar to the publication
+publishing.publications.mavenJava.artifact(jar)

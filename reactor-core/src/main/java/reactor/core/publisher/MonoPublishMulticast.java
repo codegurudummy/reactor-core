@@ -39,7 +39,7 @@ import reactor.util.context.Context;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class MonoPublishMulticast<T, R> extends MonoOperator<T, R> implements Fuseable {
+final class MonoPublishMulticast<T, R> extends InternalMonoOperator<T, R> implements Fuseable {
 
 	final Function<? super Mono<T>, ? extends Mono<? extends R>> transform;
 
@@ -50,18 +50,11 @@ final class MonoPublishMulticast<T, R> extends MonoOperator<T, R> implements Fus
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super R> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super R> actual) {
 		MonoPublishMulticaster<T> multicast = new MonoPublishMulticaster<>(actual.currentContext());
 
-		Mono<? extends R> out;
-		try {
-			out = Objects.requireNonNull(transform.apply(fromDirect(multicast)),
-					"The transform returned a null Mono");
-		}
-		catch (Throwable ex) {
-			Operators.error(actual, Operators.onOperatorError(ex, actual.currentContext()));
-			return;
-		}
+		Mono<? extends R> out = Objects.requireNonNull(transform.apply(fromDirect(multicast)),
+				"The transform returned a null Mono");
 
 		if (out instanceof Fuseable) {
 			out.subscribe(new FluxPublishMulticast.CancelFuseableMulticaster<>(actual, multicast));
@@ -70,7 +63,7 @@ final class MonoPublishMulticast<T, R> extends MonoOperator<T, R> implements Fus
 			out.subscribe(new FluxPublishMulticast.CancelMulticaster<>(actual, multicast));
 		}
 
-		source.subscribe(multicast);
+		return multicast;
 	}
 
 	static final class MonoPublishMulticaster<T> extends Mono<T>
@@ -234,8 +227,9 @@ final class MonoPublishMulticast<T, R> extends MonoOperator<T, R> implements Fus
 						}
 
 						if (v == null) {
-							//noinspection unchecked
-							a = SUBSCRIBERS.getAndSet(this, TERMINATED);
+							@SuppressWarnings("unchecked")
+							PublishMulticastInner<T>[] castedArray = SUBSCRIBERS.getAndSet(this, TERMINATED);
+							a = castedArray;
 							n = a.length;
 							for (int i = 0; i < n; i++) {
 								a[i].actual.onComplete();
@@ -243,8 +237,9 @@ final class MonoPublishMulticast<T, R> extends MonoOperator<T, R> implements Fus
 							return;
 						}
 						else {
-							//noinspection unchecked
-							a = SUBSCRIBERS.getAndSet(this, TERMINATED);
+							@SuppressWarnings("unchecked")
+							PublishMulticastInner<T>[] castedArray = SUBSCRIBERS.getAndSet(this, TERMINATED);
+							a = castedArray;
 							n = a.length;
 							for (int i = 0; i < n; i++) {
 								a[i].actual.onNext(v);

@@ -34,26 +34,26 @@ import reactor.util.function.Tuple2;
  *
  * @author Simon Baslé
  */
-final class FluxIndex<T, I> extends FluxOperator<T, I> {
+final class FluxIndex<T, I> extends InternalFluxOperator<T, I> {
 
 	private final BiFunction<? super Long, ? super T, ? extends I> indexMapper;
 
 	FluxIndex(Flux<T> source,
 			BiFunction<? super Long, ? super T, ? extends I> indexMapper) {
 		super(source);
-		this.indexMapper = new NullSafeIndexMapper(Objects.requireNonNull(indexMapper,
+		this.indexMapper = NullSafeIndexMapper.create(Objects.requireNonNull(indexMapper,
 				"indexMapper must be non null"));
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super I> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super I> actual) {
 		if (actual instanceof ConditionalSubscriber) {
 			@SuppressWarnings("unchecked") ConditionalSubscriber<? super I> cs =
 					(ConditionalSubscriber<? super I>) actual;
-			source.subscribe(new IndexConditionalSubscriber<>(cs, indexMapper));
+			return new IndexConditionalSubscriber<>(cs, indexMapper);
 		}
 		else {
-			source.subscribe(new IndexSubscriber<>(actual, indexMapper));
+			return new IndexSubscriber<>(actual, indexMapper);
 		}
 	}
 
@@ -257,11 +257,11 @@ final class FluxIndex<T, I> extends FluxOperator<T, I> {
 		}
 	}
 
-	private class NullSafeIndexMapper implements BiFunction<Long, T, I> {
+	static class NullSafeIndexMapper<T, I> implements BiFunction<Long, T, I> {
 
 		private final BiFunction<? super Long, ? super T, ? extends I> indexMapper;
 
-		public NullSafeIndexMapper(BiFunction<? super Long, ? super T, ? extends I> indexMapper) {
+		private NullSafeIndexMapper(BiFunction<? super Long, ? super T, ? extends I> indexMapper) {
 			this.indexMapper = indexMapper;
 		}
 
@@ -273,6 +273,16 @@ final class FluxIndex<T, I> extends FluxOperator<T, I> {
 						" at raw index " + i + " for value " + t);
 			}
 			return typedIndex;
+		}
+
+		static <T, I> BiFunction<? super Long, ? super T, ? extends I> create(
+				BiFunction<? super Long, ? super T, ? extends I> indexMapper) {
+			if (indexMapper == Flux.TUPLE2_BIFUNCTION) {
+				// TUPLE2_BIFUNCTION (Tuples::of) never returns null.
+				// Also helps FluxIndexFuseable to detect the default index mapper.
+				return indexMapper;
+			}
+			return new NullSafeIndexMapper<>(indexMapper);
 		}
 	}
 }

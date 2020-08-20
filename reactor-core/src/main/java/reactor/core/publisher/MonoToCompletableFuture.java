@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
+import reactor.util.context.Context;
 
 /**
  * @author Stephane Maldini
@@ -81,5 +82,10 @@ final class MonoToCompletableFuture<T> extends CompletableFuture<T> implements C
 		if (ref.getAndSet(null) != null) {
 			complete(null);
 		}
+	}
+
+	@Override
+	public Context currentContext() {
+		return Context.empty();
 	}
 }

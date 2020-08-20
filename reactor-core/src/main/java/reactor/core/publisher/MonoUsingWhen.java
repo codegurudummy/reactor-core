@@ -18,12 +18,14 @@ package reactor.core.publisher;
 
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
+import reactor.core.Exceptions;
 import reactor.core.Fuseable.ConditionalSubscriber;
 import reactor.core.publisher.FluxUsingWhen.UsingWhenSubscriber;
 import reactor.core.publisher.Operators.DeferredSubscription;
@@ -43,17 +45,17 @@ import reactor.util.context.Context;
  */
 final class MonoUsingWhen<T, S> extends Mono<T> implements SourceProducer<T> {
 
-	final Publisher<S>                                     resourceSupplier;
-	final Function<? super S, ? extends Mono<? extends T>> resourceClosure;
-	final Function<? super S, ? extends Publisher<?>>      asyncComplete;
-	final Function<? super S, ? extends Publisher<?>>      asyncError;
+	final Publisher<S>                                                     resourceSupplier;
+	final Function<? super S, ? extends Mono<? extends T>>                 resourceClosure;
+	final Function<? super S, ? extends Publisher<?>>                      asyncComplete;
+	final BiFunction<? super S, ? super Throwable, ? extends Publisher<?>> asyncError;
 	@Nullable
-	final Function<? super S, ? extends Publisher<?>>      asyncCancel;
+	final Function<? super S, ? extends Publisher<?>>                      asyncCancel;
 
 	MonoUsingWhen(Publisher<S> resourceSupplier,
 			Function<? super S, ? extends Mono<? extends T>> resourceClosure,
 			Function<? super S, ? extends Publisher<?>> asyncComplete,
-			Function<? super S, ? extends Publisher<?>> asyncError,
+			BiFunction<? super S, ? super Throwable, ? extends Publisher<?>> asyncError,
 			@Nullable Function<? super S, ? extends Publisher<?>> asyncCancel) {
 		this.resourceSupplier = Objects.requireNonNull(resourceSupplier, "resourceSupplier");
 		this.resourceClosure = Objects.requireNonNull(resourceClosure, "resourceClosure");
@@ -118,44 +120,32 @@ final class MonoUsingWhen<T, S> extends Mono<T> implements SourceProducer<T> {
 		return p;
 	}
 
-	private static <RESOURCE, T> UsingWhenSubscriber<? super T, RESOURCE> prepareSubscriberForResource(
+	private static <RESOURCE, T> MonoUsingWhenSubscriber<? super T, RESOURCE> prepareSubscriberForResource(
 			RESOURCE resource,
 			CoreSubscriber<? super T> actual,
 			Function<? super RESOURCE, ? extends Publisher<?>> asyncComplete,
-			Function<? super RESOURCE, ? extends Publisher<?>> asyncError,
+			BiFunction<? super RESOURCE, ? super Throwable, ? extends Publisher<?>> asyncError,
 			@Nullable Function<? super RESOURCE, ? extends Publisher<?>> asyncCancel,
 			@Nullable DeferredSubscription arbiter) {
-		if (actual instanceof ConditionalSubscriber) {
-			@SuppressWarnings("unchecked") ConditionalSubscriber<? super T>
-					conditionalActual =  (ConditionalSubscriber<? super T>) actual;
-			return new FluxUsingWhen.UsingWhenConditionalSubscriber<>(conditionalActual,
-					resource,
-					asyncComplete,
-					asyncError,
-					asyncCancel,
-					arbiter);
-		}
-		else {
-			return new UsingWhenSubscriber<>(actual,
-					resource,
-					asyncComplete,
-					asyncError,
-					asyncCancel,
-					arbiter);
-		}
+		//MonoUsingWhen cannot support ConditionalSubscriber as there's no way to defer tryOnNext
+		return new MonoUsingWhenSubscriber<>(actual,
+				resource,
+				asyncComplete,
+				asyncError,
+				asyncCancel,
+				arbiter);
 	}
 
 	//needed to correctly call prepareSubscriberForResource with Mono.from conversions
 	static class ResourceSubscriber<S, T> extends DeferredSubscription implements InnerConsumer<S> {
 
-		final CoreSubscriber<? super T> actual;
-
-		final Function<? super S, ? extends Mono<? extends T>>      resourceClosure;
-		final Function<? super S, ? extends Publisher<?>>           asyncComplete;
-		final Function<? super S, ? extends Publisher<?>>           asyncError;
+		final CoreSubscriber<? super T>                                        actual;
+		final Function<? super S, ? extends Mono<? extends T>>                 resourceClosure;
+		final Function<? super S, ? extends Publisher<?>>                      asyncComplete;
+		final BiFunction<? super S, ? super Throwable, ? extends Publisher<?>> asyncError;
 		@Nullable
-		final Function<? super S, ? extends Publisher<?>>           asyncCancel;
-		final boolean                                               isMonoSource;
+		final Function<? super S, ? extends Publisher<?>>                      asyncCancel;
+		final boolean                                                          isMonoSource;
 
 		Subscription        resourceSubscription;
 		boolean             resourceProvided;
@@ -165,7 +155,7 @@ final class MonoUsingWhen<T, S> extends Mono<T> implements SourceProducer<T> {
 		ResourceSubscriber(CoreSubscriber<? super T> actual,
 				Function<? super S, ? extends Mono<? extends T>> resourceClosure,
 				Function<? super S, ? extends Publisher<?>> asyncComplete,
-				Function<? super S, ? extends Publisher<?>> asyncError,
+				BiFunction<? super S, ? super Throwable, ? extends Publisher<?>> asyncError,
 				@Nullable Function<? super S, ? extends Publisher<?>> asyncCancel,
 				boolean isMonoSource) {
 			this.actual = Objects.requireNonNull(actual, "actual");
@@ -261,4 +251,38 @@ final class MonoUsingWhen<T, S> extends Mono<T> implements SourceProducer<T> {
 		}
 	}
 
+	static class MonoUsingWhenSubscriber<T, S> extends FluxUsingWhen.UsingWhenSubscriber<T, S> {
+
+		MonoUsingWhenSubscriber(CoreSubscriber<? super T> actual,
+				S resource,
+				Function<? super S, ? extends Publisher<?>> asyncComplete,
+				BiFunction<? super S, ? super Throwable, ? extends Publisher<?>> asyncError,
+				@Nullable Function<? super S, ? extends Publisher<?>> asyncCancel,
+				@Nullable DeferredSubscription arbiter) {
+			super(actual, resource, asyncComplete, asyncError, asyncCancel, arbiter);
+		}
+
+		T value;
+
+		@Override
+		public void onNext(T value) {
+			this.value = value;
+		}
+
+		@Override
+		public void deferredComplete() {
+			this.error = Exceptions.TERMINATED;
+			if (this.value != null) {
+				actual.onNext(value);
+			}
+			this.actual.onComplete();
+		}
+
+		@Override
+		public void deferredError(Throwable error) {
+			Operators.onDiscard(this.value, actual.currentContext());
+			this.error = error;
+			this.actual.onError(error);
+		}
+	}
 }
