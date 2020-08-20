@@ -23,6 +23,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.scheduler.Scheduler;
@@ -31,6 +32,7 @@ import reactor.util.Logger;
 import reactor.util.Loggers;
 import reactor.util.annotation.Nullable;
 import reactor.util.context.Context;
+import reactor.util.context.ContextView;
 
 /**
  * An operator that caches the value from a source Mono with a TTL, after which the value
@@ -151,6 +153,12 @@ class MonoCacheTime<T> extends InternalMonoOperator<T, T> implements Runnable {
 		return null;
 	}
 
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
+	}
+
 	static final class CoordinatorSubscriber<T> implements InnerConsumer<T>, Signal<T> {
 
 		final MonoCacheTime<T> main;
@@ -210,7 +218,7 @@ class MonoCacheTime<T> extends InternalMonoOperator<T, T> implements Runnable {
 		 * implemented for use in the main's STATE compareAndSet.
 		 */
 		@Override
-		public Context getContext() {
+		public ContextView getContext() {
 			throw new UnsupportedOperationException("illegal signal use: getContext");
 		}
 
@@ -300,7 +308,7 @@ class MonoCacheTime<T> extends InternalMonoOperator<T, T> implements Runnable {
 						main.run();
 					}
 					else if (!ttl.equals(DURATION_INFINITE)) {
-						main.clock.schedule(main, ttl.toMillis(), TimeUnit.MILLISECONDS);
+						main.clock.schedule(main, ttl.toNanos(), TimeUnit.NANOSECONDS);
 					}
 					//else TTL is Long.MAX_VALUE, schedule nothing but still cache
 				}
@@ -359,6 +367,7 @@ class MonoCacheTime<T> extends InternalMonoOperator<T, T> implements Runnable {
 		@Nullable
 		@Override
 		public Object scanUnsafe(Attr key) {
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 			return null;
 		}
 
@@ -381,6 +390,12 @@ class MonoCacheTime<T> extends InternalMonoOperator<T, T> implements Runnable {
 			if (coordinator != null) {
 				coordinator.remove(this);
 			}
+		}
+
+		@Override
+		public Object scanUnsafe(Attr key) {
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+			return super.scanUnsafe(key);
 		}
 	}
 

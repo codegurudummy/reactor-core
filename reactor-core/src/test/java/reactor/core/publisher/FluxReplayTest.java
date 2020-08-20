@@ -23,7 +23,6 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
-import org.assertj.core.api.Assertions;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -41,7 +40,7 @@ import reactor.test.scheduler.VirtualTimeScheduler;
 import reactor.test.subscriber.AssertSubscriber;
 import reactor.util.function.Tuple2;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.*;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 public class FluxReplayTest extends FluxOperatorTest<String, String> {
@@ -228,6 +227,31 @@ public class FluxReplayTest extends FluxOperatorTest<String, String> {
 	}
 
 	@Test
+	public void cacheFluxTTLNanos() {
+		Flux<Integer> source = Flux.just(1, 2, 3)
+		                                         .delayElements(Duration.ofNanos(1000))
+		                                         .replay(Duration.ofNanos(2000), vts)
+		                                         .hide()
+		                                         .autoConnect()
+												 .hide();
+
+		StepVerifier.create(source)
+		            .expectNoFusionSupport()
+		            .then(() -> vts.advanceTimeBy(Duration.ofNanos(3000)))
+		            .expectNext(1)
+		            .expectNext(2)
+		            .expectNext(3)
+		            .verifyComplete();
+
+		StepVerifier.create(source)
+		            .then(() -> vts.advanceTimeBy(Duration.ofNanos(3000)))
+		            .expectNext(2)
+		            .expectNext(3)
+		            .verifyComplete();
+
+	}
+
+	@Test
 	public void cacheFluxHistoryTTL() {
 
 		Flux<Tuple2<Long, Integer>> source = Flux.just(1, 2, 3)
@@ -398,8 +422,7 @@ public class FluxReplayTest extends FluxOperatorTest<String, String> {
 
 	@Test
 	public void cancel() {
-		ConnectableFlux<Integer> replay = UnicastProcessor.<Integer>create()
-		                                             .replay(2);
+		ConnectableFlux<Integer> replay = Processors.<Integer>unicast().replay(2);
 
 		replay.subscribe(v -> {}, e -> { throw Exceptions.propagate(e); });
 
@@ -420,9 +443,10 @@ public class FluxReplayTest extends FluxOperatorTest<String, String> {
         Flux<Integer> parent = Flux.just(1).map(i -> i);
         FluxReplay<Integer> test = new FluxReplay<>(parent, 25, 1000, Schedulers.single());
 
-        Assertions.assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
-        Assertions.assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(25);
-        Assertions.assertThat(test.scan(Scannable.Attr.RUN_ON)).isSameAs(Schedulers.single());
+        assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+        assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(25);
+        assertThat(test.scan(Scannable.Attr.RUN_ON)).isSameAs(Schedulers.single());
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
     }
 
 	@Test
@@ -434,21 +458,21 @@ public class FluxReplayTest extends FluxOperatorTest<String, String> {
         parent.add(test);
         parent.buffer.replay(test);
 
-        Assertions.assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
-        Assertions.assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
-        Assertions.assertThat(test.scan(Scannable.Attr.BUFFERED)).isEqualTo(0); // RS: TODO non-zero size
-		Assertions.assertThat(test.scan(Scannable.Attr.RUN_ON)).isSameAs(Schedulers.single());
+        assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+        assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+        assertThat(test.scan(Scannable.Attr.BUFFERED)).isEqualTo(0); // RS: TODO non-zero size
+		assertThat(test.scan(Scannable.Attr.RUN_ON)).isSameAs(Schedulers.single());
 
 		test.request(35);
-        Assertions.assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(35);
+        assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(35);
 
-        Assertions.assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
+        assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
         test.parent.terminate();
-        Assertions.assertThat(test.scan(Scannable.Attr.TERMINATED)).isTrue();
+        assertThat(test.scan(Scannable.Attr.TERMINATED)).isTrue();
 
-        Assertions.assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
+        assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
         test.cancel();
-        Assertions.assertThat(test.scan(Scannable.Attr.CANCELLED)).isTrue();
+        assertThat(test.scan(Scannable.Attr.CANCELLED)).isTrue();
     }
 
 	@Test
@@ -458,22 +482,23 @@ public class FluxReplayTest extends FluxOperatorTest<String, String> {
         Subscription sub = Operators.emptySubscription();
         test.onSubscribe(sub);
 
-        Assertions.assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(sub);
-        Assertions.assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(Integer.MAX_VALUE);
-        Assertions.assertThat(test.scan(Scannable.Attr.CAPACITY)).isEqualTo(Integer.MAX_VALUE);
+        assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(sub);
+        assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(Integer.MAX_VALUE);
+        assertThat(test.scan(Scannable.Attr.CAPACITY)).isEqualTo(Integer.MAX_VALUE);
         test.buffer.add(1);
-        Assertions.assertThat(test.scan(Scannable.Attr.BUFFERED)).isEqualTo(1);
+        assertThat(test.scan(Scannable.Attr.BUFFERED)).isEqualTo(1);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
-        Assertions.assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
-        Assertions.assertThat(test.scan(Scannable.Attr.ERROR)).isNull();
+        assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
+        assertThat(test.scan(Scannable.Attr.ERROR)).isNull();
         test.onError(new IllegalStateException("boom"));
-        Assertions.assertThat(test.scan(Scannable.Attr.ERROR)).hasMessage("boom");
+        assertThat(test.scan(Scannable.Attr.ERROR)).hasMessage("boom");
         test.terminate();
-        Assertions.assertThat(test.scan(Scannable.Attr.TERMINATED)).isTrue();
+        assertThat(test.scan(Scannable.Attr.TERMINATED)).isTrue();
 
-        Assertions.assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
+        assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
         test.cancelled = true;
-        Assertions.assertThat(test.scan(Scannable.Attr.CANCELLED)).isTrue();
+        assertThat(test.scan(Scannable.Attr.CANCELLED)).isTrue();
     }
 
 	@Test(timeout = 5000)

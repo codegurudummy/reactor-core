@@ -61,6 +61,13 @@ import reactor.util.concurrent.Queues;
 import reactor.util.function.Tuple2;
 
 import static java.util.concurrent.Executors.newCachedThreadPool;
+import static org.hamcrest.CoreMatchers.*;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.lessThan;
+import static org.junit.Assert.*;
+import static reactor.core.Scannable.Attr.PREFETCH;
+import static reactor.core.Scannable.Attr.RUN_ON;
+import static reactor.core.Scannable.Attr.RunStyle;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 import static reactor.core.scheduler.Schedulers.fromExecutor;
@@ -241,8 +248,8 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 	public void normalAsyncFused() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
-		UnicastProcessor<Integer> up =
-				UnicastProcessor.create(new ConcurrentLinkedQueue<>());
+		FluxIdentityProcessor<Integer> up =
+				Processors.more().unicast(new ConcurrentLinkedQueue<>());
 
 		for (int i = 0; i < 1_000_000; i++) {
 			up.onNext(i);
@@ -261,8 +268,8 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 
 	@Test
 	public void normalAsyncFusedBackpressured() throws Exception {
-		UnicastProcessor<Integer> up =
-				UnicastProcessor.create(Queues.<Integer>unbounded(1024).get());
+		FluxIdentityProcessor<Integer> up =
+				Processors.more().unicast(Queues.<Integer>unbounded(1024).get());
 
 		for (int i = 0; i < 1_000_000; i++) {
 			up.onNext(0);
@@ -449,7 +456,7 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 
 	public void diamond() {
 
-		DirectProcessor<Integer> sp = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp = Processors.more().multicastNoBackpressure();
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
 		Flux<Integer> fork1 = sp.map(d -> d)
@@ -692,8 +699,8 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 	@Test
 	public void mappedAsyncSourceWithNull() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
-		UnicastProcessor<Integer> up =
-				UnicastProcessor.create(Queues.<Integer>get(2).get());
+		FluxIdentityProcessor<Integer> up =
+				Processors.more().unicast(Queues.<Integer>get(2).get());
 		up.onNext(1);
 		up.onNext(2);
 		up.onComplete();
@@ -712,8 +719,8 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 	@Test
 	public void mappedAsyncSourceWithNullPostFilter() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
-		UnicastProcessor<Integer> up =
-				UnicastProcessor.create(Queues.<Integer>get(2).get());
+		FluxIdentityProcessor<Integer> up =
+				Processors.more().unicast(Queues.<Integer>get(2).get());
 		up.onNext(1);
 		up.onNext(2);
 		up.onComplete();
@@ -794,8 +801,8 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 
 	@Test
 	public void threadBoundaryPreventsInvalidFusionMap() {
-		UnicastProcessor<Integer> up =
-				UnicastProcessor.create(Queues.<Integer>get(2).get());
+		FluxIdentityProcessor<Integer> up =
+				Processors.more().unicast(Queues.<Integer>get(2).get());
 
 		AssertSubscriber<String> ts = AssertSubscriber.create();
 
@@ -817,8 +824,8 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 
 	@Test
 	public void threadBoundaryPreventsInvalidFusionFilter() {
-		UnicastProcessor<Integer> up =
-				UnicastProcessor.create(Queues.<Integer>get(2).get());
+		FluxIdentityProcessor<Integer> up =
+				Processors.more().unicast(Queues.<Integer>get(2).get());
 
 		String s = Thread.currentThread()
 		                 .getName();
@@ -1055,7 +1062,7 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 			ExecutorService executor = newCachedThreadPool();
 			StepVerifier.create(Flux.range(0, 5)
 			                        .log()
-			                        .publishOn(Schedulers.elastic())
+			                        .publishOn(Schedulers.boundedElastic())
 			                        .doOnRequest(n -> executor.shutdownNow())
 			                        .publishOn(fromExecutorService(executor))
 			                        .doOnNext(this::infiniteBlock))
@@ -1133,8 +1140,8 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 		final ConcurrentHashMap<Object, Long> seenInternal = new ConcurrentHashMap<>();
 		final ConcurrentHashMap<Object, Long> seenConsumer = new ConcurrentHashMap<>();
 
-		EmitterProcessor<Integer> d = EmitterProcessor.create();
-		FluxSink<Integer> s = d.sink();
+		Sinks.StandaloneFluxSink<Integer> s = Sinks.multicast();
+		Flux<Integer> d = s.asFlux();
 
 		/*Disposable c = */
 		d.publishOn(Schedulers.parallel())
@@ -1198,8 +1205,8 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 		CountDownLatch latch = new CountDownLatch(items);
 		Random random = ThreadLocalRandom.current();
 
-		EmitterProcessor<String> d = EmitterProcessor.create();
-		FluxSink<String> s = d.sink();
+		Sinks.StandaloneFluxSink<String> s = Sinks.multicast();
+		Flux<String> d = s.asFlux();
 
 		Flux<Integer> tasks = d.publishOn(Schedulers.parallel())
 		                       .parallel(8)
@@ -1253,6 +1260,18 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 	}
 
 	@Test
+	public void scanOperator(){
+		Flux<Integer> source = Flux.just(1);
+		Scheduler scheduler = Schedulers.immediate();
+		FluxPublishOn<Integer> test = new FluxPublishOn<>(source, scheduler, false, 3, 4, Queues.one());
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(source);
+		assertThat(test.scan(PREFETCH)).isEqualTo(3);
+		assertThat(test.scan(RUN_ON)).isSameAs(scheduler);
+	    assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(RunStyle.ASYNC);
+	}
+
+	@Test
     public void scanSubscriber() throws InterruptedException {
         CoreSubscriber<Integer> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
         FluxPublishOn.PublishOnSubscriber<Integer> test = new FluxPublishOn.PublishOnSubscriber<>(actual,
@@ -1266,6 +1285,7 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
         assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(123);
         test.requested = 35;
         assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(35L);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(RunStyle.ASYNC);
 
         assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
         test.onError(new IllegalStateException("boom"));
@@ -1302,6 +1322,7 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
         assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(35L);
         test.queue.add(1);
         assertThat(test.scan(Scannable.Attr.BUFFERED)).isEqualTo(1);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(RunStyle.ASYNC);
 
         assertThat(test.scan(Scannable.Attr.ERROR)).isNull();
         assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
@@ -1455,7 +1476,7 @@ public class FluxPublishOnTest extends FluxOperatorTest<String, String> {
 	public void scanRunOn() {
 		Scannable publishOnScannable = Scannable.from(
 				Flux.just(1).hide()
-				    .publishOn(Schedulers.elastic())
+				    .publishOn(Schedulers.boundedElastic())
 		);
 		Scannable runOnScannable = publishOnScannable.scan(Scannable.Attr.RUN_ON);
 

@@ -26,6 +26,7 @@ import java.util.stream.Stream;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.core.Exceptions;
@@ -61,6 +62,7 @@ final class FluxWindowBoundary<T, U> extends InternalFluxOperator<T, Flux<T>> {
 	}
 
 	@Override
+	@Nullable
 	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super Flux<T>> actual) {
 		WindowBoundaryMain<T, U> main = new WindowBoundaryMain<>(actual,
 				processorQueueSupplier, processorQueueSupplier.get());
@@ -77,6 +79,12 @@ final class FluxWindowBoundary<T, U> extends InternalFluxOperator<T, Flux<T>> {
 		}
 	}
 
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
+	}
+
 	static final class WindowBoundaryMain<T, U>
 			implements InnerOperator<T, Flux<T>>, Disposable {
 
@@ -87,7 +95,7 @@ final class FluxWindowBoundary<T, U> extends InternalFluxOperator<T, Flux<T>> {
 		final Queue<Object>                   queue;
 		final CoreSubscriber<? super Flux<T>> actual;
 
-		UnicastProcessor<T> window;
+		FluxIdentityProcessor<T> window;
 
 		volatile Subscription s;
 
@@ -131,7 +139,7 @@ final class FluxWindowBoundary<T, U> extends InternalFluxOperator<T, Flux<T>> {
 				Queue<T> processorQueue) {
 			this.actual = actual;
 			this.processorQueueSupplier = processorQueueSupplier;
-			this.window = new UnicastProcessor<>(processorQueue, this);
+			this.window = Processors.more().unicast(processorQueue, this);
 			WINDOW_COUNT.lazySet(this, 2);
 			this.boundary = new WindowBoundaryOther<>(this);
 			this.queue = Queues.unboundedMultiproducer().get();
@@ -152,6 +160,7 @@ final class FluxWindowBoundary<T, U> extends InternalFluxOperator<T, Flux<T>> {
 			if (key == Attr.PREFETCH) return Integer.MAX_VALUE;
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return requested;
 			if (key == Attr.BUFFERED) return queue.size();
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -273,7 +282,7 @@ final class FluxWindowBoundary<T, U> extends InternalFluxOperator<T, Flux<T>> {
 
 			final Subscriber<? super Flux<T>> a = actual;
 			final Queue<Object> q = queue;
-			UnicastProcessor<T> w = window;
+			FluxIdentityProcessor<T> w = window;
 
 			int missed = 1;
 
@@ -320,7 +329,7 @@ final class FluxWindowBoundary<T, U> extends InternalFluxOperator<T, Flux<T>> {
 
 								WINDOW_COUNT.getAndIncrement(this);
 
-								w = new UnicastProcessor<>(pq, this);
+								w = Processors.more().unicast(pq, this);
 								window = w;
 
 								a.onNext(w);
@@ -347,7 +356,7 @@ final class FluxWindowBoundary<T, U> extends InternalFluxOperator<T, Flux<T>> {
 			}
 		}
 
-		boolean emit(UnicastProcessor<T> w) {
+		boolean emit(FluxIdentityProcessor<T> w) {
 			long r = requested;
 			if (r != 0L) {
 				actual.onNext(w);
@@ -392,6 +401,9 @@ final class FluxWindowBoundary<T, U> extends InternalFluxOperator<T, Flux<T>> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.ACTUAL) {
 				return main;
+			}
+			if (key == Attr.RUN_STYLE) {
+			    return Attr.RunStyle.SYNC;
 			}
 			return super.scanUnsafe(key);
 		}

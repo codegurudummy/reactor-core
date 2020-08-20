@@ -86,6 +86,12 @@ final class FluxRetryWhen<T> extends InternalFluxOperator<T, T> {
 		return null;
 	}
 
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
+	}
+
 	static final class RetryWhenMainSubscriber<T> extends Operators.MultiSubscriptionSubscriber<T, T>
 			implements Retry.RetrySignal {
 
@@ -218,13 +224,19 @@ final class FluxRetryWhen<T> extends InternalFluxOperator<T, T> {
 
 			actual.onComplete();
 		}
+
+		@Override
+		public Object scanUnsafe(Attr key) {
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+			return super.scanUnsafe(key);
+		}
 	}
 
 	static final class RetryWhenOtherSubscriber extends Flux<Retry.RetrySignal>
 	implements InnerConsumer<Object>, OptimizableOperator<Retry.RetrySignal, Retry.RetrySignal> {
 		RetryWhenMainSubscriber<?> main;
 
-		final DirectProcessor<Retry.RetrySignal> completionSignal = new DirectProcessor<>();
+		final FluxIdentityProcessor<Retry.RetrySignal> completionSignal = Processors.more().multicastNoBackpressure();
 
 		@Override
 		public Context currentContext() {
@@ -236,6 +248,7 @@ final class FluxRetryWhen<T> extends InternalFluxOperator<T, T> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return main.otherArbiter;
 			if (key == Attr.ACTUAL) return main;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}
@@ -271,7 +284,7 @@ final class FluxRetryWhen<T> extends InternalFluxOperator<T, T> {
 		}
 
 		@Override
-		public DirectProcessor<Retry.RetrySignal> source() {
+		public CorePublisher<Retry.RetrySignal> source() {
 			return completionSignal;
 		}
 

@@ -21,11 +21,11 @@ configure(rootProject) {
 			.withPropertyName("asciidocFiles")
 			.withPathSensitivity(PathSensitivity.RELATIVE)
 
-		if (isCiServer || !rootProject.version.toString().endsWith(".BUILD-SNAPSHOT")) {
-			backends = ["html5", "pdf"]
+		if (!isCiServer && rootProject.version.toString().endsWith("-SNAPSHOT")) {
+			backends = ["html5"]
 		}
 		else {
-			backends = ["html5"]
+			backends = ["html5", "pdf"]
 		}
 
 		sourceDir "$rootDir/docs/asciidoc/"
@@ -40,9 +40,7 @@ configure(rootProject) {
 		}
 		outputDir file("$buildDir/docs/asciidoc")
 		logDocuments = true
-		options = [
-			doctype: 'book'
-		]
+		options = [doctype: 'book']
 		attributes 'allow-uri-read': '',
 			imagesdir: "images/",
 			stylesdir: "stylesheets/",

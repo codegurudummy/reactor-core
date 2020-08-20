@@ -95,6 +95,12 @@ final class FluxTimeout<T, U, V> extends InternalFluxOperator<T, T> {
 		}
 	}
 
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
+	}
+
 	static final class TimeoutMainSubscriber<T, V>
 			extends Operators.MultiSubscriptionSubscriber<T, T> {
 
@@ -294,9 +300,15 @@ final class FluxTimeout<T, U, V> extends InternalFluxOperator<T, T> {
 				other.subscribe(new TimeoutOtherSubscriber<>(actual, this));
 			}
 		}
+
+		@Override
+		public Object scanUnsafe(Attr key) {
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+			return super.scanUnsafe(key);
+		}
 	}
 
-	static final class TimeoutOtherSubscriber<T> implements CoreSubscriber<T> {
+	static final class TimeoutOtherSubscriber<T> implements InnerConsumer<T> {
 
 		final CoreSubscriber<? super T> actual;
 
@@ -332,6 +344,12 @@ final class FluxTimeout<T, U, V> extends InternalFluxOperator<T, T> {
 		public void onComplete() {
 			actual.onComplete();
 		}
+
+		@Override
+		public Object scanUnsafe(Attr key) {
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+			return null;
+		}
 	}
 
 	interface IndexedCancellable {
@@ -357,7 +375,7 @@ final class FluxTimeout<T, U, V> extends InternalFluxOperator<T, T> {
 	}
 
 	static final class TimeoutTimeoutSubscriber
-			implements Subscriber<Object>, IndexedCancellable {
+			implements InnerConsumer<Object>, IndexedCancellable {
 
 		final TimeoutMainSubscriber<?, ?> main;
 
@@ -373,6 +391,11 @@ final class FluxTimeout<T, U, V> extends InternalFluxOperator<T, T> {
 		TimeoutTimeoutSubscriber(TimeoutMainSubscriber<?, ?> main, long index) {
 			this.main = main;
 			this.index = index;
+		}
+
+		@Override
+		public Context currentContext() {
+			return main.currentContext();
 		}
 
 		@Override
@@ -419,6 +442,12 @@ final class FluxTimeout<T, U, V> extends InternalFluxOperator<T, T> {
 		@Override
 		public long index() {
 			return index;
+		}
+
+		@Override
+		public Object scanUnsafe(Attr key) {
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+			return null;
 		}
 	}
 }

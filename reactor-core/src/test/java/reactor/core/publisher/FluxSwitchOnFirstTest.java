@@ -18,6 +18,7 @@ package reactor.core.publisher;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
@@ -28,6 +29,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.assertj.core.api.Assertions;
 import org.assertj.core.api.Assumptions;
@@ -40,14 +42,19 @@ import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.core.Disposables;
 import reactor.core.Fuseable;
+import reactor.core.Scannable;
+import reactor.core.Scannable.Attr;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
+import reactor.test.MockUtils;
 import reactor.test.StepVerifier;
 import reactor.test.publisher.TestPublisher;
 import reactor.test.scheduler.VirtualTimeScheduler;
 import reactor.test.subscriber.AssertSubscriber;
 import reactor.test.util.RaceTestUtils;
 import reactor.util.context.Context;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class FluxSwitchOnFirstTest {
 
@@ -130,8 +137,7 @@ public class FluxSwitchOnFirstTest {
                                 .doOnCancel(latch::countDown)
                                 .switchOnFirst((s, f) -> f)
                                 .doOnSubscribe(s ->
-                                    Schedulers
-                                            .elastic()
+                                    Schedulers.boundedElastic()
                                             .schedule(() -> {
                                                 try {
                                                     nextLatch.await();
@@ -171,8 +177,7 @@ public class FluxSwitchOnFirstTest {
                                 .switchOnFirst((s, f) -> f)
                                 .filter(e -> true)
                                 .doOnSubscribe(s ->
-                                    Schedulers
-                                        .elastic()
+                                    Schedulers.boundedElastic()
                                         .schedule(() -> {
                                             try {
                                                 nextLatch.await();
@@ -325,7 +330,7 @@ public class FluxSwitchOnFirstTest {
                                     .switchOnFirst((s, f) -> {
                                         first[0] = s;
 
-                                        return f.subscribeOn(Schedulers.elastic());
+                                        return f.subscribeOn(Schedulers.boundedElastic());
                                     }))
                         .expectSubscription()
                         .expectNext(1L)
@@ -346,7 +351,7 @@ public class FluxSwitchOnFirstTest {
                                 .switchOnFirst((s, f) -> {
                                     first[0] = s;
 
-                                    return f.subscribeOn(Schedulers.elastic());
+                                    return f.subscribeOn(Schedulers.boundedElastic());
                                 })
                                 .filter(p -> true)
                     )
@@ -766,7 +771,7 @@ public class FluxSwitchOnFirstTest {
                         e.printStackTrace();
                     }
                 })
-                .cancelOn(Schedulers.elastic());
+                .cancelOn(Schedulers.boundedElastic());
 
         publisher.next(1);
 
@@ -875,7 +880,7 @@ public class FluxSwitchOnFirstTest {
                         e.printStackTrace();
                     }
                 })
-                .cancelOn(Schedulers.elastic());
+                .cancelOn(Schedulers.boundedElastic());
 
         StepVerifier stepVerifier = StepVerifier.create(switchTransformed, 0)
                 .expectSubscription()
@@ -1087,7 +1092,7 @@ public class FluxSwitchOnFirstTest {
 
     @Test
     public void checkHotSource() {
-        ReplayProcessor<Long> processor = ReplayProcessor.create(1);
+        FluxIdentityProcessor<Long> processor = Processors.replay(1);
 
         processor.onNext(1L);
         processor.onNext(2L);
@@ -1112,7 +1117,7 @@ public class FluxSwitchOnFirstTest {
 
     @Test
     public void shouldCancelSourceOnUnrelatedPublisherComplete() {
-        EmitterProcessor<Long> testPublisher = EmitterProcessor.create();
+        FluxIdentityProcessor<Long> testPublisher = Processors.multicast();
 
         testPublisher.onNext(1L);
 
@@ -1121,12 +1126,12 @@ public class FluxSwitchOnFirstTest {
                     .expectComplete()
                     .verify(Duration.ofSeconds(5));
 
-        Assertions.assertThat(testPublisher.isCancelled()).isTrue();
+        Assertions.assertThat(testPublisher.scan(Attr.CANCELLED)).isTrue();
     }
 
     @Test
     public void shouldNotCancelSourceOnUnrelatedPublisherComplete() {
-        EmitterProcessor<Long> testPublisher = EmitterProcessor.create();
+        FluxIdentityProcessor<Long> testPublisher = Processors.multicast();
 
         testPublisher.onNext(1L);
 
@@ -1135,12 +1140,12 @@ public class FluxSwitchOnFirstTest {
                 .expectComplete()
                 .verify(Duration.ofSeconds(5));
 
-        Assertions.assertThat(testPublisher.isCancelled()).isFalse();
+        Assertions.assertThat(testPublisher.scan(Attr.CANCELLED)).isFalse();
     }
 
     @Test
     public void shouldCancelSourceOnUnrelatedPublisherError() {
-        EmitterProcessor<Long> testPublisher = EmitterProcessor.create();
+        FluxIdentityProcessor<Long> testPublisher = Processors.multicast();
 
         testPublisher.onNext(1L);
 
@@ -1153,7 +1158,7 @@ public class FluxSwitchOnFirstTest {
                     )
                     .verify(Duration.ofSeconds(5));
 
-        Assertions.assertThat(testPublisher.isCancelled()).isTrue();
+        Assertions.assertThat(testPublisher.scan(Attr.CANCELLED)).isTrue();
     }
 
     @Test
@@ -1170,42 +1175,44 @@ public class FluxSwitchOnFirstTest {
 
     @Test
     public void shouldCancelSourceOnUnrelatedPublisherCompleteConditional() {
-        EmitterProcessor<Long> testPublisher = EmitterProcessor.create();
+        FluxIdentityProcessor<Long> testPublisher = Processors.multicast();
 
         testPublisher.onNext(1L);
 
         StepVerifier.create(testPublisher.switchOnFirst((s, f) -> Flux.empty().delaySubscription(Duration.ofMillis(10))).filter(__ -> true))
                     .then(() -> {
-                        FluxPublish.PubSubInner<Long>[] subs = testPublisher.subscribers;
-                        Assertions.assertThat(subs).hasSize(1);
-                        Assertions.assertThat(subs[0])
-                                  .extracting(psi -> psi.actual)
+                        List<? extends Scannable> subs = testPublisher.inners().collect(Collectors.toList());
+                        Assertions.assertThat(subs)
+                                  .hasSize(1)
+                                  .first()
+                                  .extracting(psi -> psi.scan(Attr.ACTUAL))
                                   .isInstanceOf(Fuseable.ConditionalSubscriber.class);
                     })
                     .expectComplete()
                     .verify(Duration.ofSeconds(5));
 
-        Assertions.assertThat(testPublisher.isCancelled()).isTrue();
+        Assertions.assertThat(testPublisher.scan(Attr.CANCELLED)).isTrue();
     }
 
     @Test
     public void shouldNotCancelSourceOnUnrelatedPublisherCompleteConditional() {
-        EmitterProcessor<Long> testPublisher = EmitterProcessor.create();
+        FluxIdentityProcessor<Long> testPublisher = Processors.multicast();
 
         testPublisher.onNext(1L);
 
         StepVerifier.create(testPublisher.switchOnFirst((s, f) -> Flux.empty().delaySubscription(Duration.ofMillis(10)), false).filter(__ -> true))
                 .then(() -> {
-                    FluxPublish.PubSubInner<Long>[] subs = testPublisher.subscribers;
-                    Assertions.assertThat(subs).hasSize(1);
-                    Assertions.assertThat(subs[0])
-                            .extracting(psi -> psi.actual)
-                            .isInstanceOf(Fuseable.ConditionalSubscriber.class);
+                    List<? extends Scannable> subs = testPublisher.inners().collect(Collectors.toList());
+                    Assertions.assertThat(subs)
+                              .hasSize(1)
+                              .first()
+                              .extracting(psi -> psi.scan(Attr.ACTUAL))
+                              .isInstanceOf(Fuseable.ConditionalSubscriber.class);
                 })
                 .expectComplete()
                 .verify(Duration.ofSeconds(5));
 
-        Assertions.assertThat(testPublisher.isCancelled()).isFalse();
+        Assertions.assertThat(testPublisher.scan(Attr.CANCELLED)).isFalse();
     }
 
     @Test
@@ -1285,16 +1292,17 @@ public class FluxSwitchOnFirstTest {
 
     @Test
     public void shouldCancelSourceOnUnrelatedPublisherErrorConditional() {
-        EmitterProcessor<Long> testPublisher = EmitterProcessor.create();
+        FluxIdentityProcessor<Long> testPublisher = Processors.multicast();
 
         testPublisher.onNext(1L);
 
         StepVerifier.create(testPublisher.switchOnFirst((s, f) -> Flux.error(new RuntimeException("test")).delaySubscription(Duration.ofMillis(10))).filter(__ -> true))
                     .then(() -> {
-                        FluxPublish.PubSubInner<Long>[] subs = testPublisher.subscribers;
-                        Assertions.assertThat(subs).hasSize(1);
-                        Assertions.assertThat(subs[0])
-                                  .extracting(psi -> psi.actual)
+                        List<? extends Scannable> subs = testPublisher.inners().collect(Collectors.toList());
+                        Assertions.assertThat(subs)
+                                  .hasSize(1)
+                                  .first()
+                                  .extracting(psi -> psi.scan(Attr.ACTUAL))
                                   .isInstanceOf(Fuseable.ConditionalSubscriber.class);
                     })
                     .expectErrorSatisfies(t ->
@@ -1304,40 +1312,41 @@ public class FluxSwitchOnFirstTest {
                     )
                     .verify(Duration.ofSeconds(5));
 
-        Assertions.assertThat(testPublisher.isCancelled()).isTrue();
+        Assertions.assertThat(testPublisher.scan(Attr.CANCELLED)).isTrue();
     }
 
     @Test
     public void shouldCancelSourceOnUnrelatedPublisherCancelConditional() {
-        EmitterProcessor<Long> testPublisher = EmitterProcessor.create();
+        FluxIdentityProcessor<Long> testPublisher = Processors.multicast();
 
         testPublisher.onNext(1L);
 
         StepVerifier.create(testPublisher.switchOnFirst((s, f) -> Flux.error(new RuntimeException("test")).delaySubscription(Duration.ofMillis(10))).filter(__ -> true))
                     .then(() -> {
-                        FluxPublish.PubSubInner<Long>[] subs = testPublisher.subscribers;
-                        Assertions.assertThat(subs).hasSize(1);
-                        Assertions.assertThat(subs[0])
-                                  .extracting(psi -> psi.actual)
+                        List<? extends Scannable> subs = testPublisher.inners().collect(Collectors.toList());
+                        Assertions.assertThat(subs)
+                                  .hasSize(1)
+                                  .first()
+                                  .extracting(psi -> psi.scan(Attr.ACTUAL))
                                   .isInstanceOf(Fuseable.ConditionalSubscriber.class);
                     })
                     .thenAwait(Duration.ofMillis(50))
                     .thenCancel()
                     .verify();
 
-        Assertions.assertThat(testPublisher.isCancelled()).isTrue();
+        Assertions.assertThat(testPublisher.scan(Attr.CANCELLED)).isTrue();
     }
 
     @Test
     public void shouldCancelUpstreamBeforeFirst() {
-        EmitterProcessor<Long> testPublisher = EmitterProcessor.create();
+        FluxIdentityProcessor<Long> testPublisher = Processors.multicast();
 
         StepVerifier.create(testPublisher.switchOnFirst((s, f) -> Flux.error(new RuntimeException("test"))))
                 .thenAwait(Duration.ofMillis(50))
                 .thenCancel()
                 .verify(Duration.ofSeconds(2));
 
-        Assertions.assertThat(testPublisher.isCancelled()).isTrue();
+        Assertions.assertThat(testPublisher.scan(Attr.CANCELLED)).isTrue();
     }
 
     @Test
@@ -1848,6 +1857,80 @@ public class FluxSwitchOnFirstTest {
         }
     }
 
+
+    @Test
+    public void scanOperator(){
+    	Flux<Integer> parent = Flux.just(1);
+        FluxSwitchOnFirst<Integer, Integer> test = new FluxSwitchOnFirst<>(parent, (s, f) -> Flux.empty(), false);
+
+        Assertions.assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+        Assertions.assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+    }
+
+    @Test
+    public void scanMain(){
+        CoreSubscriber<Integer> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
+        FluxSwitchOnFirst.SwitchOnFirstMain<Integer, Integer> test =
+                new FluxSwitchOnFirst.SwitchOnFirstMain<>(actual, (s, f) -> Flux.empty(), false);
+
+        Subscription parent = Operators.emptySubscription();
+        test.onSubscribe(parent);
+
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+
+        assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
+        test.cancel();
+        assertThat(test.scan(Scannable.Attr.CANCELLED)).isTrue();
+    }
+
+    @Test
+    public void scanMainConditional(){
+        @SuppressWarnings("unchecked")
+        Fuseable.ConditionalSubscriber<String> actual = Mockito.mock(MockUtils.TestScannableConditionalSubscriber.class);
+        FluxSwitchOnFirst.SwitchOnFirstConditionalMain<String, String> test =
+                new FluxSwitchOnFirst.SwitchOnFirstConditionalMain<>(actual, (s, f) -> Flux.empty(), false);
+
+        Subscription parent = Operators.emptySubscription();
+        test.onSubscribe(parent);
+
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+
+        assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
+        test.onError(new IllegalStateException("boom"));
+        assertThat(test.scan(Scannable.Attr.TERMINATED)).isTrue();
+    }
+
+    @Test
+    public void scanSubscriber(){
+        @SuppressWarnings("unchecked")
+        Fuseable.ConditionalSubscriber<String> delegate = Mockito.mock(MockUtils.TestScannableConditionalSubscriber.class);
+        FluxSwitchOnFirst.SwitchOnFirstConditionalMain<String, String> parent =
+                new FluxSwitchOnFirst.SwitchOnFirstConditionalMain<>(delegate, (s, f) -> Flux.empty(), false);
+        FluxSwitchOnFirst.SwitchOnFirstControlSubscriber<String> test = new FluxSwitchOnFirst.SwitchOnFirstControlSubscriber<>(parent, delegate, false);
+
+        Subscription sub = Operators.emptySubscription();
+        test.onSubscribe(sub);
+
+        assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+        assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(delegate);
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+    }
+
+    @Test
+    public void scanConditionnalSubscriber(){
+        @SuppressWarnings("unchecked")
+        Fuseable.ConditionalSubscriber<String> delegate = Mockito.mock(MockUtils.TestScannableConditionalSubscriber.class);
+        FluxSwitchOnFirst.SwitchOnFirstConditionalMain<String, String> main =
+                new FluxSwitchOnFirst.SwitchOnFirstConditionalMain<>(delegate, (s, f) -> Flux.empty(), false);
+        FluxSwitchOnFirst.SwitchOnFirstConditionalControlSubscriber<String> test = new FluxSwitchOnFirst.SwitchOnFirstConditionalControlSubscriber<>(main, delegate, false);
+
+        Subscription parent = Operators.emptySubscription();
+        test.onSubscribe(parent);
+
+        assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(main);
+        assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(delegate);
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+    }
 
     private static final class NoOpsScheduler implements Scheduler {
 

@@ -20,11 +20,13 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.assertj.core.data.Percentage;
 import org.junit.Test;
 
+import reactor.core.Scannable;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 import reactor.test.StepVerifier;
@@ -35,6 +37,49 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class MonoRetryWhenTest {
 
+	@Test
+	public void twoRetryNormalSupplier() {
+		AtomicInteger i = new AtomicInteger();
+		AtomicBoolean bool = new AtomicBoolean(true);
+
+		Mono<Integer> source = Mono
+				.fromCallable(i::incrementAndGet)
+				.doOnNext(v -> {
+					if (v < 4) {
+						throw new RuntimeException("test");
+					}
+					else {
+						bool.set(false);
+					}
+				})
+				.retryWhen(Retry.max(3).filter(e -> bool.get()));
+
+		StepVerifier.create(source)
+		            .expectNext(4)
+		            .expectComplete()
+		            .verify();
+	}
+
+	@Test
+	public void twoRetryErrorSupplier() {
+		AtomicInteger i = new AtomicInteger();
+		AtomicBoolean bool = new AtomicBoolean(true);
+
+		Mono<Integer> source = Mono
+				.fromCallable(i::incrementAndGet)
+				.doOnNext(v -> {
+					if (v < 4) {
+						if (v > 2) {
+							bool.set(false);
+						}
+						throw new RuntimeException("test");
+					}
+				})
+				.retryWhen(Retry.max(3).filter(e -> bool.get()));
+
+		StepVerifier.create(source)
+		            .verifyErrorMessage("test");
+	}
 
 	Mono<String> exponentialRetryScenario() {
 		AtomicInteger i = new AtomicInteger();
@@ -332,4 +377,12 @@ public class MonoRetryWhenTest {
 		}
 	}
 
+	@Test
+	public void scanOperator(){
+		Mono<String> parent = Mono.just("foo");
+		MonoRetryWhen<String> test = new MonoRetryWhen<>(parent, Retry.backoff(5, Duration.ofMinutes(30)));
+
+	    assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+	    assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
 }

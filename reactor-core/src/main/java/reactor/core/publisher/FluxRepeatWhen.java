@@ -24,6 +24,7 @@ import java.util.stream.Stream;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.Scannable;
@@ -87,6 +88,12 @@ final class FluxRepeatWhen<T> extends InternalFluxOperator<T, T> {
 		else {
 			return null;
 		}
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class RepeatWhenMainSubscriber<T>
@@ -196,6 +203,11 @@ final class FluxRepeatWhen<T> extends InternalFluxOperator<T, T> {
 			actual.onComplete();
 		}
 
+		@Override
+		public Object scanUnsafe(Attr key) {
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+			return super.scanUnsafe(key);
+		}
 	}
 
 	static final class RepeatWhenOtherSubscriber extends Flux<Long>
@@ -203,7 +215,7 @@ final class FluxRepeatWhen<T> extends InternalFluxOperator<T, T> {
 
 		RepeatWhenMainSubscriber<?> main;
 
-		final DirectProcessor<Long> completionSignal = new DirectProcessor<>();
+		final FluxIdentityProcessor<Long> completionSignal = Processors.more().multicastNoBackpressure();
 
 		@Override
 		public Context currentContext() {
@@ -215,6 +227,7 @@ final class FluxRepeatWhen<T> extends InternalFluxOperator<T, T> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return main.otherArbiter;
 			if (key == Attr.ACTUAL) return main;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}
@@ -250,7 +263,7 @@ final class FluxRepeatWhen<T> extends InternalFluxOperator<T, T> {
 		}
 
 		@Override
-		public DirectProcessor<Long> source() {
+		public FluxIdentityProcessor<Long> source() {
 			return completionSignal;
 		}
 

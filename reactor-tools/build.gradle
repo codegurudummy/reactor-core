@@ -36,6 +36,9 @@ configurations {
 dependencies {
     implementation project(':reactor-core')
 
+    compileOnly "com.google.code.findbugs:jsr305:${findbugsVersion}"
+    compileOnly "com.google.code.findbugs:annotations:${findbugsVersion}"
+
     shaded 'net.bytebuddy:byte-buddy-agent:1.10.9'
     shaded 'net.bytebuddy:byte-buddy:1.10.9'
     for (dependency in project.configurations.shaded.dependencies) {
@@ -44,8 +47,9 @@ dependencies {
         javaAgentTestRuntimeOnly(dependency)
     }
 
-    testImplementation "org.junit.jupiter:junit-jupiter-api:${jUnitJupiterVersion}"
-    testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:${jUnitJupiterVersion}"
+    testImplementation platform("org.junit:junit-bom:${jUnitPlatformVersion}")
+    testImplementation "org.junit.jupiter:junit-jupiter-api"
+    testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine"
 
     testImplementation "org.assertj:assertj-core:$assertJVersion"
     testImplementation 'cglib:cglib:3.3.0'

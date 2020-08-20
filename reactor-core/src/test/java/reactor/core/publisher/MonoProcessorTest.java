@@ -28,10 +28,12 @@ import org.assertj.core.api.Assertions;
 import org.junit.Test;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
-
 import reactor.core.Scannable;
+import reactor.test.LoggerUtils;
 import reactor.test.StepVerifier;
 import reactor.test.publisher.TestPublisher;
+import reactor.test.util.TestLogger;
+import reactor.test.subscriber.AssertSubscriber;
 import reactor.util.function.Tuple2;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -347,20 +349,41 @@ public class MonoProcessorTest {
 		            .verifyErrorMessage("test");
 	}
 
-	@Test(expected = Exception.class)
+	@Test
 	public void MonoProcessorDoubleError() {
-		MonoProcessor<String> mp = MonoProcessor.create();
+		TestLogger testLogger = new TestLogger();
+		LoggerUtils.addAppender(testLogger, Operators.class);
+		try {
+			MonoProcessor<String> mp = MonoProcessor.create();
 
-		mp.onError(new Exception("test"));
-		mp.onError(new Exception("test"));
+			mp.onError(new Exception("test"));
+			mp.onError(new Exception("test2"));
+			Assertions.assertThat(testLogger.getErrContent())
+			          .contains("Operator called default onErrorDropped")
+			          .contains("test2");
+		}
+		finally {
+			LoggerUtils.resetAppender(Operators.class);
+		}
 	}
 
-	@Test(expected = Exception.class)
+	@Test
 	public void MonoProcessorDoubleSignal() {
-		MonoProcessor<String> mp = MonoProcessor.create();
+		TestLogger testLogger = new TestLogger();
+		LoggerUtils.addAppender(testLogger, Operators.class);
+		try {
+			MonoProcessor<String> mp = MonoProcessor.create();
 
-		mp.onNext("test");
-		mp.onError(new Exception("test"));
+			mp.onNext("test");
+			mp.onError(new Exception("test2"));
+
+			Assertions.assertThat(testLogger.getErrContent())
+			          .contains("Operator called default onErrorDropped")
+			          .contains("test2");
+		}
+		finally {
+			LoggerUtils.resetAppender(Operators.class);
+		}
 	}
 
 	@Test
@@ -520,6 +543,7 @@ public class MonoProcessorTest {
 		assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(Integer.MAX_VALUE);
 		assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
 		assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		test.onComplete();
 		assertThat(test.scan(Scannable.Attr.TERMINATED)).isTrue();
@@ -673,5 +697,15 @@ public class MonoProcessorTest {
 
 		processor.subscribe(v -> Assertions.fail("expected late subscriber to error"), late::set);
 		assertThat(late.get()).isInstanceOf(CancellationException.class);
+	}
+
+	@Test
+	public void scanSubscriber(){
+		MonoProcessor<String> processor = MonoProcessor.create();
+		AssertSubscriber<String> subscriber = new AssertSubscriber<>();
+
+		MonoProcessor.NextInner<String> test = new MonoProcessor.NextInner<>(subscriber, processor);
+
+	    assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 	}
 }

@@ -24,7 +24,6 @@ import io.micrometer.core.instrument.Clock;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.MockClock;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
@@ -35,27 +34,61 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.reactivestreams.Subscription;
+import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.core.Fuseable;
+import reactor.core.Scannable;
 import reactor.core.publisher.MonoMetricsFuseable.MetricsFuseableSubscriber;
 import reactor.test.StepVerifier;
 import reactor.test.subscriber.AssertSubscriber;
+import reactor.util.Metrics;
 
-import static org.assertj.core.api.Assertions.*;
-import static reactor.core.publisher.FluxMetrics.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
+import static reactor.core.publisher.FluxMetrics.METER_FLOW_DURATION;
+import static reactor.core.publisher.FluxMetrics.METER_ON_NEXT_DELAY;
+import static reactor.core.publisher.FluxMetrics.METER_REQUESTED;
+import static reactor.core.publisher.FluxMetrics.METER_SUBSCRIBED;
+import static reactor.core.publisher.FluxMetrics.REACTOR_DEFAULT_NAME;
+import static reactor.core.publisher.FluxMetrics.TAG_CANCEL;
+import static reactor.core.publisher.FluxMetrics.TAG_KEY_EXCEPTION;
+import static reactor.core.publisher.FluxMetrics.TAG_ON_COMPLETE;
+import static reactor.core.publisher.FluxMetrics.TAG_ON_ERROR;
+import static reactor.core.publisher.FluxMetrics.TAG_SEQUENCE_NAME;
 
 public class MonoMetricsFuseableTest {
 
 	private MeterRegistry registry;
+	private MeterRegistry previousRegistry;
+	private MockClock clock;
 
 	@Before
 	public void setupRegistry() {
-		registry = new SimpleMeterRegistry();
+		clock = new MockClock();
+		registry = new SimpleMeterRegistry(SimpleConfig.DEFAULT, clock);
+		previousRegistry = Metrics.MicrometerConfiguration.useRegistry(registry);
 	}
 
 	@After
-	public void removeRegistry() {
+	public void resetRegistry() {
 		registry.close();
+		Metrics.MicrometerConfiguration.useRegistry(previousRegistry);
+	}
+
+	@Test
+	public void scanOperator(){
+		MonoMetricsFuseable<String> test = new MonoMetricsFuseable<>(Mono.just("foo"), registry);
+
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
+	public void scanSubscriber(){
+		CoreSubscriber<Integer> actual = new LambdaMonoSubscriber<>(null, e -> {}, null, null);
+		MetricsFuseableSubscriber<Integer> test = new MetricsFuseableSubscriber<>(actual, registry, Clock.SYSTEM, Tags.empty());
+
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 	}
 
 	// === Fuseable-specific tests ===
@@ -96,11 +129,6 @@ public class MonoMetricsFuseableTest {
 
 	@Test
 	public void queuePollDoesntTrackOnNext() {
-		//prepare registry with mock clock
-		MockClock clock = new MockClock();
-		removeRegistry();
-		registry = new SimpleMeterRegistry(SimpleConfig.DEFAULT, clock);
-
 		AssertSubscriber<Integer> testSubscriber = AssertSubscriber.create();
 		MetricsFuseableSubscriber<Integer> fuseableSubscriber =
 				new MetricsFuseableSubscriber<>(testSubscriber,
@@ -127,11 +155,6 @@ public class MonoMetricsFuseableTest {
 
 	@Test
 	public void queuePollSyncTracksOnComplete() {
-		//prepare registry with mock clock
-		MockClock clock = new MockClock();
-		removeRegistry();
-		registry = new SimpleMeterRegistry(SimpleConfig.DEFAULT, clock);
-
 		AssertSubscriber<Integer> testSubscriber = AssertSubscriber.create();
 		MetricsFuseableSubscriber<Integer> fuseableSubscriber =
 				new MetricsFuseableSubscriber<>(testSubscriber,
@@ -162,11 +185,6 @@ public class MonoMetricsFuseableTest {
 
 	@Test
 	public void queuePollError() {
-		//prepare registry with mock clock
-		MockClock clock = new MockClock();
-		removeRegistry();
-		registry = new SimpleMeterRegistry(SimpleConfig.DEFAULT, clock);
-
 		AssertSubscriber<Integer> testSubscriber = AssertSubscriber.create();
 		MetricsFuseableSubscriber<Integer> fuseableSubscriber =
 				new MetricsFuseableSubscriber<>(testSubscriber,

@@ -46,6 +46,7 @@ import java.util.logging.Level;
 import java.util.stream.Collector;
 import java.util.stream.Stream;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -67,6 +68,7 @@ import reactor.util.Metrics;
 import reactor.util.annotation.Nullable;
 import reactor.util.concurrent.Queues;
 import reactor.util.context.Context;
+import reactor.util.context.ContextView;
 import reactor.util.function.Tuple2;
 import reactor.util.function.Tuple3;
 import reactor.util.function.Tuple4;
@@ -472,10 +474,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * @return a new {@link Flux} concatenating all inner sources sequences
 	 */
 	public static <T> Flux<T> concat(Publisher<? extends Publisher<? extends T>> sources, int prefetch) {
-		return onAssembly(new FluxConcatMap<>(from(sources),
-				identityFunction(),
-				Queues.get(prefetch), prefetch,
-				FluxConcatMap.ErrorMode.IMMEDIATE));
+		return from(sources).concatMap(identityFunction(), prefetch);
 	}
 
 	/**
@@ -542,10 +541,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * @return a new {@link Flux} concatenating all inner sources sequences until complete or error
 	 */
 	public static <T> Flux<T> concatDelayError(Publisher<? extends Publisher<? extends T>> sources, int prefetch) {
-		return onAssembly(new FluxConcatMap<>(from(sources),
-				identityFunction(),
-				Queues.get(prefetch), prefetch,
-				FluxConcatMap.ErrorMode.END));
+		return from(sources).concatMapDelayError(identityFunction(), prefetch);
 	}
 
 	/**
@@ -575,10 +571,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 */
 	public static <T> Flux<T> concatDelayError(Publisher<? extends Publisher<? extends
 			T>> sources, boolean delayUntilEnd, int prefetch) {
-		return onAssembly(new FluxConcatMap<>(from(sources),
-				identityFunction(),
-				Queues.get(prefetch), prefetch,
-				delayUntilEnd ? FluxConcatMap.ErrorMode.END : FluxConcatMap.ErrorMode.BOUNDARY));
+		return from(sources).concatMapDelayError(identityFunction(), delayUntilEnd, prefetch);
 	}
 
 	/**
@@ -738,7 +731,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * @see #create(Consumer)
 	 */
 	public static <T> Flux<T> push(Consumer<? super FluxSink<T>> emitter) {
-		return onAssembly(new FluxCreate<>(emitter, OverflowStrategy.BUFFER, FluxCreate.CreateMode.PUSH_ONLY));
+		return push(emitter, OverflowStrategy.BUFFER);
 	}
 
 	/**
@@ -826,7 +819,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 *
 	 * @return a deferred {@link Flux}
 	 */
-	public static <T> Flux<T> deferWithContext(Function<Context, ? extends Publisher<T>> supplier) {
+	public static <T> Flux<T> deferWithContext(Function<ContextView, ? extends Publisher<T>> supplier) {
 		return onAssembly(new FluxDeferWithContext<>(supplier));
 	}
 
@@ -1162,7 +1155,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * @return a new {@link Flux} emitting increasing numbers at regular intervals
 	 */
 	public static Flux<Long> interval(Duration period, Scheduler timer) {
-		return onAssembly(new FluxInterval(period.toMillis(), period.toMillis(), TimeUnit.MILLISECONDS, timer));
+		return interval(period, period, timer);
 	}
 
 	/**
@@ -1182,7 +1175,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * @return a new {@link Flux} emitting increasing numbers at regular intervals
 	 */
 	public static Flux<Long> interval(Duration delay, Duration period, Scheduler timer) {
-		return onAssembly(new FluxInterval(delay.toMillis(), period.toMillis(), TimeUnit.MILLISECONDS, timer));
+		return onAssembly(new FluxInterval(delay.toNanos(), period.toNanos(), TimeUnit.NANOSECONDS, timer));
 	}
 
 	/**
@@ -1806,124 +1799,6 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * a "cleanup" {@link Publisher} that is invoked but doesn't change the content of the
 	 * main sequence. Instead it just defers the termination (unless it errors, in which case
 	 * the error suppresses the original termination signal).
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/usingWhenSuccessForFlux.svg" alt="">
-	 * <p>
-	 * Individual cleanups can also be associated with main sequence cancellation and
-	 * error terminations:
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/usingWhenFailureForFlux.svg" alt="">
-	 *
-	 * <p>
-	 * Note that if the resource supplying {@link Publisher} emits more than one resource, the
-	 * subsequent resources are dropped ({@link Operators#onNextDropped(Object, Context)}). If
-	 * the publisher errors AFTER having emitted one resource, the error is also silently dropped
-	 * ({@link Operators#onErrorDropped(Throwable, Context)}).
-	 * An empty completion or error without at least one onNext signal triggers a short-circuit
-	 * of the main sequence with the same terminal signal (no resource is established, no
-	 * cleanup is invoked).
-	 * <p>
-	 * Additionally, the terminal signal is replaced by any error that might have happened
-	 * in the terminating {@link Publisher}:
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/usingWhenCleanupErrorForFlux.svg" alt="">
-	 * <p>
-	 * Finally, early cancellations will cancel the resource supplying {@link Publisher}:
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/usingWhenEarlyCancelForFlux.svg" alt="">
-	 *
-	 * @param resourceSupplier a {@link Publisher} that "generates" the resource,
-	 * subscribed for each subscription to the main sequence
-	 * @param resourceClosure a factory to derive a {@link Publisher} from the supplied resource
-	 * @param asyncComplete an asynchronous resource cleanup invoked if the resource closure terminates with onComplete or is cancelled
-	 * @param asyncError an asynchronous resource cleanup invoked if the resource closure terminates with onError.
-	 * @param <T> the type of elements emitted by the resource closure, and thus the main sequence
-	 * @param <D> the type of the resource object
-	 * @return a new {@link Flux} built around a "transactional" resource, with several
-	 * termination path triggering asynchronous cleanup sequences
-	 * @deprecated prefer using the {@link #usingWhen(Publisher, Function, Function, BiFunction, Function)} version which is more explicit about all termination cases,
-	 * will be removed in 3.4.0
-	 */
-	@Deprecated
-	public static <T, D> Flux<T> usingWhen(Publisher<D> resourceSupplier,
-			Function<? super D, ? extends Publisher<? extends T>> resourceClosure,
-			Function<? super D, ? extends Publisher<?>> asyncComplete,
-			Function<? super D, ? extends Publisher<?>> asyncError) {
-		//null asyncCancel translates to using the `asyncComplete` function in the operator
-		return onAssembly(new FluxUsingWhen<>(resourceSupplier, resourceClosure,
-				asyncComplete, (res, err) -> asyncError.apply(res), null));
-	}
-
-	/**
-	 * Uses a resource, generated by a {@link Publisher} for each individual {@link Subscriber},
-	 * while streaming the values from a {@link Publisher} derived from the same resource.
-	 * Note that all steps of the operator chain that would need the resource to be in an open
-	 * stable state need to be described inside the {@code resourceClosure} {@link Function}.
-	 * <p>
-	 * Whenever the resulting sequence terminates, the relevant {@link Function} generates
-	 * a "cleanup" {@link Publisher} that is invoked but doesn't change the content of the
-	 * main sequence. Instead it just defers the termination (unless it errors, in which case
-	 * the error suppresses the original termination signal).
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/usingWhenSuccessForFlux.svg" alt="">
-	 * <p>
-	 * Individual cleanups can also be associated with main sequence cancellation and
-	 * error terminations:
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/usingWhenFailureForFlux.svg" alt="">
-	 * <p>
-	 * Note that if the resource supplying {@link Publisher} emits more than one resource, the
-	 * subsequent resources are dropped ({@link Operators#onNextDropped(Object, Context)}). If
-	 * the publisher errors AFTER having emitted one resource, the error is also silently dropped
-	 * ({@link Operators#onErrorDropped(Throwable, Context)}).
-	 * An empty completion or error without at least one onNext signal triggers a short-circuit
-	 * of the main sequence with the same terminal signal (no resource is established, no
-	 * cleanup is invoked).
-	 * <p>
-	 * Additionally, the terminal signal is replaced by any error that might have happened
-	 * in the terminating {@link Publisher}:
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/usingWhenCleanupErrorForFlux.svg" alt="">
-	 * <p>
-	 * Finally, early cancellations will cancel the resource supplying {@link Publisher}:
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/usingWhenEarlyCancelForFlux.svg" alt="">
-	 *
-	 * @param resourceSupplier a {@link Publisher} that "generates" the resource,
-	 * subscribed for each subscription to the main sequence
-	 * @param resourceClosure a factory to derive a {@link Publisher} from the supplied resource
-	 * @param asyncComplete an asynchronous resource cleanup invoked if the resource closure terminates with onComplete
-	 * @param asyncError an asynchronous resource cleanup invoked if the resource closure terminates with onError.
-	 * @param asyncCancel an asynchronous resource cleanup invoked if the resource closure is cancelled.
-	 * When {@code null}, the {@code asyncComplete} path is used instead.
-	 * @param <T> the type of elements emitted by the resource closure, and thus the main sequence
-	 * @param <D> the type of the resource object
-	 * @return a new {@link Flux} built around a "transactional" resource, with several
-	 * termination path triggering asynchronous cleanup sequences
-	 * @deprecated prefer using the {@link #usingWhen(Publisher, Function, Function, BiFunction, Function)} version which is more explicit about all termination cases,
-	 * will be removed in 3.4.0
-	 */
-	@Deprecated
-	public static <T, D> Flux<T> usingWhen(Publisher<D> resourceSupplier,
-			Function<? super D, ? extends Publisher<? extends T>> resourceClosure,
-			Function<? super D, ? extends Publisher<?>> asyncComplete,
-			Function<? super D, ? extends Publisher<?>> asyncError,
-			//the operator itself accepts null for asyncCancel, but we won't in the public API
-			Function<? super D, ? extends Publisher<?>> asyncCancel) {
-		return onAssembly(new FluxUsingWhen<>(resourceSupplier, resourceClosure,
-				asyncComplete, (res, err) -> asyncError.apply(res), asyncCancel));
-	}
-
-	/**
-	 * Uses a resource, generated by a {@link Publisher} for each individual {@link Subscriber},
-	 * while streaming the values from a {@link Publisher} derived from the same resource.
-	 * Note that all steps of the operator chain that would need the resource to be in an open
-	 * stable state need to be described inside the {@code resourceClosure} {@link Function}.
-	 * <p>
-	 * Whenever the resulting sequence terminates, the relevant {@link Function} generates
-	 * a "cleanup" {@link Publisher} that is invoked but doesn't change the content of the
-	 * main sequence. Instead it just defers the termination (unless it errors, in which case
-	 * the error suppresses the original termination signal).
 	 *
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/usingWhenSuccessForFlux.svg" alt="">
@@ -2472,7 +2347,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	public final T blockFirst(Duration timeout) {
 		BlockingFirstSubscriber<T> subscriber = new BlockingFirstSubscriber<>();
 		subscribe((Subscriber<T>) subscriber);
-		return subscriber.blockingGet(timeout.toMillis(), TimeUnit.MILLISECONDS);
+		return subscriber.blockingGet(timeout.toNanos(), TimeUnit.NANOSECONDS);
 	}
 
 	/**
@@ -2518,7 +2393,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	public final T blockLast(Duration timeout) {
 		BlockingLastSubscriber<T> subscriber = new BlockingLastSubscriber<>();
 		subscribe((Subscriber<T>) subscriber);
-		return subscriber.blockingGet(timeout.toMillis(), TimeUnit.MILLISECONDS);
+		return subscriber.blockingGet(timeout.toNanos(), TimeUnit.NANOSECONDS);
 	}
 
 	/**
@@ -2851,7 +2726,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 */
 	public final  <C extends Collection<? super T>> Flux<C> bufferTimeout(int maxSize, Duration maxTime,
 			Scheduler timer, Supplier<C> bufferSupplier) {
-		return onAssembly(new FluxBufferTimeout<>(this, maxSize, maxTime.toMillis(), timer, bufferSupplier));
+		return onAssembly(new FluxBufferTimeout<>(this, maxSize, maxTime.toNanos(), TimeUnit.NANOSECONDS, timer, bufferSupplier));
 	}
 
 	/**
@@ -3579,29 +3454,6 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	}
 
 	/**
-	 * Defer the transformation of this {@link Flux} in order to generate a target {@link Flux} type.
-	 * A transformation will occur for each {@link Subscriber}. For instance:
-	 * <blockquote><pre>
-	 * flux.compose(original -> original.log());
-	 * </pre></blockquote>
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/transformDeferredForFlux.svg" alt="">
-	 *
-	 * @param transformer the {@link Function} to lazily map this {@link Flux} into a target {@link Publisher}
-	 * instance for each new subscriber
-	 * @param <V> the item type in the returned {@link Publisher}
-	 *
-	 * @return a new {@link Flux}
-	 * @see #transform  transform() for immmediate transformation of {@link Flux}
-	 * @see #as as() for a loose conversion to an arbitrary type
-	 * @deprecated will be removed in 3.4.0, use {@link #transformDeferred(Function)} instead
-	 */
-	@Deprecated
-	public final <V> Flux<V> compose(Function<? super Flux<T>, ? extends Publisher<V>> transformer) {
-		return defer(() -> transformer.apply(this));
-	}
-
-	/**
 	 * Transform the elements emitted by this {@link Flux} asynchronously into Publishers,
 	 * then flatten these inner publishers into a single {@link Flux}, sequentially and
 	 * preserving order using concatenation.
@@ -3663,13 +3515,16 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * @reactor.discard This operator discards elements it internally queued for backpressure upon cancellation.
 	 *
 	 * @param mapper the function to transform this sequence of T into concatenated sequences of V
-	 * @param prefetch the inner source produced demand
+	 * @param prefetch the inner source produced demand (set it to 0 if you don't want it to prefetch)
 	 * @param <V> the produced concatenated type
 	 *
 	 * @return a concatenated {@link Flux}
 	 */
 	public final <V> Flux<V> concatMap(Function<? super T, ? extends Publisher<? extends V>>
 			mapper, int prefetch) {
+		if (prefetch == 0) {
+			return onAssembly(new FluxConcatMapNoPrefetch<>(this, mapper, FluxConcatMap.ErrorMode.IMMEDIATE));
+		}
 		return onAssembly(new FluxConcatMap<>(this, mapper, Queues.get(prefetch), prefetch,
 				FluxConcatMap.ErrorMode.IMMEDIATE));
 	}
@@ -3748,8 +3603,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 */
 	public final <V> Flux<V> concatMapDelayError(Function<? super T, ? extends Publisher<?
 			extends V>> mapper, int prefetch) {
-		return onAssembly(new FluxConcatMap<>(this, mapper, Queues.get(prefetch), prefetch,
-				FluxConcatMap.ErrorMode.END));
+		return concatMapDelayError(mapper, true, prefetch);
 	}
 
 	/**
@@ -3790,9 +3644,11 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 */
 	public final <V> Flux<V> concatMapDelayError(Function<? super T, ? extends Publisher<?
 			extends V>> mapper, boolean delayUntilEnd, int prefetch) {
-		return onAssembly(new FluxConcatMap<>(this, mapper, Queues.get(prefetch), prefetch,
-				delayUntilEnd ? FluxConcatMap.ErrorMode.END : FluxConcatMap.ErrorMode
-						.BOUNDARY));
+		FluxConcatMap.ErrorMode errorMode = delayUntilEnd ? FluxConcatMap.ErrorMode.END : FluxConcatMap.ErrorMode.BOUNDARY;
+		if (prefetch == 0) {
+			return onAssembly(new FluxConcatMapNoPrefetch<>(this, mapper, errorMode));
+		}
+		return onAssembly(new FluxConcatMap<>(this, mapper, Queues.get(prefetch), prefetch, errorMode));
 	}
 
 	/**
@@ -6077,6 +5933,11 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * Metrics are gathered on {@link Subscriber} events, and it is recommended to also
 	 * {@link #name(String) name} (and optionally {@link #tag(String, String) tag}) the
 	 * sequence.
+	 * <p>
+	 * The {@link MeterRegistry} used by reactor can be configured via
+	 * {@link Metrics.MicrometerConfiguration#useRegistry(MeterRegistry)} prior to using this operator, the default being
+	 * {@link io.micrometer.core.instrument.Metrics#globalRegistry}.
+	 * </p>
 	 *
 	 * @return an instrumented {@link Flux}
 	 */
@@ -7197,7 +7058,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 */
 	public final ConnectableFlux<T> replay(int history, Duration ttl, Scheduler timer) {
 		Objects.requireNonNull(timer, "timer");
-		return onAssembly(new FluxReplay<>(this, history, ttl.toMillis(), timer));
+		return onAssembly(new FluxReplay<>(this, history, ttl.toNanos(), timer));
 	}
 
 	/**
@@ -7226,92 +7087,6 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 */
 	public final Flux<T> retry(long numRetries) {
 		return onAssembly(new FluxRetry<>(this, numRetries));
-	}
-
-	/**
-	 * Re-subscribes to this {@link Flux} sequence if it signals any error
-	 * that matches the given {@link Predicate}, otherwise push the error downstream.
-	 *
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/retryWithPredicateForFlux.svg" alt="">
-	 *
-	 * @param retryMatcher the predicate to evaluate if retry should occur based on a given error signal
-	 *
-	 * @return a {@link Flux} that retries on onError if the predicates matches.
-	 * @deprecated use {@link #retryWhen(Retry)} instead, to be removed in 3.4
-	 */
-	@Deprecated
-	public final Flux<T> retry(Predicate<? super Throwable> retryMatcher) {
-		return onAssembly(new FluxRetryPredicate<>(this, retryMatcher));
-	}
-
-	/**
-	 * Re-subscribes to this {@link Flux} sequence up to the specified number of retries if it signals any
-	 * error that match the given {@link Predicate}, otherwise push the error downstream.
-	 *
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/retryWithAttemptsAndPredicateForFlux.svg" alt="">
-	 *
-	 * @param numRetries the number of times to tolerate an error
-	 * @param retryMatcher the predicate to evaluate if retry should occur based on a given error signal
-	 *
-	 * @return a {@link Flux} that retries on onError up to the specified number of retry
-	 * attempts, only if the predicate matches.
-	 * @deprecated use {@link #retryWhen(Retry)} instead, to be removed in 3.4
-	 */
-	@Deprecated
-	public final Flux<T> retry(long numRetries, Predicate<? super Throwable> retryMatcher) {
-		return defer(() -> retry(countingPredicate(retryMatcher, numRetries)));
-	}
-
-	/**
-	 * Retries this {@link Flux} when a companion sequence signals
-	 * an item in response to this {@link Flux} error signal
-	 * <p>If the companion sequence signals when the {@link Flux} is active, the retry
-	 * attempt is suppressed and any terminal signal will terminate the {@link Flux} source with the same signal
-	 * immediately.
-	 *
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/retryWhenForFlux.svg" alt="">
-	 * <p>
-	 * Note that if the companion {@link Publisher} created by the {@code whenFactory}
-	 * emits {@link Context} as trigger objects, these {@link Context} will be merged with
-	 * the previous Context:
-	 * <blockquote>
-	 * <pre>{@code
-	 * Function<Flux<Throwable>, Publisher<?>> customFunction = errorCurrentAttempt -> errorCurrentAttempt.handle((lastError, sink) -> {
-	 * 	    Context ctx = sink.currentContext();
-	 * 	    int rl = ctx.getOrDefault("retriesLeft", 0);
-	 * 	    if (rl > 0) {
-	 *		    sink.next(Context.of(
-	 *		        "retriesLeft", rl - 1,
-	 *		        "lastError", lastError
-	 *		    ));
-	 * 	    } else {
-	 * 	        sink.error(Exceptions.retryExhausted("retries exhausted", lastError));
-	 * 	    }
-	 * });
-	 * Flux<T> retried = originalFlux.retryWhen(customFunction);
-	 * }</pre>
-	 * </blockquote>
-	 *
-	 * @param whenFactory the {@link Function} that returns the associated {@link Publisher}
-	 * companion, given a {@link Flux} that signals each onError as a {@link Throwable}.
-	 *
-	 * @return a {@link Flux} that retries on onError when the companion {@link Publisher} produces an
-	 * onNext signal
-	 * @deprecated use {@link #retryWhen(Retry)} instead, to be removed in 3.4. Lambda Functions that don't make
-	 * use of the error can simply be converted by wrapping via {@link Retry#from(Function)}.
-	 * Functions that do use the error will additionally need to map the {@link reactor.util.retry.Retry.RetrySignal}
-	 * emitted by the companion to its {@link Retry.RetrySignal#failure()}.
-	 */
-	@Deprecated
-	public final Flux<T> retryWhen(Function<Flux<Throwable>, ? extends Publisher<?>> whenFactory) {
-		Objects.requireNonNull(whenFactory, "whenFactory");
-		return onAssembly(new FluxRetryWhen<>(this, Retry.from(fluxRetryWhenState -> fluxRetryWhenState
-				.map(Retry.RetrySignal::failure)
-				.as(whenFactory)))
-		);
 	}
 
 	/**
@@ -7366,215 +7141,6 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 */
 	public final Flux<T> retryWhen(Retry retrySpec) {
 		return onAssembly(new FluxRetryWhen<>(this, retrySpec));
-	}
-
-	/**
-	 * In case of error, retry this {@link Flux} up to {@code numRetries} times using a
-	 * randomized exponential backoff strategy (jitter). The jitter factor is {@code 50%}
-	 * but the effective backoff delay cannot be less than {@code firstBackoff}.
-	 * <p>
-	 * The randomized exponential backoff is good at preventing two typical issues with
-	 * other simpler backoff strategies, namely:
-	 * <ul>
-	 *     <li>
-	 *      having an exponentially growing backoff delay with a small initial delay gives
-	 *      the best tradeoff between not overwhelming the server and serving the client as
-	 *      fast as possible
-	 *     </li>
-	 *     <li>
-	 *      having a jitter, or randomized backoff delay, is beneficial in avoiding "retry-storms"
-	 *      where eg. numerous clients would hit the server at the same time, causing it to
-	 *      display transient failures which would cause all clients to retry at the same
-	 *      backoff times, ultimately sparing no load on the server.
-	 *     </li>
-	 * </ul>
-	 *
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/retryBackoffForFlux.svg" alt="">
-	 *
-	 * @param numRetries the maximum number of attempts before an {@link IllegalStateException}
-	 * is raised (having the original retry-triggering exception as cause).
-	 * @param firstBackoff the first backoff delay to apply then grow exponentially. Also
-	 * minimum delay even taking jitter into account.
-	 * @return a {@link Flux} that retries on onError with exponentially growing randomized delays between retries.
-	 * @deprecated use {@link #retryWhen(Retry)} with a {@link Retry#backoff(long, Duration)} base, to be removed in 3.4
-	 */
-	@Deprecated
-	public final Flux<T> retryBackoff(long numRetries, Duration firstBackoff) {
-		return retryWhen(Retry.backoff(numRetries, firstBackoff));
-	}
-
-	/**
-	 * In case of error, retry this {@link Flux} up to {@code numRetries} times using a
-	 * randomized exponential backoff strategy. The jitter factor is {@code 50%}
-	 * but the effective backoff delay cannot be less than {@code firstBackoff} nor more
-	 * than {@code maxBackoff}.
-	 <p>
-	 * The randomized exponential backoff is good at preventing two typical issues with
-	 * other simpler backoff strategies, namely:
-	 * <ul>
-	 *     <li>
-	 *      having an exponentially growing backoff delay with a small initial delay gives
-	 *      the best tradeoff between not overwhelming the server and serving the client as
-	 *      fast as possible
-	 *     </li>
-	 *     <li>
-	 *      having a jitter, or randomized backoff delay, is beneficial in avoiding "retry-storms"
-	 *      where eg. numerous clients would hit the server at the same time, causing it to
-	 *      display transient failures which would cause all clients to retry at the same
-	 *      backoff times, ultimately sparing no load on the server.
-	 *     </li>
-	 * </ul>
-	 *
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/retryBackoffForFlux.svg" alt="">
-	 *
-	 * @param numRetries the maximum number of attempts before an {@link IllegalStateException}
-	 * is raised (having the original retry-triggering exception as cause).
-	 * @param firstBackoff the first backoff delay to apply then grow exponentially. Also
-	 * minimum delay even taking jitter into account.
-	 * @param maxBackoff the maximum delay to apply despite exponential growth and jitter.
-	 * @return a {@link Flux} that retries on onError with exponentially growing randomized delays between retries.
-	 * @deprecated use {@link #retryWhen(Retry)} with a {@link Retry#backoff(long, Duration)} base, to be removed in 3.4
-	 */
-	@Deprecated
-	public final Flux<T> retryBackoff(long numRetries, Duration firstBackoff, Duration maxBackoff) {
-		return retryWhen(Retry
-				.backoff(numRetries, firstBackoff)
-				.maxBackoff(maxBackoff));
-	}
-
-	/**
-	 * In case of error, retry this {@link Flux} up to {@code numRetries} times using a
-	 * randomized exponential backoff strategy. The jitter factor is {@code 50%}
-	 * but the effective backoff delay cannot be less than {@code firstBackoff} nor more
-	 * than {@code maxBackoff}. The delays and subsequent attempts are materialized on the
-	 * provided backoff {@link Scheduler} (see {@link Mono#delay(Duration, Scheduler)}).
-	 <p>
-	 * The randomized exponential backoff is good at preventing two typical issues with
-	 * other simpler backoff strategies, namely:
-	 * <ul>
-	 *     <li>
-	 *      having an exponentially growing backoff delay with a small initial delay gives
-	 *      the best tradeoff between not overwhelming the server and serving the client as
-	 *      fast as possible
-	 *     </li>
-	 *     <li>
-	 *      having a jitter, or randomized backoff delay, is beneficial in avoiding "retry-storms"
-	 *      where eg. numerous clients would hit the server at the same time, causing it to
-	 *      display transient failures which would cause all clients to retry at the same
-	 *      backoff times, ultimately sparing no load on the server.
-	 *     </li>
-	 * </ul>
-	 *
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/retryBackoffForFlux.svg" alt="">
-	 *
-	 * @param numRetries the maximum number of attempts before an {@link IllegalStateException}
-	 * is raised (having the original retry-triggering exception as cause).
-	 * @param firstBackoff the first backoff delay to apply then grow exponentially. Also
-	 * minimum delay even taking jitter into account.
-	 * @param maxBackoff the maximum delay to apply despite exponential growth and jitter.
-	 * @param backoffScheduler the {@link Scheduler} on which the delays and subsequent attempts are executed.
-	 * @return a {@link Flux} that retries on onError with exponentially growing randomized delays between retries.
-	 * @deprecated use {@link #retryWhen(Retry)} with a {@link Retry#backoff(long, Duration)} base, to be removed in 3.4
-	 */
-	@Deprecated
-	public final Flux<T> retryBackoff(long numRetries, Duration firstBackoff, Duration maxBackoff, Scheduler backoffScheduler) {
-		return retryWhen(Retry
-				.backoff(numRetries, firstBackoff)
-				.maxBackoff(maxBackoff)
-				.scheduler(backoffScheduler));
-	}
-
-	/**
-	 * In case of error, retry this {@link Flux} up to {@code numRetries} times using a
-	 * randomized exponential backoff strategy, randomized with a user-provided jitter
-	 * factor between {@code 0.d} (no jitter) and {@code 1.0} (default is {@code 0.5}).
-	 * Even with the jitter, the effective backoff delay cannot be less than
-	 * {@code firstBackoff} nor more than {@code maxBackoff}.
-	 <p>
-	 * The randomized exponential backoff is good at preventing two typical issues with
-	 * other simpler backoff strategies, namely:
-	 * <ul>
-	 *     <li>
-	 *      having an exponentially growing backoff delay with a small initial delay gives
-	 *      the best tradeoff between not overwhelming the server and serving the client as
-	 *      fast as possible
-	 *     </li>
-	 *     <li>
-	 *      having a jitter, or randomized backoff delay, is beneficial in avoiding "retry-storms"
-	 *      where eg. numerous clients would hit the server at the same time, causing it to
-	 *      display transient failures which would cause all clients to retry at the same
-	 *      backoff times, ultimately sparing no load on the server.
-	 *     </li>
-	 * </ul>
-	 *
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/retryBackoffForFlux.svg" alt="">
-	 *
-	 * @param numRetries the maximum number of attempts before an {@link IllegalStateException}
-	 * is raised (having the original retry-triggering exception as cause).
-	 * @param firstBackoff the first backoff delay to apply then grow exponentially. Also
-	 * minimum delay even taking jitter into account.
-	 * @param maxBackoff the maximum delay to apply despite exponential growth and jitter.
-	 * @param jitterFactor the jitter percentage (as a double between 0.0 and 1.0).
-	 * @return a {@link Flux} that retries on onError with exponentially growing randomized delays between retries.
-	 * @deprecated use {@link #retryWhen(Retry)} with a {@link Retry#backoff(long, Duration)} base
-	 */
-	@Deprecated
-	public final Flux<T> retryBackoff(long numRetries, Duration firstBackoff, Duration maxBackoff, double jitterFactor) {
-		return retryWhen(Retry
-				.backoff(numRetries, firstBackoff)
-				.maxBackoff(maxBackoff)
-				.jitter(jitterFactor));
-	}
-
-	/**
-	 * In case of error, retry this {@link Flux} up to {@code numRetries} times using a
-	 * randomized exponential backoff strategy, randomized with a user-provided jitter
-	 * factor between {@code 0.d} (no jitter) and {@code 1.0} (default is {@code 0.5}).
-	 * Even with the jitter, the effective backoff delay cannot be less than
-	 * {@code firstBackoff} nor more than {@code maxBackoff}. The delays and subsequent
-	 * attempts are executed on the provided backoff {@link Scheduler} (see
-	 * {@link Mono#delay(Duration, Scheduler)}).
-	 <p>
-	 * The randomized exponential backoff is good at preventing two typical issues with
-	 * other simpler backoff strategies, namely:
-	 * <ul>
-	 *     <li>
-	 *      having an exponentially growing backoff delay with a small initial delay gives
-	 *      the best tradeoff between not overwhelming the server and serving the client as
-	 *      fast as possible
-	 *     </li>
-	 *     <li>
-	 *      having a jitter, or randomized backoff delay, is beneficial in avoiding "retry-storms"
-	 *      where eg. numerous clients would hit the server at the same time, causing it to
-	 *      display transient failures which would cause all clients to retry at the same
-	 *      backoff times, ultimately sparing no load on the server.
-	 *     </li>
-	 * </ul>
-	 *
-	 * <p>
-	 * <img class="marble" src="doc-files/marbles/retryBackoffForFlux.svg" alt="">
-	 *
-	 * @param numRetries the maximum number of attempts before an {@link IllegalStateException}
-	 * is raised (having the original retry-triggering exception as cause).
-	 * @param firstBackoff the first backoff delay to apply then grow exponentially. Also
-	 * minimum delay even taking jitter into account.
-	 * @param maxBackoff the maximum delay to apply despite exponential growth and jitter.
-	 * @param backoffScheduler the {@link Scheduler} on which the delays and subsequent attempts are executed.
-	 * @param jitterFactor the jitter percentage (as a double between 0.0 and 1.0).
-	 * @return a {@link Flux} that retries on onError with exponentially growing randomized delays between retries.
-	 * @deprecated use {@link #retryWhen(Retry)} with a {@link Retry#backoff(long, Duration)} base
-	 */
-	@Deprecated
-	public final Flux<T> retryBackoff(long numRetries, Duration firstBackoff, Duration maxBackoff, double jitterFactor, Scheduler backoffScheduler) {
-		return retryWhen(Retry
-				.backoff(numRetries, firstBackoff)
-				.maxBackoff(maxBackoff)
-				.jitter(jitterFactor)
-				.scheduler(backoffScheduler));
 	}
 
 	/**
@@ -9051,11 +8617,16 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * millis (as a {@link Long} measured by the provided {@link Scheduler}) and T2
 	 * the emitted data (as a {@code T}), for each item from this {@link Flux}.
 	 *
+	 * <p>The provider {@link Scheduler} will be asked to {@link Scheduler#now(TimeUnit) provide time}
+	 * with a granularity of {@link TimeUnit#MILLISECONDS}. In order for this operator to work as advertised, the
+	 * provided Scheduler should thus return results that can be interpreted as unix timestamps.</p>
 	 * <p>
+	 *
 	 * <img class="marble" src="doc-files/marbles/timestampForFlux.svg" alt="">
 	 *
 	 * @param scheduler the {@link Scheduler} to read time from
 	 * @return a timestamped {@link Flux}
+	 * @see Scheduler#now(TimeUnit)
 	 */
 	public final Flux<Tuple2<Long, T>> timestamp(Scheduler scheduler) {
 		Objects.requireNonNull(scheduler, "scheduler");
@@ -9206,14 +8777,15 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * @param <V> the item type in the returned {@link Publisher}
 	 *
 	 * @return a new {@link Flux}
-	 * @see #transform(Function) transform() for immmediate transformation of {@link Flux}
+	 * @see #transform(Function) transform() for immmediate transformation of Flux
 	 * @see #as as() for a loose conversion to an arbitrary type
 	 */
-	@SuppressWarnings({"rawtypes", "unchecked"})
 	public final <V> Flux<V> transformDeferred(Function<? super Flux<T>, ? extends Publisher<V>> transformer) {
 		return defer(() -> {
 			if (Hooks.DETECT_CONTEXT_LOSS) {
-				return new ContextTrackingFunctionWrapper<T, V>((Function) transformer).apply(this);
+				@SuppressWarnings({"rawtypes", "unchecked"})
+				CorePublisher<V> result = new ContextTrackingFunctionWrapper<T, V>((Function) transformer).apply(this);
+				return result;
 			}
 			return transformer.apply(this);
 		});
@@ -9444,7 +9016,7 @@ public abstract class Flux<T> implements CorePublisher<T> {
 	 * @return a {@link Flux} of {@link Flux} windows based on element count and duration
 	 */
 	public final Flux<Flux<T>> windowTimeout(int maxSize, Duration maxTime, Scheduler timer) {
-		return onAssembly(new FluxWindowTimeout<>(this, maxSize, maxTime.toMillis(), timer));
+		return onAssembly(new FluxWindowTimeout<>(this, maxSize, maxTime.toNanos(), TimeUnit.NANOSECONDS, timer));
 	}
 
 	/**
@@ -9871,28 +9443,6 @@ public abstract class Flux<T> implements CorePublisher<T> {
 			source = (Flux<T>) Hooks.addAssemblyInfo(source, stacktrace);
 		}
 		return source;
-	}
-
-	/**
-	 * To be used by custom operators: invokes assembly {@link Hooks} pointcut given a
-	 * {@link Flux}, potentially returning a new {@link Flux}. This is for example useful
-	 * to activate cross-cutting concerns at assembly time, eg. a generalized
-	 * {@link #checkpoint()}.
-	 *
-	 * @param <T> the value type
-	 * @param source the source to apply assembly hooks onto
-	 *
-	 * @return the source, potentially wrapped with assembly time cross-cutting behavior
-	 * @deprecated use {@link Operators#onLastAssembly(CorePublisher)}
-	 */
-	@SuppressWarnings("unchecked")
-	@Deprecated
-	protected static <T> Flux<T> onLastAssembly(Flux<T> source) {
-		Function<Publisher, Publisher> hook = Hooks.onLastOperatorHook;
-		if(hook == null) {
-			return source;
-		}
-		return (Flux<T>)Objects.requireNonNull(hook.apply(source), "LastOperator hook returned null");
 	}
 
 	/**

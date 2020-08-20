@@ -28,9 +28,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Timer;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.Phaser;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
@@ -48,7 +50,6 @@ import java.util.stream.IntStream;
 
 import org.assertj.core.api.Assertions;
 import org.hamcrest.Matcher;
-import org.junit.After;
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -59,19 +60,20 @@ import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.core.Exceptions;
 import reactor.core.Fuseable;
-import reactor.core.publisher.EmitterProcessor;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.FluxProcessor;
+import reactor.core.publisher.FluxIdentityProcessor;
 import reactor.core.publisher.Hooks;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoProcessor;
 import reactor.core.publisher.Operators;
-import reactor.core.publisher.ReplayProcessor;
+import reactor.core.publisher.Processors;
 import reactor.core.publisher.Signal;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
+import reactor.test.LoggerUtils;
 import reactor.test.StepVerifier;
 import reactor.test.subscriber.AssertSubscriber;
+import reactor.test.util.TestLogger;
 import reactor.util.Logger;
 import reactor.util.Loggers;
 import reactor.util.function.Tuple2;
@@ -328,9 +330,10 @@ public class FluxTests extends AbstractReactorTest {
 		await(5, s, is(15));
 	}
 
+	//FIXME what does this test ?
 	@Test
 	public void simpleReactiveSubscriber() throws InterruptedException {
-		EmitterProcessor<String> str = EmitterProcessor.create();
+		FluxIdentityProcessor<String> str = Processors.multicast();
 
 		str.publishOn(asyncGroup)
 		   .subscribe(new FooSubscriber());
@@ -532,7 +535,7 @@ public class FluxTests extends AbstractReactorTest {
 
 	@Test
 	public void analyticsTest() throws Exception {
-		ReplayProcessor<Integer> source = ReplayProcessor.create();
+		FluxIdentityProcessor<Integer> source = Processors.replayAll();
 
 		long avgTime = 50l;
 
@@ -579,7 +582,7 @@ public class FluxTests extends AbstractReactorTest {
 
 		final CountDownLatch latch = new CountDownLatch(iterations);
 
-		EmitterProcessor<String> deferred = EmitterProcessor.create();
+		FluxIdentityProcessor<String> deferred = Processors.multicast();
 		deferred.publishOn(asyncGroup)
 		        .parallel(8)
 		        .groups()
@@ -622,10 +625,10 @@ public class FluxTests extends AbstractReactorTest {
 
 		int[] data;
 		CountDownLatch latch = new CountDownLatch(iterations);
-		EmitterProcessor<Integer> deferred;
+		FluxIdentityProcessor<Integer> deferred;
 		switch (dispatcher) {
 			case "partitioned":
-				deferred = EmitterProcessor.create();
+				deferred = Processors.multicast();
 				deferred.publishOn(asyncGroup)
 				        .parallel(2)
 				        .groups()
@@ -637,7 +640,7 @@ public class FluxTests extends AbstractReactorTest {
 				break;
 
 			default:
-				deferred = EmitterProcessor.create();
+				deferred = Processors.multicast();
 				deferred.publishOn(asyncGroup)
 				        .map(i -> i)
 				        .scan(1, (acc, next) -> acc + next)
@@ -676,17 +679,17 @@ public class FluxTests extends AbstractReactorTest {
 
 		int[] data;
 		CountDownLatch latch = new CountDownLatch(iterations);
-		EmitterProcessor<Integer> mapManydeferred;
+		FluxIdentityProcessor<Integer> mapManydeferred;
 		switch (dispatcher) {
 			case "partitioned":
-				mapManydeferred = EmitterProcessor.create();
+				mapManydeferred = Processors.multicast();
 				mapManydeferred.parallel(4)
 				               .groups()
 				               .subscribe(substream -> substream.publishOn(asyncGroup)
 				                                              .subscribe(i -> latch.countDown()));
 				break;
 			default:
-				mapManydeferred = EmitterProcessor.create();
+				mapManydeferred = Processors.multicast();
 				("sync".equals(dispatcher) ? mapManydeferred : mapManydeferred.publishOn(asyncGroup))
 				               .flatMap(Flux::just)
 				               .subscribe(i -> latch.countDown());
@@ -763,7 +766,7 @@ public class FluxTests extends AbstractReactorTest {
 		 */
 		final double TOLERANCE = 0.9;
 
-		FluxProcessor<Integer, Integer> batchingStreamDef = EmitterProcessor.create();
+		FluxIdentityProcessor<Integer> batchingStreamDef = Processors.multicast();
 
 		List<Integer> testDataset = createTestDataset(NUM_MESSAGES);
 
@@ -855,7 +858,7 @@ public class FluxTests extends AbstractReactorTest {
 
 	@Test
 	public void shouldCorrectlyDispatchComplexFlow() throws InterruptedException {
-		EmitterProcessor<Integer> globalFeed = EmitterProcessor.create();
+		FluxIdentityProcessor<Integer> globalFeed = Processors.multicast();
 
 		CountDownLatch afterSubscribe = new CountDownLatch(1);
 		CountDownLatch latch = new CountDownLatch(4);
@@ -1075,7 +1078,7 @@ public class FluxTests extends AbstractReactorTest {
 		int parallelStreams = 16;
 		CountDownLatch latch = new CountDownLatch(1);
 
-		final EmitterProcessor<Integer> streamBatcher = EmitterProcessor.create();
+		final FluxIdentityProcessor<Integer> streamBatcher = Processors.multicast();
 		streamBatcher.publishOn(asyncGroup)
 		             .bufferTimeout(batchsize, Duration.ofSeconds(timeout))
 		             .log("batched")
@@ -1151,7 +1154,7 @@ public class FluxTests extends AbstractReactorTest {
 					sink.complete();
 				}).
 				    subscribeOn(Schedulers.newSingle("production")).
-				    publishOn(Schedulers.elastic()).
+				    publishOn(Schedulers.boundedElastic()).
 				    subscribe(i -> {
 					    LockSupport.parkNanos(100L);
 					    latch.countDown();
@@ -1173,20 +1176,24 @@ public class FluxTests extends AbstractReactorTest {
 		assertThat("Not totally dispatched", latch.await(30, TimeUnit.SECONDS));
 	}
 	@Test
-	public void unimplementedErrorCallback() throws InterruptedException {
-
-		Flux.error(new Exception("forced"))
-		       .log("error")
-		       .subscribe();
-
-		try{
-			Flux.error(new Exception("forced"))
+	public void unimplementedErrorCallback() {
+		TestLogger testLogger = new TestLogger();
+		LoggerUtils.addAppender(testLogger, Operators.class);
+		try {
+			Flux.error(new Exception("forced1"))
+			    .log("error")
 			    .subscribe();
+
+			Flux.error(new Exception("forced2"))
+			    .subscribe();
+
+			Assertions.assertThat(testLogger.getErrContent())
+			          .contains("Operator called default onErrorDropped")
+			          .contains("reactor.core.Exceptions$ErrorCallbackNotImplemented: java.lang.Exception: forced2");
 		}
-		catch(Exception e){
-			return;
+		finally {
+			LoggerUtils.resetAppender(Operators.class);
 		}
-		fail();
 	}
 
 	@Test
@@ -1210,9 +1217,9 @@ public class FluxTests extends AbstractReactorTest {
 
 		Phaser phaser = new Phaser(2);
 
-		Flux<Object> s1 = ReplayProcessor.cacheLastOrDefault(new Object())
+		Flux<Object> s1 = Processors.more().replayLatestOrDefault(new Object())
 		                                 .publishOn(asyncGroup);
-		Flux<Object> s2 = ReplayProcessor.cacheLastOrDefault(new Object())
+		Flux<Object> s2 = Processors.more().replayLatestOrDefault(new Object())
 		                                .publishOn(asyncGroup);
 
 		// The following works:
@@ -1341,9 +1348,9 @@ public class FluxTests extends AbstractReactorTest {
 	@Test(timeout = TIMEOUT)
 	public void multiplexUsingDispatchersAndSplit() throws Exception {
 
-		final EmitterProcessor<Integer> forkEmitterProcessor = EmitterProcessor.create();
+		final FluxIdentityProcessor<Integer> forkEmitterProcessor = Processors.multicast();
 
-		final EmitterProcessor<Integer> computationEmitterProcessor = EmitterProcessor.create(false);
+		final FluxIdentityProcessor<Integer> computationEmitterProcessor = Processors.more().multicast(false);
 
 		Scheduler computation = Schedulers.newSingle("computation");
 		Scheduler persistence = Schedulers.newSingle("persistence");
@@ -1361,7 +1368,7 @@ public class FluxTests extends AbstractReactorTest {
 				                      .doOnNext(ls -> println("Computed: ", ls))
 				                      .log("computation");
 
-		final EmitterProcessor<Integer> persistenceEmitterProcessor = EmitterProcessor.create(false);
+		final FluxIdentityProcessor<Integer> persistenceEmitterProcessor = Processors.more().multicast(false);
 
 		final Flux<List<String>> persistenceStream =
 				persistenceEmitterProcessor.publishOn(persistence)
@@ -1408,34 +1415,60 @@ public class FluxTests extends AbstractReactorTest {
 
 	@Test
 	public void testThrowWithoutOnErrorShowsUpInSchedulerHandler() {
+		TestLogger testLogger = new TestLogger();
+		LoggerUtils.addAppender(testLogger, Operators.class);
 		AtomicReference<String> failure = new AtomicReference<>(null);
 		AtomicBoolean handled = new AtomicBoolean(false);
 
-		Thread.setDefaultUncaughtExceptionHandler((t, e) -> failure.set("unexpected call to default" +
-				" UncaughtExceptionHandler with " + e));
-		Schedulers.onHandleError((t, e) -> handled.set(true));
-
+		Thread.setDefaultUncaughtExceptionHandler((t, e) -> failure.set(
+				"unexpected call to default" + " UncaughtExceptionHandler with " + e));
 		CountDownLatch latch = new CountDownLatch(1);
+		AtomicInteger uncompletedWork = new AtomicInteger();
+		Schedulers.onHandleError((t, e) -> handled.set(true));
+		Schedulers.onScheduleHook("test", r -> {
+			uncompletedWork.incrementAndGet();
+			return () -> {
+				try {
+					r.run();
+				} finally {
+					uncompletedWork.decrementAndGet();
+				}
+			};
+		});
+
 		try {
 			Flux.interval(Duration.ofMillis(100))
 			    .take(1)
 			    .publishOn(Schedulers.parallel())
-                .doOnTerminate(() -> latch.countDown())
+			    .doOnCancel(latch::countDown)
 			    .subscribe(i -> {
 				    System.out.println("About to throw...");
 				    throw new IllegalArgumentException();
 			    });
-			latch.await(1, TimeUnit.SECONDS);
-		} catch (Throwable e) {
+
+			assertTrue("Expected latch to count down before timeout", latch.await(5, TimeUnit.SECONDS));
+			// awaiting to all threads done
+			while (uncompletedWork.get() != 0) {
+				Thread.sleep(100);
+			}
+		}
+		catch (Throwable e) {
 			fail(e.toString());
-		} finally {
+		}
+		finally {
+			LoggerUtils.resetAppender(Operators.class);
 			Thread.setDefaultUncaughtExceptionHandler(null);
 			Schedulers.resetOnHandleError();
+			Schedulers.resetOnScheduleHook("test");
 		}
-		assertThat(handled).as("Uncaught error handler").isTrue();
-		if (failure.get() != null) {
-			fail(failure.get());
-		}
+		assertThat(handled).as("Uncaught error handler")
+		                   .isFalse();
+		assertThat(failure).as("Uncaught error handler")
+		                   .hasValue(null);
+		Assertions.assertThat(testLogger.getErrContent())
+		          .contains("Operator called default onErrorDropped")
+		          .contains(
+				          "reactor.core.Exceptions$ErrorCallbackNotImplemented: java.lang.IllegalArgumentException");
 	}
 
 	@Test

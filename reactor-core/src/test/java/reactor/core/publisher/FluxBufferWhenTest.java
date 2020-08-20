@@ -164,10 +164,10 @@ public class FluxBufferWhenTest {
 	public void normal() {
 		AssertSubscriber<List<Integer>> ts = AssertSubscriber.create();
 
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
-		DirectProcessor<Integer> sp2 = DirectProcessor.create();
-		DirectProcessor<Integer> sp3 = DirectProcessor.create();
-		DirectProcessor<Integer> sp4 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
+		FluxIdentityProcessor<Integer> sp2 = Processors.more().multicastNoBackpressure();
+		FluxIdentityProcessor<Integer> sp3 = Processors.more().multicastNoBackpressure();
+		FluxIdentityProcessor<Integer> sp4 = Processors.more().multicastNoBackpressure();
 
 		sp1.bufferWhen(sp2, v -> v == 1 ? sp3 : sp4)
 		   .subscribe(ts);
@@ -221,9 +221,9 @@ public class FluxBufferWhenTest {
 	public void startCompletes() {
 		AssertSubscriber<List<Integer>> ts = AssertSubscriber.create();
 
-		DirectProcessor<Integer> source = DirectProcessor.create();
-		DirectProcessor<Integer> open = DirectProcessor.create();
-		DirectProcessor<Integer> close = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> source = Processors.more().multicastNoBackpressure();
+		FluxIdentityProcessor<Integer> open = Processors.more().multicastNoBackpressure();
+		FluxIdentityProcessor<Integer> close = Processors.more().multicastNoBackpressure();
 
 		source.bufferWhen(open, v -> close)
 		   .subscribe(ts);
@@ -263,11 +263,11 @@ public class FluxBufferWhenTest {
 	@Test
 	public void bufferWillAcumulateMultipleListsOfValuesOverlap() {
 		//given: "a source and a collected flux"
-		EmitterProcessor<Integer> numbers = EmitterProcessor.create();
-		EmitterProcessor<Integer> bucketOpening = EmitterProcessor.create();
+		FluxIdentityProcessor<Integer> numbers = Processors.multicast();
+		FluxIdentityProcessor<Integer> bucketOpening = Processors.multicast();
 
 		//"overlapping buffers"
-		EmitterProcessor<Integer> boundaryFlux = EmitterProcessor.create();
+		FluxIdentityProcessor<Integer> boundaryFlux = Processors.multicast();
 
 		MonoProcessor<List<List<Integer>>> res = numbers.bufferWhen(bucketOpening, u -> boundaryFlux )
 		                                       .buffer()
@@ -358,6 +358,19 @@ public class FluxBufferWhenTest {
 	}
 
 	@Test
+	public void scanOperator(){
+		Flux<Integer> source = Flux.just(1);
+		FluxBufferWhen<Integer, ?, ?, List<Integer>> test = new FluxBufferWhen<>(source,
+				Flux.interval(Duration.ZERO, Duration.ofMillis(200)),
+				open -> Mono.delay(Duration.ofMillis(100)),
+				ArrayList::new,
+				Queues.unbounded(Queues.XS_BUFFER_SIZE));
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(source);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
 	public void scanStartEndMain() {
 		CoreSubscriber<List<String>> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
 
@@ -375,6 +388,7 @@ public class FluxBufferWhenTest {
 		assertThat(test.scan(Scannable.Attr.BUFFERED)).isEqualTo(0); //TODO
 		assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(100L);
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		test.onError(new IllegalStateException("boom"));
 		assertThat(test.scan(Scannable.Attr.TERMINATED)).isTrue();
@@ -425,6 +439,7 @@ public class FluxBufferWhenTest {
 
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(main);
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 		assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
 
 		test.dispose();
@@ -448,6 +463,7 @@ public class FluxBufferWhenTest {
 		assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(Long.MAX_VALUE);
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(main);
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 		assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
 
 		test.dispose();

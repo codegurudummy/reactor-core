@@ -49,6 +49,7 @@ final class FluxDelaySequence<T> extends InternalFluxOperator<T, T> {
 	@Override
 	public Object scanUnsafe(Attr key) {
 		if (key == Attr.RUN_ON) return scheduler;
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.ASYNC;
 
 		return super.scanUnsafe(key);
 	}
@@ -73,14 +74,8 @@ final class FluxDelaySequence<T> extends InternalFluxOperator<T, T> {
 			super();
 			this.actual = new SerializedSubscriber<>(actual);
 			this.w = w;
-			if (delay.compareTo(Duration.ofMinutes(1)) < 0) {
-				this.delay = delay.toNanos();
-				this.timeUnit = TimeUnit.NANOSECONDS;
-			}
-			else {
-				this.delay = delay.toMillis();
-				this.timeUnit = TimeUnit.MILLISECONDS;
-			}
+			this.delay = delay.toNanos();
+			this.timeUnit = TimeUnit.NANOSECONDS;
 		}
 
 		@Override
@@ -165,6 +160,7 @@ final class FluxDelaySequence<T> extends InternalFluxOperator<T, T> {
 			if (key == Attr.RUN_ON) return w;
 			if (key == Attr.TERMINATED) return done;
 			if (key == Attr.CANCELLED) return w.isDisposed() && !done;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.ASYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

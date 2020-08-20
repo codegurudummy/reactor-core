@@ -46,9 +46,10 @@ import reactor.core.Disposable;
 import reactor.core.Disposables;
 import reactor.core.Exceptions;
 import reactor.core.Scannable;
-import reactor.core.publisher.DirectProcessor;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.FluxIdentityProcessor;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Processors;
 import reactor.test.StepVerifier;
 
 import static org.assertj.core.api.Assertions.*;
@@ -59,6 +60,7 @@ public class SchedulersTest {
 
 	final static class TestSchedulers implements Schedulers.Factory {
 
+		@SuppressWarnings("deprecation")
 		final Scheduler elastic        = Schedulers.Factory.super.newElastic(60, Thread::new);
 		final Scheduler boundedElastic = Schedulers.Factory.super.newBoundedElastic(2, Integer.MAX_VALUE, Thread::new, 60);
 		final Scheduler single         = Schedulers.Factory.super.newSingle(Thread::new);
@@ -74,6 +76,7 @@ public class SchedulersTest {
 		}
 
 		@Override
+		@SuppressWarnings("deprecation")
 		public final Scheduler newElastic(int ttlSeconds, ThreadFactory threadFactory) {
 			assertThat(((ReactorThreadFactory)threadFactory).get()).isEqualTo("unused");
 			return elastic;
@@ -328,6 +331,7 @@ public class SchedulersTest {
 
 	@Test
 	public void elasticSchedulerDefaultBlockingOk() throws InterruptedException {
+		@SuppressWarnings("deprecation")
 		Scheduler scheduler = Schedulers.newElastic("elasticSchedulerDefaultNonBlocking");
 		CountDownLatch latch = new CountDownLatch(1);
 		AtomicReference<Throwable> errorRef = new AtomicReference<>();
@@ -535,7 +539,9 @@ public class SchedulersTest {
 		Schedulers.setFactory(ts);
 
 		Assert.assertEquals(ts.single, Schedulers.newSingle("unused"));
-		Assert.assertEquals(ts.elastic, Schedulers.newElastic("unused"));
+		@SuppressWarnings("deprecation")
+		Scheduler elastic = Schedulers.newElastic("unused");
+		Assert.assertEquals(ts.elastic, elastic);
 		Assert.assertEquals(ts.boundedElastic, Schedulers.newBoundedElastic(4, Integer.MAX_VALUE, "unused"));
 		Assert.assertEquals(ts.parallel, Schedulers.newParallel("unused"));
 
@@ -577,6 +583,7 @@ public class SchedulersTest {
 	@Test
 	public void shutdownNowClosesAllCachedSchedulers() {
 		Scheduler oldSingle = Schedulers.single();
+		@SuppressWarnings("deprecation")
 		Scheduler oldElastic = Schedulers.elastic();
 		Scheduler oldBoundedElastic = Schedulers.boundedElastic();
 		Scheduler oldParallel = Schedulers.parallel();
@@ -656,7 +663,7 @@ public class SchedulersTest {
 
 	public void assertRejectingScheduler(Scheduler scheduler) {
 		try {
-			DirectProcessor<String> p = DirectProcessor.create();
+			FluxIdentityProcessor<String> p = Processors.more().multicastNoBackpressure();
 
 			AtomicReference<String> r = new AtomicReference<>();
 			CountDownLatch l = new CountDownLatch(1);
@@ -911,6 +918,7 @@ public class SchedulersTest {
 
 	@Test(timeout = 5000)
 	public void elasticSchedulerThreadCheck() throws Exception{
+		@SuppressWarnings("deprecation")
 		Scheduler s = Schedulers.newElastic("work");
 		try {
 			Scheduler.Worker w = s.createWorker();
@@ -1111,6 +1119,11 @@ public class SchedulersTest {
 	}
 
 	@Test
+	public void restartBoundedElastic() {
+		restart(Schedulers.newBoundedElastic(1, 10, "test"));
+	}
+
+	@Test
 	public void restartSingle(){
 		restart(Schedulers.newSingle("test"));
 	}
@@ -1132,6 +1145,7 @@ public class SchedulersTest {
 	}
 
 	@Test
+	@SuppressWarnings("deprecation")
 	public void testDefaultMethods(){
 		EmptyScheduler s = new EmptyScheduler();
 
@@ -1149,13 +1163,14 @@ public class SchedulersTest {
 		EmptyTimedScheduler.EmptyTimedWorker tw = ts.createWorker();
 		tw.dispose();
 
-		long before = System.currentTimeMillis();
+		long beforeInNanos = System.nanoTime();
+		long beforeInMillis = System.currentTimeMillis();
 
-		assertThat(ts.now(TimeUnit.MILLISECONDS)).isGreaterThanOrEqualTo(before)
-		                                         .isLessThanOrEqualTo(System.currentTimeMillis());
+		assertThat(ts.now(TimeUnit.NANOSECONDS)).isGreaterThanOrEqualTo(beforeInNanos)
+		                                         .isLessThanOrEqualTo(System.nanoTime());
 
-//		assertThat(tw.now(TimeUnit.MILLISECONDS)).isGreaterThanOrEqualTo(before)
-//		                                        .isLessThanOrEqualTo(System.currentTimeMillis());
+		assertThat(ts.now(TimeUnit.MILLISECONDS)).isGreaterThanOrEqualTo(beforeInMillis)
+		                                        .isLessThanOrEqualTo(System.currentTimeMillis());
 
 		//noop
 		new Schedulers(){

@@ -17,11 +17,18 @@
 package reactor.core.publisher;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.reactivestreams.Subscription;
+import reactor.core.CoreSubscriber;
+import reactor.core.Scannable;
+import reactor.core.publisher.FluxTimeout.TimeoutMainSubscriber;
+import reactor.core.publisher.FluxTimeout.TimeoutOtherSubscriber;
+import reactor.core.publisher.FluxTimeout.TimeoutTimeoutSubscriber;
 import reactor.core.scheduler.Schedulers;
 import reactor.test.StepVerifier;
 import reactor.test.publisher.TestPublisher;
@@ -65,7 +72,7 @@ public class FluxTimeoutTest {
 	}
 
 	@Test
-	public void firstElemenetImmediateTimeout() {
+	public void firstElementImmediateTimeout() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
 		Flux.range(1, 10)
@@ -92,7 +99,7 @@ public class FluxTimeoutTest {
 	}
 
 	@Test
-	public void firstElemenetImmediateResume() {
+	public void firstElementImmediateResume() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
 		Flux.range(1, 10)
@@ -106,9 +113,9 @@ public class FluxTimeoutTest {
 
 	@Test
 	public void oldTimeoutHasNoEffect() {
-		DirectProcessor<Integer> source = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> source = Processors.more().multicastNoBackpressure();
 
-		DirectProcessor<Integer> tp = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> tp = Processors.more().multicastNoBackpressure();
 
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
@@ -130,9 +137,9 @@ public class FluxTimeoutTest {
 
 	@Test
 	public void oldTimeoutCompleteHasNoEffect() {
-		DirectProcessor<Integer> source = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> source = Processors.more().multicastNoBackpressure();
 
-		DirectProcessor<Integer> tp = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> tp = Processors.more().multicastNoBackpressure();
 
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
@@ -154,9 +161,9 @@ public class FluxTimeoutTest {
 
 	@Test
 	public void oldTimeoutErrorHasNoEffect() {
-		DirectProcessor<Integer> source = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> source = Processors.more().multicastNoBackpressure();
 
-		DirectProcessor<Integer> tp = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> tp = Processors.more().multicastNoBackpressure();
 
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
@@ -243,9 +250,9 @@ public class FluxTimeoutTest {
 	public void timeoutRequested() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
-		DirectProcessor<Integer> source = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> source = Processors.more().multicastNoBackpressure();
 
-		DirectProcessor<Integer> tp = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> tp = Processors.more().multicastNoBackpressure();
 
 		source.timeout(tp, v -> tp)
 		      .subscribe(ts);
@@ -425,4 +432,59 @@ public class FluxTimeoutTest {
 				.verify(Duration.ofSeconds(1));
 		}
 	}
+
+	@Test
+	public void scanOperator(){
+		Flux<Integer> parent = Flux.just(1);
+		FluxTimeout<Integer, Integer, ?> test = new FluxTimeout<>(parent, Flux.just(2), v -> Flux.empty(), "desc");
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
+	public void scanMainSubscriber(){
+		CoreSubscriber<String> actual = new LambdaSubscriber<>(null, e -> {}, null, s -> s.request(1));
+		FluxTimeout.TimeoutMainSubscriber<String, Integer> test = new FluxTimeout.TimeoutMainSubscriber<>(actual, Flux.empty(), v -> Flux.just(2), Flux.empty(), "desc");
+
+		Subscription subscription = Operators.emptySubscription();
+		test.onSubscribe(subscription);
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(subscription);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+		assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(1L);
+		test.request(2);
+		assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(1L + 2L);
+
+		assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
+		test.cancel();
+		assertThat(test.scan(Scannable.Attr.CANCELLED)).isTrue();
+	}
+
+	@Test
+	public void scanOtherSubscriber(){
+		CoreSubscriber<String> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
+		FluxTimeout.TimeoutMainSubscriber<String, Integer> main = new FluxTimeout.TimeoutMainSubscriber<>(actual, Flux.empty(), v -> Flux.just(2), Flux.empty(), "desc");
+		FluxTimeout.TimeoutOtherSubscriber<String> test = new FluxTimeout.TimeoutOtherSubscriber<>(actual, main);
+
+		Subscription subscription = Operators.emptySubscription();
+		test.onSubscribe(subscription);
+
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+		assertThat(test.scan(Scannable.Attr.ACTUAL)).isNull();
+	}
+
+	@Test
+	public void scanTimeoutSubscriber(){
+		CoreSubscriber<String> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
+		FluxTimeout.TimeoutMainSubscriber<String, Integer> main = new FluxTimeout.TimeoutMainSubscriber<>(actual, Flux.empty(), v -> Flux.just(2), Flux.empty(), "desc");
+		FluxTimeout.TimeoutTimeoutSubscriber test = new FluxTimeout.TimeoutTimeoutSubscriber(main, 2);
+
+		Subscription subscription = Operators.emptySubscription();
+		test.onSubscribe(subscription);
+
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+		assertThat(test.scan(Scannable.Attr.ACTUAL)).isNull();
+	}
+
 }

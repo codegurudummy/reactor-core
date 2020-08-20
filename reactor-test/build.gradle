@@ -37,13 +37,15 @@ ext {
 
 dependencies {
 	api project(":reactor-core")
+	compileOnly "com.google.code.findbugs:jsr305:${findbugsVersion}"
 
 	implementation "org.jetbrains.kotlin:kotlin-stdlib:${kotlinVersion}"
 
-	testImplementation "junit:junit:$jUnitVersion"
-	testImplementation "org.junit.jupiter:junit-jupiter-api:${jUnitJupiterVersion}"
-	testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:${jUnitJupiterVersion}"
-	testRuntimeOnly "org.junit.vintage:junit-vintage-engine:${jUnitJupiterVersion}"
+	testImplementation platform("org.junit:junit-bom:${jUnitPlatformVersion}")
+	testImplementation "junit:junit:${jUnitVersion}"
+	testImplementation "org.junit.jupiter:junit-jupiter-api"
+	testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine"
+	testRuntimeOnly "org.junit.vintage:junit-vintage-engine"
 
 	testRuntimeOnly "ch.qos.logback:logback-classic:$logbackVersion"
 
@@ -85,6 +87,9 @@ task japicmp(type: JapicmpTask) {
 	includeSynthetic = true
 
 	//TODO after a release, remove the reactor-test exclusions below if any
+	methodExcludes = [
+	        'reactor.test.StepVerifier$FirstStep#expectNoEvent(java.time.Duration)',
+	]
 }
 
 tasks.withType(Test).all {

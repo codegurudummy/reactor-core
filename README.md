@@ -31,12 +31,13 @@ repositories {
 }
 
 dependencies {
-    compile "io.projectreactor:reactor-core:3.3.8.RELEASE"
-    testCompile "io.projectreactor:reactor-test:3.3.8.RELEASE"
+    //TODO change to the release artifact and comment milestone repo above when GA
+    compile "io.projectreactor:reactor-core:3.4.0-M1"
+    testCompile "io.projectreactor:reactor-test:3.4.0-M1"
 
     // Snapshots
-    // compile "io.projectreactor:reactor-core:3.3.9.BUILD-SNAPSHOT"
-    // testCompile "io.projectreactor:reactor-test:3.3.9.BUILD-SNAPSHOT"
+    // compile "io.projectreactor:reactor-core:3.4.0-SNAPSHOT"
+    // testCompile "io.projectreactor:reactor-test:3.4.0-SNAPSHOT"
 }
 ```
 
@@ -44,7 +45,7 @@ See the [reference documentation](https://projectreactor.io/docs/core/release/re
 for more information on getting it (eg. using Maven, or on how to get milestones and snapshots).
 
 > **Note about Android support**: Reactor 3 doesn't officially support nor target Android.
-However it should work fine with Android SDK 26 (Android O) and above. See the
+However it should work fine with Android SDK 21 (Android 5.0) and above. See the
 [complete note](https://projectreactor.io/docs/core/release/reference/docs/index.html#prerequisites)
 in the reference guide.
 
@@ -214,4 +215,3 @@ _Powered by [Reactive Streams Commons](https://github.com/reactor/reactive-strea
 _Licensed under [Apache Software License 2.0](www.apache.org/licenses/LICENSE-2.0)_
 
 _Sponsored by [Pivotal](https://pivotal.io)_
-

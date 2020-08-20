@@ -24,7 +24,6 @@ import io.micrometer.core.instrument.Clock;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
@@ -34,7 +33,7 @@ import reactor.core.CoreSubscriber;
 import reactor.core.Scannable;
 import reactor.util.Logger;
 import reactor.util.Loggers;
-import reactor.util.annotation.Nullable;
+import reactor.util.Metrics.MicrometerConfiguration;
 import reactor.util.function.Tuple2;
 
 /**
@@ -56,31 +55,23 @@ final class FluxMetrics<T> extends InternalFluxOperator<T, T> {
 	final MeterRegistry registryCandidate;
 
 	FluxMetrics(Flux<? extends T> flux) {
-		this(flux, null);
-	}
-
-	/**
-	 * For testing purposes.
-	 *
-	 * @param registry the registry to use, or null for global one
-	 */
-	FluxMetrics(Flux<? extends T> flux, @Nullable MeterRegistry registry) {
 		super(flux);
 
 		this.name = resolveName(flux);
 		this.tags = resolveTags(flux, DEFAULT_TAGS_FLUX, this.name);
 
-		if (registry == null) {
-			this.registryCandidate = Metrics.globalRegistry;
-		}
-		else {
-			this.registryCandidate = registry;
-		}
+		this.registryCandidate = MicrometerConfiguration.getRegistry();
 	}
 
 	@Override
 	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		return new MetricsSubscriber<>(actual, registryCandidate, Clock.SYSTEM, this.name, this.tags);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static class MetricsSubscriber<T> implements InnerOperator<T, T> {
@@ -204,6 +195,12 @@ final class FluxMetrics<T> extends InternalFluxOperator<T, T> {
 				}
 				s.request(l);
 			}
+		}
+
+		@Override
+		public Object scanUnsafe(Attr key) {
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+			return InnerOperator.super.scanUnsafe(key);
 		}
 	}
 

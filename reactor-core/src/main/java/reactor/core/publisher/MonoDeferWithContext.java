@@ -21,6 +21,7 @@ import java.util.function.Function;
 
 import reactor.core.CoreSubscriber;
 import reactor.util.context.Context;
+import reactor.util.context.ContextView;
 
 /**
  * Defers the creation of the actual Publisher the Subscriber will be subscribed to.
@@ -31,9 +32,9 @@ import reactor.util.context.Context;
  */
 final class MonoDeferWithContext<T> extends Mono<T> implements SourceProducer<T> {
 
-	final Function<Context, ? extends Mono<? extends T>> supplier;
+	final Function<ContextView, ? extends Mono<? extends T>> supplier;
 
-	MonoDeferWithContext(Function<Context, ? extends Mono<? extends T>> supplier) {
+	MonoDeferWithContext(Function<ContextView, ? extends Mono<? extends T>> supplier) {
 		this.supplier = Objects.requireNonNull(supplier, "supplier");
 	}
 
@@ -56,6 +57,7 @@ final class MonoDeferWithContext<T> extends Mono<T> implements SourceProducer<T>
 
 	@Override
 	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 		return null; //no particular key to be represented, still useful in hooks
 	}
 }

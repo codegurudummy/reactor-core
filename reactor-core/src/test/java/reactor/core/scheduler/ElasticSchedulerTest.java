@@ -35,11 +35,13 @@ import reactor.util.Logger;
 import reactor.util.Loggers;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 /**
  * @author Stephane Maldini
  * @author Simon Baslé
  */
+@SuppressWarnings("deprecation")
 public class ElasticSchedulerTest extends AbstractSchedulerTest {
 
 	private static final Logger LOGGER = Loggers.getLogger(ElasticSchedulerTest.class);
@@ -49,19 +51,28 @@ public class ElasticSchedulerTest extends AbstractSchedulerTest {
 		return Schedulers.newElastic("ElasticSchedulerTest");
 	}
 
-	@Test(expected = UnsupportedOperationException.class)
-	public void unsupportedStart() {
-		Schedulers.elastic().start();
+	@Override
+	protected boolean shouldCheckInterrupted() {
+		return true;
+	}
+
+	@Override
+	protected boolean shouldCheckSupportRestart() {
+		return true;
+	}
+
+	@Test
+	public void bothStartAndRestartDoNotThrow() {
+		Scheduler scheduler = afterTest.autoDispose(scheduler());
+		assertThatCode(scheduler::start).as("start").doesNotThrowAnyException();
+
+		scheduler.dispose();
+		assertThatCode(scheduler::start).as("restart").doesNotThrowAnyException();
 	}
 
 	@Test(expected = IllegalArgumentException.class)
 	public void negativeTime() throws Exception {
 		Schedulers.newElastic("test", -1);
-	}
-
-	@Override
-	protected boolean shouldCheckInterrupted() {
-		return true;
 	}
 
 	@Test(timeout = 10000)

@@ -35,6 +35,7 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import reactor.core.Disposable;
 import reactor.core.Exceptions;
 import reactor.core.Scannable;
@@ -61,6 +62,7 @@ import static reactor.core.Exceptions.unwrap;
  * <p>
  * Factories prefixed with {@code new} (eg. {@link #newBoundedElastic(int, int, String)} return a new instance of their flavor of {@link Scheduler},
  * while other factories like {@link #boundedElastic()} return a shared instance - which is the one used by operators requiring that flavor as their default Scheduler.
+ * All instances are returned in a {@link Scheduler#start() started} state.
  *
  * @author Stephane Maldini
  */
@@ -138,7 +140,9 @@ public abstract class Schedulers {
 		if(!trampoline && executor instanceof ExecutorService){
 			return fromExecutorService((ExecutorService) executor);
 		}
-		return new ExecutorScheduler(executor, trampoline);
+		final ExecutorScheduler scheduler = new ExecutorScheduler(executor, trampoline);
+		scheduler.start();
+		return scheduler;
 	}
 
 	/**
@@ -166,7 +170,9 @@ public abstract class Schedulers {
 	 * @return a new {@link Scheduler}
 	 */
 	public static Scheduler fromExecutorService(ExecutorService executorService, String executorName) {
-		return new DelegateServiceScheduler(executorName, executorService);
+		final DelegateServiceScheduler scheduler = new DelegateServiceScheduler(executorName, executorService);
+		scheduler.start();
+		return scheduler;
 	}
 
 	/**
@@ -183,7 +189,9 @@ public abstract class Schedulers {
 	 * @return default instance of a {@link Scheduler} that dynamically creates ExecutorService-based
 	 * Workers and caches the threads, reusing them once the Workers have been shut
 	 * down
+	 * @deprecated use {@link #boundedElastic()}, to be removed in 3.5.0
 	 */
+	@Deprecated
 	public static Scheduler elastic() {
 		return cache(CACHED_ELASTIC, ELASTIC, ELASTIC_SUPPLIER);
 	}
@@ -259,7 +267,9 @@ public abstract class Schedulers {
 	 * @return a new {@link Scheduler} that dynamically creates ExecutorService-based
 	 * Workers and caches the thread pools, reusing them once the Workers have been shut
 	 * down
+	 * @deprecated use {@link #newBoundedElastic(int, int, String)}, to be removed in 3.5.0
 	 */
+	@Deprecated
 	public static Scheduler newElastic(String name) {
 		return newElastic(name, ElasticScheduler.DEFAULT_TTL_SECONDS);
 	}
@@ -278,7 +288,9 @@ public abstract class Schedulers {
 	 * @return a new {@link Scheduler} that dynamically creates ExecutorService-based
 	 * Workers and caches the thread pools, reusing them once the Workers have been shut
 	 * down
+	 * @deprecated use {@link #newBoundedElastic(int, int, String, int)}, to be removed in 3.5.0
 	 */
+	@Deprecated
 	public static Scheduler newElastic(String name, int ttlSeconds) {
 		return newElastic(name, ttlSeconds, false);
 	}
@@ -299,7 +311,9 @@ public abstract class Schedulers {
 	 * @return a new {@link Scheduler} that dynamically creates ExecutorService-based
 	 * Workers and caches the thread pools, reusing them once the Workers have been shut
 	 * down
+	 * @deprecated use {@link #newBoundedElastic(int, int, String, int, boolean)}, to be removed in 3.5.0
 	 */
+	@Deprecated
 	public static Scheduler newElastic(String name, int ttlSeconds, boolean daemon) {
 		return newElastic(ttlSeconds,
 				new ReactorThreadFactory(name, ElasticScheduler.COUNTER, daemon, false,
@@ -320,9 +334,13 @@ public abstract class Schedulers {
 	 * @return a new {@link Scheduler} that dynamically creates ExecutorService-based
 	 * Workers and caches the thread pools, reusing them once the Workers have been shut
 	 * down
+	 * @deprecated use {@link #newBoundedElastic(int, int, ThreadFactory, int)}, to be removed in 3.5.0
 	 */
+	@Deprecated
 	public static Scheduler newElastic(int ttlSeconds, ThreadFactory threadFactory) {
-		return factory.newElastic(ttlSeconds, threadFactory);
+		final Scheduler fromFactory = factory.newElastic(ttlSeconds, threadFactory);
+		fromFactory.start();
+		return fromFactory;
 	}
 
 
@@ -472,7 +490,12 @@ public abstract class Schedulers {
 	 * that reuses threads and evict idle ones
 	 */
 	public static Scheduler newBoundedElastic(int threadCap, int queuedTaskCap, ThreadFactory threadFactory, int ttlSeconds) {
-		return factory.newBoundedElastic(threadCap, queuedTaskCap, threadFactory, ttlSeconds);
+		Scheduler fromFactory = factory.newBoundedElastic(threadCap,
+				queuedTaskCap,
+				threadFactory,
+				ttlSeconds);
+		fromFactory.start();
+		return fromFactory;
 	}
 
 	/**
@@ -535,7 +558,9 @@ public abstract class Schedulers {
 	 * ExecutorService-based workers and is suited for parallel work
 	 */
 	public static Scheduler newParallel(int parallelism, ThreadFactory threadFactory) {
-		return factory.newParallel(parallelism, threadFactory);
+		final Scheduler fromFactory = factory.newParallel(parallelism, threadFactory);
+		fromFactory.start();
+		return fromFactory;
 	}
 
 	/**
@@ -580,7 +605,9 @@ public abstract class Schedulers {
 	 * worker
 	 */
 	public static Scheduler newSingle(ThreadFactory threadFactory) {
-		return factory.newSingle(threadFactory);
+		final Scheduler fromFactory = factory.newSingle(threadFactory);
+		fromFactory.start();
+		return fromFactory;
 	}
 
 	/**
@@ -625,7 +652,11 @@ public abstract class Schedulers {
 	 * {@link ExecutorService} that backs a {@link Scheduler}.
 	 * No-op if Micrometer isn't available.
 	 *
-	 * This instrumentation sends data to the Micrometer Global Registry.
+	 * <p>
+	 * The {@link MeterRegistry} used by reactor can be configured via
+	 * {@link Metrics.MicrometerConfiguration#useRegistry(MeterRegistry)} prior to using this method, the default being
+	 * {@link io.micrometer.core.instrument.Metrics#globalRegistry}.
+	 * </p>
 	 *
 	 * @implNote Note that this is added as a decorator via Schedulers when enabling metrics for schedulers, which doesn't change the Factory.
 	 */
@@ -662,8 +693,8 @@ public abstract class Schedulers {
 
 	/**
 	 * Replace {@link Schedulers} factories ({@link #newParallel(String) newParallel},
-	 * {@link #newSingle(String) newSingle} and {@link #newElastic(String) newElastic}). Also
-	 * shutdown Schedulers from the cached factories (like {@link #single()}) in order to
+	 * {@link #newSingle(String) newSingle} and {@link #newBoundedElastic(int, int, String) newBoundedElastic}).
+	 * Also shutdown Schedulers from the cached factories (like {@link #single()}) in order to
 	 * also use these replacements, re-creating the shared schedulers from the new factory
 	 * upon next use.
 	 * <p>
@@ -885,7 +916,9 @@ public abstract class Schedulers {
 	/**
 	 * Wraps a single {@link reactor.core.scheduler.Scheduler.Worker} from some other
 	 * {@link Scheduler} and provides {@link reactor.core.scheduler.Scheduler.Worker}
-	 * services on top of it.
+	 * services on top of it. Unlike with other factory methods in this class, the delegate
+	 * is assumed to be {@link Scheduler#start() started} and won't be implicitly started
+	 * by this method.
 	 * <p>
 	 * Use the {@link Scheduler#dispose()} to release the wrapped worker.
 	 *
@@ -915,7 +948,9 @@ public abstract class Schedulers {
 		 *
 		 * @return a new {@link Scheduler} that dynamically creates Workers resources and
 		 * caches eventually, reusing them once the Workers have been shut down
+		 * @deprecated use {@link Factory#newBoundedElastic(int, int, ThreadFactory, int)}, to be removed in 3.5.0
 		 */
+		@Deprecated
 		default Scheduler newElastic(int ttlSeconds, ThreadFactory threadFactory) {
 			return new ElasticScheduler(threadFactory, ttlSeconds);
 		}
