@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -521,7 +521,7 @@ enum  UnsafeSupport {
 
 				// Ensure the unsafe supports all necessary methods to work around the mistake in the latest OpenJDK.
 				// https://github.com/netty/netty/issues/1061
-				// http://www.mail-archive.com/jdk6-dev@openjdk.java.net/msg00698.html
+				// https://www.mail-archive.com/jdk6-dev@openjdk.java.net/msg00698.html
 				if (unsafe != null) {
 					unsafe.getClass().getDeclaredMethod(
 							"copyMemory", Object.class, long.class, Object.class, long.class, long.class);
