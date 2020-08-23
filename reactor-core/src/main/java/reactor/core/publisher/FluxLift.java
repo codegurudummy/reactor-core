@@ -25,7 +25,7 @@ import reactor.core.Scannable;
 /**
  * @author Stephane Maldini
  */
-final class FluxLift<I, O> extends FluxOperator<I, O> {
+final class FluxLift<I, O> extends InternalFluxOperator<I, O> {
 
 	final BiFunction<Publisher, ? super CoreSubscriber<? super O>, ? extends CoreSubscriber<? super I>>
 			lifter;
@@ -45,12 +45,18 @@ final class FluxLift<I, O> extends FluxOperator<I, O> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super O> actual) {
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Scannable.from(source).scanUnsafe(key);
+		return super.scanUnsafe(key);
+	}
+
+	@Override
+	public CoreSubscriber<? super I> subscribeOrReturn(CoreSubscriber<? super O> actual) {
 		CoreSubscriber<? super I> input =
 				lifter.apply(source, actual);
 
 		Objects.requireNonNull(input, "Lifted subscriber MUST NOT be null");
 
-		source.subscribe(input);
+		return input;
 	}
 }

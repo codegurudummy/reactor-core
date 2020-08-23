@@ -23,11 +23,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 import org.reactivestreams.Subscription;
 
+import reactor.core.Scannable;
 import reactor.test.StepVerifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class MonoCompletionStageTest {
+public class
+MonoCompletionStageTest {
 
 	@Test
 	public void cancelThenFutureFails() {
@@ -144,5 +146,37 @@ public class MonoCompletionStageTest {
 		            .thenCancel()
 		            .verifyThenAssertThat()
 		            .hasDroppedErrorWithMessage("boom, good bye Future");
+	}
+
+	@Test
+	public void scanOperator(){
+		CompletionStage<String> completionStage = CompletableFuture.supplyAsync(() -> "helloFuture");
+		MonoCompletionStage<String> test = new MonoCompletionStage<>(completionStage);
+
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.ASYNC);
+		assertThat(test.scan(Scannable.Attr.ACTUAL)).isNull();
+	}
+
+	@Test
+	public void lateFailureIsPropagatedDirectly() {
+		Throwable expected = new IllegalStateException("boom");
+		CompletableFuture<Integer> future = new CompletableFuture<>();
+
+		Mono.fromCompletionStage(future)
+		    .as(StepVerifier::create)
+		    .then(() -> future.completeExceptionally(expected))
+		    .verifyErrorSatisfies(e -> assertThat(e).isSameAs(expected));
+	}
+
+	@Test
+	public void actionFailureCompletionExceptionIsUnwrapped() {
+		final CompletableFuture<String> future = new CompletableFuture<>();
+
+		Mono.fromCompletionStage(future.whenComplete((s, throwable) -> {
+			throw new IllegalStateException("boom");
+		}))
+		    .as(StepVerifier::create)
+		    .then(() -> future.complete("Success"))
+		    .verifyError(IllegalStateException.class);
 	}
 }

@@ -40,7 +40,7 @@ import reactor.util.context.Context;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxDistinct<T, K, C> extends FluxOperator<T, T> {
+final class FluxDistinct<T, K, C> extends InternalFluxOperator<T, T> {
 
 	final Function<? super T, ? extends K> keyExtractor;
 	final Supplier<C>                      collectionSupplier;
@@ -61,28 +61,26 @@ final class FluxDistinct<T, K, C> extends FluxOperator<T, T> {
 
 	@Override
 	@SuppressWarnings("unchecked")
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		C collection;
-
-		try {
-			collection = Objects.requireNonNull(collectionSupplier.get(),
-					"The collectionSupplier returned a null collection");
-		}
-		catch (Throwable e) {
-			Operators.error(actual, Operators.onOperatorError(e, actual.currentContext()));
-			return;
-		}
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		C collection = Objects.requireNonNull(collectionSupplier.get(),
+				"The collectionSupplier returned a null collection");
 
 		if (actual instanceof ConditionalSubscriber) {
-			source.subscribe(new DistinctConditionalSubscriber<>((ConditionalSubscriber<? super T>) actual,
+			return new DistinctConditionalSubscriber<>((ConditionalSubscriber<? super T>) actual,
 					collection,
 					keyExtractor,
-					distinctPredicate, cleanupCallback));
+					distinctPredicate, cleanupCallback);
 		}
 		else {
-			source.subscribe(new DistinctSubscriber<>(actual, collection, keyExtractor, distinctPredicate,
-					cleanupCallback));
+			return new DistinctSubscriber<>(actual, collection, keyExtractor, distinctPredicate,
+					cleanupCallback);
 		}
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class DistinctSubscriber<T, K, C>
@@ -215,6 +213,7 @@ final class FluxDistinct<T, K, C> extends FluxOperator<T, T> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.TERMINATED) return done;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -383,6 +382,7 @@ final class FluxDistinct<T, K, C> extends FluxOperator<T, T> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.TERMINATED) return done;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -530,6 +530,7 @@ final class FluxDistinct<T, K, C> extends FluxOperator<T, T> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return qs;
 			if (key == Attr.TERMINATED) return done;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

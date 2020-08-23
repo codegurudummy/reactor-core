@@ -33,6 +33,8 @@ import java.util.stream.Stream;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+
+import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.Fuseable;
@@ -42,12 +44,11 @@ import reactor.util.Logger;
 import reactor.util.Loggers;
 import reactor.util.annotation.Nullable;
 import reactor.util.context.Context;
-import reactor.util.function.Tuple2;
 
 import static reactor.core.Fuseable.NONE;
 
 /**
- * An helper to support "Operator" writing, handle noop subscriptions, validate request
+ * A helper to support "Operator" writing, handle noop subscriptions, validate request
  * size and to cap concurrent additive operations to Long.MAX_VALUE,
  * which is generic to {@link Subscription#request(long)} handling.
  *
@@ -173,6 +174,17 @@ public abstract class Operators {
 	}
 
 	/**
+	 * Check whether the provided {@link Subscription} is the one used to satisfy Spec's §1.9 rule
+	 * before signalling an error.
+	 *
+	 * @param subscription the subscription to test.
+	 * @return true if passed subscription is a subscription created in {@link #reportThrowInSubscribe(CoreSubscriber, Throwable)}.
+	 */
+	public static boolean canAppearAfterOnSubscribe(Subscription subscription) {
+		return subscription == EmptySubscription.FROM_SUBSCRIBE_INSTANCE;
+	}
+
+	/**
 	 * Calls onSubscribe on the target Subscriber with the empty instance followed by a call to onError with the
 	 * supplied error.
 	 *
@@ -182,6 +194,40 @@ public abstract class Operators {
 	public static void error(Subscriber<?> s, Throwable e) {
 		s.onSubscribe(EmptySubscription.INSTANCE);
 		s.onError(e);
+	}
+
+	/**
+	 * Report a {@link Throwable} that was thrown from a call to {@link Publisher#subscribe(Subscriber)},
+	 * attempting to notify the {@link Subscriber} by:
+	 * <ol>
+	 *     <li>providing a special {@link Subscription} via {@link Subscriber#onSubscribe(Subscription)}</li>
+	 *     <li>immediately delivering an {@link Subscriber#onError(Throwable) onError} signal after that</li>
+	 * </ol>
+	 * <p>
+	 * As at that point the subscriber MAY have already been provided with a {@link Subscription}, we
+	 * assume most well formed subscribers will ignore this second {@link Subscription} per Reactive
+	 * Streams rule 1.9. Subscribers that don't usually ignore may recognize this special case and ignore
+	 * it by checking {@link #canAppearAfterOnSubscribe(Subscription)}.
+	 * <p>
+	 * Note that if the {@link Subscriber#onSubscribe(Subscription) onSubscribe} attempt throws,
+	 * {@link Exceptions#throwIfFatal(Throwable) fatal} exceptions are thrown. Other exceptions
+	 * are added as {@link Throwable#addSuppressed(Throwable) suppressed} on the original exception,
+	 * which is then directly notified as an {@link Subscriber#onError(Throwable) onError} signal
+	 * (again assuming that such exceptions occur because a {@link Subscription} is already set).
+	 *
+	 * @param subscriber the {@link Subscriber} being subscribed when the error happened
+	 * @param e the {@link Throwable} that was thrown from {@link Publisher#subscribe(Subscriber)}
+	 * @see #canAppearAfterOnSubscribe(Subscription)
+	 */
+	public static void reportThrowInSubscribe(CoreSubscriber<?> subscriber, Throwable e) {
+		try {
+			subscriber.onSubscribe(EmptySubscription.FROM_SUBSCRIBE_INSTANCE);
+		}
+		catch (Throwable onSubscribeError) {
+			Exceptions.throwIfFatal(onSubscribeError);
+			e.addSuppressed(onSubscribeError);
+		}
+		subscriber.onError(onOperatorError(e, subscriber.currentContext()));
 	}
 
 	/**
@@ -586,7 +632,7 @@ public abstract class Operators {
 		}
 		if (hook == null) {
 			log.error("Operator called default onErrorDropped", e);
-			throw Exceptions.bubble(e);
+			return;
 		}
 		hook.accept(e);
 	}
@@ -827,13 +873,13 @@ public abstract class Operators {
 	 * @return a {@link Throwable} to propagate through onError if the strategy is
 	 * terminal and cancelled the subscription, null if not.
 	 */
-	public static <T> Throwable onNextInnerError(Throwable error, Context context, Subscription subscriptionForCancel) {
+	public static <T> Throwable onNextInnerError(Throwable error, Context context, @Nullable Subscription subscriptionForCancel) {
 		error = unwrapOnNextError(error);
 		OnNextFailureStrategy strategy = onNextErrorStrategy(context);
 		if (strategy.test(error, null)) {
 			//some strategies could still return an exception, eg. if the consumer throws
 			Throwable t = strategy.process(error, null, context);
-			if (t != null) {
+			if (t != null && subscriptionForCancel != null) {
 				subscriptionForCancel.cancel();
 			}
 			return t;
@@ -878,6 +924,31 @@ public abstract class Operators {
 		else {
 			Throwable t = onOperatorError(null, error, value, context);
 			return Exceptions.propagate(t);
+		}
+	}
+
+	/**
+	 * Applies the hooks registered with {@link Hooks#onLastOperator} and returns
+	 * {@link CorePublisher} ready to be subscribed on.
+	 *
+	 * @param source the original {@link CorePublisher}.
+	 * @param <T> the type of the value.
+	 * @return a {@link CorePublisher} to subscribe on.
+	 */
+	@SuppressWarnings("unchecked")
+	public static <T> CorePublisher<T> onLastAssembly(CorePublisher<T> source) {
+		Function<Publisher, Publisher> hook = Hooks.onLastOperatorHook;
+		if (hook == null) {
+			return source;
+		}
+
+		Publisher<T> publisher = Objects.requireNonNull(hook.apply(source),"LastOperator hook returned null");
+
+		if (publisher instanceof CorePublisher) {
+			return (CorePublisher<T>) publisher;
+		}
+		else {
+			return new CorePublisherAdapter<>(publisher);
 		}
 	}
 
@@ -1250,6 +1321,18 @@ public abstract class Operators {
 		return Context.empty();
 	}
 
+	/**
+	 * Add the amount {@code n} to the given field, capped to {@link Long#MAX_VALUE},
+	 * unless the field is already at {@link Long#MAX_VALUE} OR {@link Long#MIN_VALUE}.
+	 * Return the value before the update.
+	 *
+	 * @param updater the field to update
+	 * @param instance the instance bearing the field
+	 * @param n the value to add
+	 * @param <T> the type of the field-bearing instance
+	 *
+	 * @return the old value of the field, before update.
+	 */
 	static <T> long addCapCancellable(AtomicLongFieldUpdater<T> updater, T instance,
 			long n) {
 		for (; ; ) {
@@ -1336,7 +1419,53 @@ public abstract class Operators {
 	Operators() {
 	}
 
-	static final CoreSubscriber<?> EMPTY_SUBSCRIBER = new CoreSubscriber<Object>() {
+	static final class CorePublisherAdapter<T> implements CorePublisher<T>,
+	                                                      OptimizableOperator<T, T> {
+
+		final Publisher<T> publisher;
+
+		@Nullable
+		final OptimizableOperator<?, T> optimizableOperator;
+
+		CorePublisherAdapter(Publisher<T> publisher) {
+			this.publisher = publisher;
+			if (publisher instanceof OptimizableOperator) {
+				@SuppressWarnings("unchecked")
+				OptimizableOperator<?, T> optimSource = (OptimizableOperator<?, T>) publisher;
+				this.optimizableOperator = optimSource;
+			}
+			else {
+				this.optimizableOperator = null;
+			}
+		}
+
+		@Override
+		public void subscribe(CoreSubscriber<? super T> subscriber) {
+			publisher.subscribe(subscriber);
+		}
+
+		@Override
+		public void subscribe(Subscriber<? super T> s) {
+			publisher.subscribe(s);
+		}
+
+		@Override
+		public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+			return actual;
+		}
+
+		@Override
+		public final CorePublisher<? extends T> source() {
+			return this;
+		}
+
+		@Override
+		public final OptimizableOperator<?, ? extends T> nextOptimizableSource() {
+			return optimizableOperator;
+		}
+	}
+
+	static final Fuseable.ConditionalSubscriber<?> EMPTY_SUBSCRIBER = new Fuseable.ConditionalSubscriber<Object>() {
 		@Override
 		public void onSubscribe(Subscription s) {
 			Throwable e = new IllegalStateException("onSubscribe should not be used");
@@ -1350,6 +1479,13 @@ public abstract class Operators {
 		}
 
 		@Override
+		public boolean tryOnNext(Object o) {
+			Throwable e = new IllegalStateException("tryOnNext should not be used, got " + o);
+			log.error("Unexpected call to Operators.emptySubscriber()", e);
+			return false;
+		}
+
+		@Override
 		public void onError(Throwable t) {
 			Throwable e = new IllegalStateException("onError should not be used", t);
 			log.error("Unexpected call to Operators.emptySubscriber()", e);
@@ -1359,6 +1495,11 @@ public abstract class Operators {
 		public void onComplete() {
 			Throwable e = new IllegalStateException("onComplete should not be used");
 			log.error("Unexpected call to Operators.emptySubscriber()", e);
+		}
+
+		@Override
+		public Context currentContext() {
+			return Context.empty();
 		}
 	};
 	//
@@ -1384,13 +1525,11 @@ public abstract class Operators {
 		public void request(long n) {
 			// deliberately no op
 		}
-
-
-
 	}
 
 	final static class EmptySubscription implements QueueSubscription<Object>, Scannable {
 		static final EmptySubscription INSTANCE = new EmptySubscription();
+		static final EmptySubscription FROM_SUBSCRIBE_INSTANCE = new EmptySubscription();
 
 		@Override
 		public void cancel() {
@@ -2250,6 +2389,11 @@ public abstract class Operators {
 		@Override
 		public void onComplete() {
 
+		}
+
+		@Override
+		public Context currentContext() {
+			return Context.empty();
 		}
 	}
 

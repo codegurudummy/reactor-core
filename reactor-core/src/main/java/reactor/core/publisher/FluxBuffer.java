@@ -37,7 +37,7 @@ import reactor.util.context.Context;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxBuffer<T, C extends Collection<? super T>> extends FluxOperator<T, C> {
+final class FluxBuffer<T, C extends Collection<? super T>> extends InternalFluxOperator<T, C> {
 
 	final int size;
 
@@ -68,26 +68,28 @@ final class FluxBuffer<T, C extends Collection<? super T>> extends FluxOperator<
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super C> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super C> actual) {
 		if (size == skip) {
-			source.subscribe(new BufferExactSubscriber<>(actual, size, bufferSupplier));
+			return new BufferExactSubscriber<>(actual, size, bufferSupplier);
 		}
 		else if (skip > size) {
-			source.subscribe(new BufferSkipSubscriber<>(actual, size, skip, bufferSupplier));
+			return new BufferSkipSubscriber<>(actual, size, skip, bufferSupplier);
 		}
 		else {
-			source.subscribe(new BufferOverlappingSubscriber<>(actual,
-					size,
-					skip,
-					bufferSupplier));
+			return new BufferOverlappingSubscriber<>(actual, size, skip, bufferSupplier);
 		}
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class BufferExactSubscriber<T, C extends Collection<? super T>>
 			implements InnerOperator<T, C> {
 
 		final CoreSubscriber<? super C> actual;
-		final Context ctx;
 
 		final Supplier<C> bufferSupplier;
 
@@ -103,7 +105,6 @@ final class FluxBuffer<T, C extends Collection<? super T>> extends FluxOperator<
 				int size,
 				Supplier<C> bufferSupplier) {
 			this.actual = actual;
-			this.ctx = actual.currentContext();
 			this.size = size;
 			this.bufferSupplier = bufferSupplier;
 		}
@@ -118,7 +119,7 @@ final class FluxBuffer<T, C extends Collection<? super T>> extends FluxOperator<
 		@Override
 		public void cancel() {
 			s.cancel();
-			Operators.onDiscardMultiple(buffer, this.ctx);
+			Operators.onDiscardMultiple(buffer, actual.currentContext());
 		}
 
 		@Override
@@ -133,7 +134,7 @@ final class FluxBuffer<T, C extends Collection<? super T>> extends FluxOperator<
 		@Override
 		public void onNext(T t) {
 			if (done) {
-				Operators.onNextDropped(t, this.ctx);
+				Operators.onNextDropped(t, actual.currentContext());
 				return;
 			}
 
@@ -144,8 +145,9 @@ final class FluxBuffer<T, C extends Collection<? super T>> extends FluxOperator<
 							"The bufferSupplier returned a null buffer");
 				}
 				catch (Throwable e) {
-					onError(Operators.onOperatorError(s, e, t, this.ctx));
-					Operators.onDiscard(t, this.ctx); //this is in no buffer
+					Context ctx = actual.currentContext();
+					onError(Operators.onOperatorError(s, e, t, ctx));
+					Operators.onDiscard(t, ctx); //this is in no buffer
 					return;
 				}
 				buffer = b;
@@ -162,12 +164,12 @@ final class FluxBuffer<T, C extends Collection<? super T>> extends FluxOperator<
 		@Override
 		public void onError(Throwable t) {
 			if (done) {
-				Operators.onErrorDropped(t, this.ctx);
+				Operators.onErrorDropped(t, actual.currentContext());
 				return;
 			}
 			done = true;
 			actual.onError(t);
-			Operators.onDiscardMultiple(buffer, this.ctx);
+			Operators.onDiscardMultiple(buffer, actual.currentContext());
 		}
 
 		@Override
@@ -201,6 +203,7 @@ final class FluxBuffer<T, C extends Collection<? super T>> extends FluxOperator<
 			}
 			if (key == Attr.CAPACITY) return size;
 			if (key == Attr.PREFETCH) return size;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -365,6 +368,7 @@ final class FluxBuffer<T, C extends Collection<? super T>> extends FluxOperator<
 				return b != null ? b.size() : 0;
 			}
 			if (key == Attr.PREFETCH) return size;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -375,7 +379,6 @@ final class FluxBuffer<T, C extends Collection<? super T>> extends FluxOperator<
 			implements BooleanSupplier, InnerOperator<T, C> {
 
 		final CoreSubscriber<? super C> actual;
-		final Context ctx;
 
 		final Supplier<C> bufferSupplier;
 
@@ -410,7 +413,6 @@ final class FluxBuffer<T, C extends Collection<? super T>> extends FluxOperator<
 				int skip,
 				Supplier<C> bufferSupplier) {
 			this.actual = actual;
-			this.ctx = actual.currentContext();
 			this.size = size;
 			this.skip = skip;
 			this.bufferSupplier = bufferSupplier;
@@ -471,7 +473,7 @@ final class FluxBuffer<T, C extends Collection<? super T>> extends FluxOperator<
 		@Override
 		public void onNext(T t) {
 			if (done) {
-				Operators.onNextDropped(t, this.ctx);
+				Operators.onNextDropped(t, actual.currentContext());
 				return;
 			}
 
@@ -485,8 +487,9 @@ final class FluxBuffer<T, C extends Collection<? super T>> extends FluxOperator<
 							"The bufferSupplier returned a null buffer");
 				}
 				catch (Throwable e) {
-					onError(Operators.onOperatorError(s, e, t, this.ctx));
-					Operators.onDiscard(t, this.ctx); //didn't get a chance to be added to a buffer
+					Context ctx = actual.currentContext();
+					onError(Operators.onOperatorError(s, e, t, ctx));
+					Operators.onDiscard(t, ctx); //didn't get a chance to be added to a buffer
 					return;
 				}
 
@@ -515,7 +518,7 @@ final class FluxBuffer<T, C extends Collection<? super T>> extends FluxOperator<
 		@Override
 		public void onError(Throwable t) {
 			if (done) {
-				Operators.onErrorDropped(t, this.ctx);
+				Operators.onErrorDropped(t, actual.currentContext());
 				return;
 			}
 
@@ -527,8 +530,9 @@ final class FluxBuffer<T, C extends Collection<? super T>> extends FluxOperator<
 
 		@Override
 		public void clear() {
+			Context ctx = actual.currentContext();
             for(C b: this) {
-            	Operators.onDiscardMultiple(b, this.ctx);
+            	Operators.onDiscardMultiple(b, ctx);
             }
 			super.clear();
 		}
@@ -562,6 +566,7 @@ final class FluxBuffer<T, C extends Collection<? super T>> extends FluxOperator<
 			if (key == Attr.BUFFERED) return stream().mapToInt(Collection::size).sum();
 			if (key == Attr.PREFETCH) return Integer.MAX_VALUE;
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return requested;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

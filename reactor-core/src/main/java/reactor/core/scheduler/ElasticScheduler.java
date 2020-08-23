@@ -17,8 +17,10 @@
 package reactor.core.scheduler;
 
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -27,7 +29,6 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import reactor.core.Disposable;
@@ -50,7 +51,7 @@ import reactor.util.annotation.Nullable;
  * @author Stephane Maldini
  * @author Simon Baslé
  */
-final class ElasticScheduler implements Scheduler, Supplier<ScheduledExecutorService>, Scannable {
+final class ElasticScheduler implements Scheduler, Scannable {
 
 	static final AtomicLong COUNTER = new AtomicLong();
 
@@ -69,11 +70,11 @@ final class ElasticScheduler implements Scheduler, Supplier<ScheduledExecutorSer
 	final int ttlSeconds;
 
 
-	final Queue<ScheduledExecutorServiceExpiry> cache;
+	final Deque<ScheduledExecutorServiceExpiry> cache;
 
 	final Queue<CachedService> all;
 
-	final ScheduledExecutorService evictor;
+	ScheduledExecutorService evictor;
 
 
 	volatile boolean shutdown;
@@ -84,21 +85,17 @@ final class ElasticScheduler implements Scheduler, Supplier<ScheduledExecutorSer
 		}
 		this.ttlSeconds = ttlSeconds;
 		this.factory = factory;
-		this.cache = new ConcurrentLinkedQueue<>();
+		this.cache = new ConcurrentLinkedDeque<>();
 		this.all = new ConcurrentLinkedQueue<>();
-		this.evictor = Executors.newScheduledThreadPool(1, EVICTOR_FACTORY);
-		this.evictor.scheduleAtFixedRate(this::eviction,
-				ttlSeconds,
-				ttlSeconds,
-				TimeUnit.SECONDS);
+		//evictor is now started in `start()`. make it look like it is constructed shutdown
+		this.shutdown = true;
 	}
 
 	/**
 	 * Instantiates the default {@link ScheduledExecutorService} for the ElasticScheduler
 	 * ({@code Executors.newScheduledThreadPoolExecutor} with core and max pool size of 1).
 	 */
-	@Override
-	public ScheduledExecutorService get() {
+	public ScheduledExecutorService createUndecoratedService() {
 		ScheduledThreadPoolExecutor poolExecutor = new ScheduledThreadPoolExecutor(1, factory);
 		poolExecutor.setMaximumPoolSize(1);
 		poolExecutor.setRemoveOnCancelPolicy(true);
@@ -107,7 +104,15 @@ final class ElasticScheduler implements Scheduler, Supplier<ScheduledExecutorSer
 
 	@Override
 	public void start() {
-		throw new UnsupportedOperationException("Restarting not supported yet");
+		if (!shutdown) {
+			return;
+		}
+		this.evictor = Executors.newScheduledThreadPool(1, EVICTOR_FACTORY);
+		this.evictor.scheduleAtFixedRate(this::eviction,
+				ttlSeconds,
+				ttlSeconds,
+				TimeUnit.SECONDS);
+		this.shutdown = false;
 	}
 
 	@Override
@@ -138,7 +143,7 @@ final class ElasticScheduler implements Scheduler, Supplier<ScheduledExecutorSer
 			return SHUTDOWN;
 		}
 		CachedService result;
-		ScheduledExecutorServiceExpiry e = cache.poll();
+		ScheduledExecutorServiceExpiry e = cache.pollLast();
 		if (e != null) {
 			return e.cached;
 		}
@@ -157,7 +162,8 @@ final class ElasticScheduler implements Scheduler, Supplier<ScheduledExecutorSer
 		CachedService cached = pick();
 
 		return Schedulers.directSchedule(cached.exec,
-				new DirectScheduleTask(task, cached),
+				task,
+				cached,
 				0L,
 				TimeUnit.MILLISECONDS);
 	}
@@ -167,7 +173,8 @@ final class ElasticScheduler implements Scheduler, Supplier<ScheduledExecutorSer
 		CachedService cached = pick();
 
 		return Schedulers.directSchedule(cached.exec,
-				new DirectScheduleTask(task, cached),
+				task,
+				cached,
 				delay,
 				unit);
 	}
@@ -237,7 +244,7 @@ final class ElasticScheduler implements Scheduler, Supplier<ScheduledExecutorSer
 		CachedService(@Nullable ElasticScheduler parent) {
 			this.parent = parent;
 			if (parent != null) {
-				this.exec = Schedulers.decorateExecutorService(parent, parent.get());
+				this.exec = Schedulers.decorateExecutorService(parent, parent.createUndecoratedService());
 			}
 			else {
 				this.exec = Executors.newSingleThreadScheduledExecutor();
@@ -252,7 +259,7 @@ final class ElasticScheduler implements Scheduler, Supplier<ScheduledExecutorSer
 					ScheduledExecutorServiceExpiry e = new
 							ScheduledExecutorServiceExpiry(this,
 							System.currentTimeMillis() + parent.ttlSeconds * 1000L);
-					parent.cache.offer(e);
+					parent.cache.offerLast(e);
 					if (parent.shutdown) {
 						if (parent.cache.remove(e)) {
 							exec.shutdownNow();
@@ -273,30 +280,6 @@ final class ElasticScheduler implements Scheduler, Supplier<ScheduledExecutorSer
 				if (capacity == null || capacity == -1) return 1;
 			}
 			return Schedulers.scanExecutor(exec, key);
-		}
-	}
-
-	static final class DirectScheduleTask implements Runnable {
-
-		final Runnable      delegate;
-		final CachedService cached;
-
-		DirectScheduleTask(Runnable delegate, CachedService cached) {
-			this.delegate = delegate;
-			this.cached = cached;
-		}
-
-		@Override
-		public void run() {
-			try {
-				delegate.run();
-			}
-			catch (Throwable ex) {
-				Schedulers.handleError(ex);
-			}
-			finally {
-				cached.dispose();
-			}
 		}
 	}
 

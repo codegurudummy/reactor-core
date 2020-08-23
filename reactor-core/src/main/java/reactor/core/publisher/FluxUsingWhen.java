@@ -20,6 +20,7 @@ import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 import org.reactivestreams.Publisher;
@@ -51,17 +52,17 @@ import reactor.util.context.Context;
  */
 final class FluxUsingWhen<T, S> extends Flux<T> implements SourceProducer<T> {
 
-	final Publisher<S>                                          resourceSupplier;
-	final Function<? super S, ? extends Publisher<? extends T>> resourceClosure;
-	final Function<? super S, ? extends Publisher<?>>           asyncComplete;
-	final Function<? super S, ? extends Publisher<?>>           asyncError;
+	final Publisher<S>                                                     resourceSupplier;
+	final Function<? super S, ? extends Publisher<? extends T>>            resourceClosure;
+	final Function<? super S, ? extends Publisher<?>>                      asyncComplete;
+	final BiFunction<? super S, ? super Throwable, ? extends Publisher<?>> asyncError;
 	@Nullable
-	final Function<? super S, ? extends Publisher<?>>           asyncCancel;
+	final Function<? super S, ? extends Publisher<?>>                      asyncCancel;
 
 	FluxUsingWhen(Publisher<S> resourceSupplier,
 			Function<? super S, ? extends Publisher<? extends T>> resourceClosure,
 			Function<? super S, ? extends Publisher<?>> asyncComplete,
-			Function<? super S, ? extends Publisher<?>> asyncError,
+			BiFunction<? super S, ? super Throwable, ? extends Publisher<?>> asyncError,
 			@Nullable Function<? super S, ? extends Publisher<?>> asyncCancel) {
 		this.resourceSupplier = Objects.requireNonNull(resourceSupplier, "resourceSupplier");
 		this.resourceClosure = Objects.requireNonNull(resourceClosure, "resourceClosure");
@@ -104,7 +105,8 @@ final class FluxUsingWhen<T, S> extends Flux<T> implements SourceProducer<T> {
 
 	@Override
 	public Object scanUnsafe(Attr key) {
-		return null; //no particular key to be represented, still useful in hooks
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return null;
 	}
 
 	private static <RESOURCE, T> Publisher<? extends T> deriveFluxFromResource(
@@ -128,7 +130,7 @@ final class FluxUsingWhen<T, S> extends Flux<T> implements SourceProducer<T> {
 			RESOURCE resource,
 			CoreSubscriber<? super T> actual,
 			Function<? super RESOURCE, ? extends Publisher<?>> asyncComplete,
-			Function<? super RESOURCE, ? extends Publisher<?>> asyncError,
+			BiFunction<? super RESOURCE, ? super Throwable, ? extends Publisher<?>> asyncError,
 			@Nullable Function<? super RESOURCE, ? extends Publisher<?>> asyncCancel,
 			@Nullable DeferredSubscription arbiter) {
 		if (actual instanceof ConditionalSubscriber) {
@@ -154,14 +156,13 @@ final class FluxUsingWhen<T, S> extends Flux<T> implements SourceProducer<T> {
 	static class ResourceSubscriber<S, T> extends DeferredSubscription
 			implements InnerConsumer<S> {
 
-		final CoreSubscriber<? super T> actual;
-
-		final Function<? super S, ? extends Publisher<? extends T>> resourceClosure;
-		final Function<? super S, ? extends Publisher<?>>           asyncComplete;
-		final Function<? super S, ? extends Publisher<?>>           asyncError;
+		final CoreSubscriber<? super T>                                        actual;
+		final Function<? super S, ? extends Publisher<? extends T>>            resourceClosure;
+		final Function<? super S, ? extends Publisher<?>>                      asyncComplete;
+		final BiFunction<? super S, ? super Throwable, ? extends Publisher<?>> asyncError;
 		@Nullable
-		final Function<? super S, ? extends Publisher<?>>           asyncCancel;
-		final boolean                                               isMonoSource;
+		final Function<? super S, ? extends Publisher<?>>                      asyncCancel;
+		final boolean                                                          isMonoSource;
 
 		Subscription resourceSubscription;
 		boolean      resourceProvided;
@@ -171,7 +172,7 @@ final class FluxUsingWhen<T, S> extends Flux<T> implements SourceProducer<T> {
 		ResourceSubscriber(CoreSubscriber<? super T> actual,
 				Function<? super S, ? extends Publisher<? extends T>> resourceClosure,
 				Function<? super S, ? extends Publisher<?>> asyncComplete,
-				Function<? super S, ? extends Publisher<?>> asyncError,
+				BiFunction<? super S, ? super Throwable, ? extends Publisher<?>> asyncError,
 				@Nullable Function<? super S, ? extends Publisher<?>> asyncCancel,
 				boolean isMonoSource) {
 			this.actual = Objects.requireNonNull(actual, "actual");
@@ -260,6 +261,7 @@ final class FluxUsingWhen<T, S> extends Flux<T> implements SourceProducer<T> {
 			if (key == Attr.ACTUAL) return actual;
 			if (key == Attr.PREFETCH) return Integer.MAX_VALUE;
 			if (key == Attr.TERMINATED) return resourceProvided;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}
@@ -277,13 +279,13 @@ final class FluxUsingWhen<T, S> extends Flux<T> implements SourceProducer<T> {
 						Subscription.class, "s");
 
 		//rest of the state is always the same
-		final S                                           resource;
-		final Function<? super S, ? extends Publisher<?>> asyncComplete;
-		final Function<? super S, ? extends Publisher<?>> asyncError;
+		final S                                                                resource;
+		final Function<? super S, ? extends Publisher<?>>                      asyncComplete;
+		final BiFunction<? super S, ? super Throwable, ? extends Publisher<?>> asyncError;
 		@Nullable
-		final Function<? super S, ? extends Publisher<?>> asyncCancel;
+		final Function<? super S, ? extends Publisher<?>>                      asyncCancel;
 		@Nullable
-		final DeferredSubscription                        arbiter;
+		final DeferredSubscription                                             arbiter;
 
 		volatile int callbackApplied;
 		static final AtomicIntegerFieldUpdater<UsingWhenSubscriber> CALLBACK_APPLIED = AtomicIntegerFieldUpdater.newUpdater(UsingWhenSubscriber.class, "callbackApplied");
@@ -296,7 +298,7 @@ final class FluxUsingWhen<T, S> extends Flux<T> implements SourceProducer<T> {
 		UsingWhenSubscriber(CoreSubscriber<? super T> actual,
 				S resource,
 				Function<? super S, ? extends Publisher<?>> asyncComplete,
-				Function<? super S, ? extends Publisher<?>> asyncError,
+				BiFunction<? super S, ? super Throwable, ? extends Publisher<?>> asyncError,
 				@Nullable Function<? super S, ? extends Publisher<?>> asyncCancel,
 				@Nullable DeferredSubscription arbiter) {
 			this.actual = actual;
@@ -318,6 +320,7 @@ final class FluxUsingWhen<T, S> extends Flux<T> implements SourceProducer<T> {
 			if (key == Attr.ERROR) return (error == Exceptions.TERMINATED) ? null : error;
 			if (key == Attr.CANCELLED) return s == Operators.cancelledSubscription();
 			if (key == Attr.PARENT) return s;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return UsingWhenParent.super.scanUnsafe(key);
 		}
@@ -361,7 +364,7 @@ final class FluxUsingWhen<T, S> extends Flux<T> implements SourceProducer<T> {
 				Publisher<?> p;
 
 				try {
-					p = Objects.requireNonNull(asyncError.apply(resource),
+					p = Objects.requireNonNull(asyncError.apply(resource, t),
 							"The asyncError returned a null Publisher");
 				}
 				catch (Throwable e) {
@@ -386,7 +389,8 @@ final class FluxUsingWhen<T, S> extends Flux<T> implements SourceProducer<T> {
 				}
 				catch (Throwable e) {
 					Throwable _e = Operators.onOperatorError(e, actual.currentContext());
-					actual.onError(_e);
+					//give a chance for the Mono implementation to discard the recorded value
+					deferredError(_e);
 					return;
 				}
 
@@ -419,7 +423,6 @@ final class FluxUsingWhen<T, S> extends Flux<T> implements SourceProducer<T> {
 				}
 			}
 		}
-
 	}
 
 	static final class UsingWhenConditionalSubscriber<T, S>
@@ -431,7 +434,7 @@ final class FluxUsingWhen<T, S> extends Flux<T> implements SourceProducer<T> {
 		UsingWhenConditionalSubscriber(ConditionalSubscriber<? super T> actual,
 				S resource,
 				Function<? super S, ? extends Publisher<?>> asyncComplete,
-				Function<? super S, ? extends Publisher<?>> asyncError,
+				BiFunction<? super S, ? super Throwable, ? extends Publisher<?>> asyncError,
 				@Nullable Function<? super S, ? extends Publisher<?>> asyncCancel,
 				@Nullable DeferredSubscription arbiter) {
 			super(actual, resource, asyncComplete, asyncError, asyncCancel, arbiter);
@@ -491,6 +494,7 @@ final class FluxUsingWhen<T, S> extends Flux<T> implements SourceProducer<T> {
 			if (key == Attr.ACTUAL) return parent.actual();
 			if (key == Attr.ERROR) return rollbackCause;
 			if (key == Attr.TERMINATED) return done;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}
@@ -541,6 +545,7 @@ final class FluxUsingWhen<T, S> extends Flux<T> implements SourceProducer<T> {
 			if (key == Attr.PARENT) return parent;
 			if (key == Attr.ACTUAL) return parent.actual();
 			if (key == Attr.TERMINATED) return done;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}
@@ -587,6 +592,7 @@ final class FluxUsingWhen<T, S> extends Flux<T> implements SourceProducer<T> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return parent;
 			if (key == Attr.ACTUAL) return parent.actual();
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}

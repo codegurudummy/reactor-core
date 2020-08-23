@@ -25,9 +25,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiPredicate;
 import java.util.function.Function;
 
 import org.junit.Test;
@@ -38,7 +36,6 @@ import reactor.core.Fuseable;
 import reactor.core.Scannable;
 import reactor.core.publisher.FluxDistinct.DistinctConditionalSubscriber;
 import reactor.core.publisher.FluxDistinct.DistinctSubscriber;
-import reactor.test.MemoryUtils;
 import reactor.test.MemoryUtils.RetainedDetector;
 import reactor.test.MockUtils;
 import reactor.test.StepVerifier;
@@ -539,6 +536,25 @@ public class FluxDistinctTest extends FluxOperatorTest<String, String> {
 	}
 
 	@Test
+	public void scanOperator() {
+		Flux<Integer> parent = Flux.just(1);
+		FluxDistinct<Integer, Integer, HashSet<Integer>> test = new FluxDistinct<>(parent, k -> k, HashSet::new, HashSet::add, HashSet::clear);
+
+	    assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+	    assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
+	public void scanFuseableOperator() {
+		Flux<Integer> parent = Flux.just(1);
+		FluxDistinctFuseable<Integer, Integer, HashSet<Integer>> test
+				= new FluxDistinctFuseable<>(parent, k -> k, HashSet::new, HashSet::add, HashSet::clear);
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
 	public void scanSubscriber() {
 		CoreSubscriber<String> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
 		DistinctSubscriber<String, Integer, Set<Integer>> test =
@@ -548,6 +564,7 @@ public class FluxDistinctTest extends FluxOperatorTest<String, String> {
 
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
 		test.onError(new IllegalStateException("boom"));
@@ -565,6 +582,7 @@ public class FluxDistinctTest extends FluxOperatorTest<String, String> {
 
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
 		test.onError(new IllegalStateException("boom"));
@@ -581,6 +599,7 @@ public class FluxDistinctTest extends FluxOperatorTest<String, String> {
 
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
 		test.onError(new IllegalStateException("boom"));
@@ -693,7 +712,7 @@ public class FluxDistinctTest extends FluxOperatorTest<String, String> {
 
 		await()
 				.atMost(2, TimeUnit.SECONDS)
-				.untilAsserted(() -> assertThat(retainedDetector.finalizedCount()).isEqualTo(3));
+				.untilAsserted(retainedDetector::assertAllFinalized);
 	}
 
 	@Test
@@ -719,7 +738,7 @@ public class FluxDistinctTest extends FluxOperatorTest<String, String> {
 
 		await()
 				.atMost(2, TimeUnit.SECONDS)
-				.untilAsserted(() -> assertThat(retainedDetector.finalizedCount()).isEqualTo(3));
+				.untilAsserted(retainedDetector::assertAllFinalized);
 	}
 
 	@Test
@@ -748,7 +767,7 @@ public class FluxDistinctTest extends FluxOperatorTest<String, String> {
 
 		await()
 				.atMost(2, TimeUnit.SECONDS)
-				.untilAsserted(() -> assertThat(retainedDetector.finalizedCount()).isEqualTo(3));
+				.untilAsserted(retainedDetector::assertAllFinalized);
 	}
 
 	@Test
@@ -777,7 +796,7 @@ public class FluxDistinctTest extends FluxOperatorTest<String, String> {
 
 		await()
 				.atMost(2, TimeUnit.SECONDS)
-				.untilAsserted(() -> assertThat(retainedDetector.finalizedCount()).isEqualTo(3));
+				.untilAsserted(retainedDetector::assertAllFinalized);
 	}
 
 	@Test
@@ -803,7 +822,7 @@ public class FluxDistinctTest extends FluxOperatorTest<String, String> {
 
 		await()
 				.atMost(2, TimeUnit.SECONDS)
-				.untilAsserted(() -> assertThat(retainedDetector.finalizedCount()).isEqualTo(3));
+				.untilAsserted(retainedDetector::assertAllFinalized);
 	}
 
 	@Test
@@ -829,7 +848,7 @@ public class FluxDistinctTest extends FluxOperatorTest<String, String> {
 
 		await()
 				.atMost(2, TimeUnit.SECONDS)
-				.untilAsserted(() -> assertThat(retainedDetector.finalizedCount()).isEqualTo(3));
+				.untilAsserted(retainedDetector::assertAllFinalized);
 	}
 
 	static class DistinctDefault {

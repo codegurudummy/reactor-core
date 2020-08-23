@@ -27,12 +27,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.LongConsumer;
 
-import javax.annotation.Nullable;
-
+import org.assertj.core.api.Assertions;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.Fuseable;
@@ -41,15 +41,17 @@ import reactor.core.publisher.FluxPeekFuseable.PeekConditionalSubscriber;
 import reactor.core.publisher.FluxPeekFuseable.PeekFuseableConditionalSubscriber;
 import reactor.core.publisher.FluxPeekFuseable.PeekFuseableSubscriber;
 import reactor.core.scheduler.Schedulers;
+import reactor.test.LoggerUtils;
 import reactor.test.MockUtils;
 import reactor.test.StepVerifier;
 import reactor.test.subscriber.AssertSubscriber;
+import reactor.test.util.TestLogger;
+import reactor.util.annotation.Nullable;
 import reactor.util.concurrent.Queues;
 import reactor.util.context.Context;
 
 import static java.lang.Thread.sleep;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.CoreMatchers.*;
 import static org.junit.Assert.*;
 import static reactor.core.scheduler.Schedulers.parallel;
 
@@ -354,27 +356,40 @@ public class FluxPeekFuseableTest {
 
 	@Test
 	public void afterTerminateCallbackErrorDoesNotInvokeOnError() {
-		IllegalStateException err = new IllegalStateException("test");
-		AtomicReference<Throwable> errorCallbackCapture = new AtomicReference<>();
-
-		FluxPeekFuseable<String> flux = new FluxPeekFuseable<>(
-				Flux.empty(), null, null, errorCallbackCapture::set, null,
-				() -> { throw err; }, null, null);
-
-		AssertSubscriber<String> ts = AssertSubscriber.create();
-
+		TestLogger testLogger = new TestLogger();
+		LoggerUtils.addAppender(testLogger, Operators.class);
 		try {
-			flux.subscribe(ts);
-			fail("expected thrown exception");
-		}
-		catch (Exception e) {
-			assertThat(e).hasCause(err);
-		}
-		ts.assertNoValues();
-		ts.assertComplete();
 
-		//the onError wasn't invoked:
-		assertThat(errorCallbackCapture.get()).isNull();
+			IllegalStateException error = new IllegalStateException("test");
+			AtomicReference<Throwable> errorCallbackCapture = new AtomicReference<>();
+
+			FluxPeekFuseable<String> flux = new FluxPeekFuseable<>(Flux.empty(),
+					null,
+					null,
+					errorCallbackCapture::set,
+					null,
+					() -> {
+						throw error;
+					},
+					null,
+					null);
+
+			AssertSubscriber<String> ts = AssertSubscriber.create();
+
+			flux.subscribe(ts);
+			ts.assertNoValues();
+			ts.assertComplete();
+
+			//the onError wasn't invoked:
+			assertThat(errorCallbackCapture.get()).isNull();
+
+			Assertions.assertThat(testLogger.getErrContent())
+			          .contains("Operator called default onErrorDropped")
+			          .contains(error.getMessage());
+		}
+		finally {
+			LoggerUtils.resetAppender(Operators.class);
+		}
 	}
 
 	@Test
@@ -397,7 +412,7 @@ public class FluxPeekFuseableTest {
 		ts.assertNoValues();
 		ts.assertComplete();
 
-		Assert.assertThat(errorCallbackCapture.get(), is(nullValue()));
+		assertThat(errorCallbackCapture).hasValue(null);
 
 
 		//same with after error
@@ -418,65 +433,77 @@ public class FluxPeekFuseableTest {
 		ts.assertNoValues();
 		ts.assertError(NullPointerException.class);
 
-		Assert.assertThat(errorCallbackCapture.get(), is(instanceOf(NullPointerException.class)));
+		assertThat(errorCallbackCapture.get()).isInstanceOf(NullPointerException.class);
 	}
 
 	@Test
 	public void afterTerminateCallbackErrorAndErrorCallbackError() {
-		IllegalStateException err = new IllegalStateException("expected afterTerminate");
-		IllegalArgumentException err2 = new IllegalArgumentException("error");
-
-		FluxPeekFuseable<String> flux = new FluxPeekFuseable<>(
-				Flux.empty(), null, null, e -> { throw err2; },
-				null,
-				() -> { throw err; }, null, null);
-
-		AssertSubscriber<String> ts = AssertSubscriber.create();
-
+		TestLogger testLogger = new TestLogger();
+		LoggerUtils.addAppender(testLogger, Operators.class);
 		try {
+
+			IllegalStateException error = new IllegalStateException("expected afterTerminate");
+			IllegalArgumentException error2 = new IllegalArgumentException("error");
+
+			FluxPeekFuseable<String> flux =
+					new FluxPeekFuseable<>(Flux.empty(), null, null, e -> {
+						throw error2;
+					}, null, () -> {
+						throw error;
+					}, null, null);
+
+			AssertSubscriber<String> ts = AssertSubscriber.create();
+
 			flux.subscribe(ts);
-			fail("expected thrown exception");
+			Assertions.assertThat(testLogger.getErrContent())
+			          .contains("Operator called default onErrorDropped")
+			          .contains(error.getMessage());
+			assertEquals(0, error2.getSuppressed().length);
+			//error2 is never thrown
+			ts.assertNoValues();
+			ts.assertComplete();
 		}
-		catch (Exception e) {
-			e.printStackTrace();
-			assertSame(e.toString(), err, e.getCause());
-			assertEquals(0, err2.getSuppressed().length);
-			//err2 is never thrown
+		finally {
+			LoggerUtils.resetAppender(Operators.class);
 		}
-		ts.assertNoValues();
-		ts.assertComplete();
 	}
 
 	@Test
 	public void afterTerminateCallbackErrorAndErrorCallbackError2() {
-		IllegalStateException afterTerminate = new IllegalStateException("afterTerminate");
-		IllegalArgumentException error = new IllegalArgumentException("error");
-		NullPointerException err = new NullPointerException();
-
-		FluxPeekFuseable<String> flux = new FluxPeekFuseable<>(
-				Flux.error(err),
-				null, null,
-				e -> { throw error; }, null, () -> { throw afterTerminate; },
-				null, null);
-
-		AssertSubscriber<String> ts = AssertSubscriber.create();
-
+		TestLogger testLogger = new TestLogger();
+		LoggerUtils.addAppender(testLogger, Operators.class);
 		try {
+
+			IllegalStateException afterTerminate = new IllegalStateException("afterTerminate");
+			IllegalArgumentException error = new IllegalArgumentException("error");
+			NullPointerException error2 = new NullPointerException();
+
+			FluxPeekFuseable<String> flux =
+					new FluxPeekFuseable<>(Flux.error(error2), null, null, e -> {
+						throw error;
+					}, null, () -> {
+						throw afterTerminate;
+					}, null, null);
+
+			AssertSubscriber<String> ts = AssertSubscriber.create();
+
 			flux.subscribe(ts);
-			fail("expected thrown exception");
-		}
-		catch (Exception e) {
-			assertSame(afterTerminate, e.getCause());
-			//afterTerminate suppressed error which itself suppressed original err
+			Assertions.assertThat(testLogger.getErrContent())
+			          .contains("Operator called default onErrorDropped")
+			          .contains(afterTerminate.getMessage());
+			//afterTerminate suppressed error which itself suppressed original error2
 			assertEquals(1, afterTerminate.getSuppressed().length);
 			assertEquals(error, afterTerminate.getSuppressed()[0]);
 
 			assertEquals(1, error.getSuppressed().length);
-			assertEquals(err, error.getSuppressed()[0]);
+			assertEquals(error2, error.getSuppressed()[0]);
+			ts.assertNoValues();
+			//the subscriber still sees the 'error' message since actual.onError is called before the afterTerminate callback
+			ts.assertErrorMessage("error");
 		}
-		ts.assertNoValues();
-		//the subscriber still sees the 'error' message since actual.onError is called before the afterTerminate callback
-		ts.assertErrorMessage("error");
+		finally {
+			LoggerUtils.resetAppender(Operators.class);
+		}
 	}
 
 
@@ -498,7 +525,7 @@ public class FluxPeekFuseableTest {
 	public void asyncFusionAvailable() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
-		UnicastProcessor.create(Queues.<Integer>get(2).get())
+		Processors.more().unicast(Queues.<Integer>get(2).get())
 		                .doOnNext(v -> {
 		                })
 		                .subscribe(ts);
@@ -891,6 +918,15 @@ public class FluxPeekFuseableTest {
 		return "x" + x + "y" + y;
 	}
 
+	@Test
+	public void scanOperator(){
+		Flux<Integer> parent = Flux.just(1);
+		FluxPeekFuseable<Integer> test = new FluxPeekFuseable<>(parent, s -> {}, s -> {},
+				e -> {}, () -> {}, () -> {}, r -> {}, () -> {});
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
 
 	@Test
     public void scanFuseableSubscriber() {
@@ -903,6 +939,7 @@ public class FluxPeekFuseableTest {
 
         assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
         assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
         assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
         test.onError(new IllegalStateException("boom"));
@@ -922,6 +959,7 @@ public class FluxPeekFuseableTest {
 
         assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
         assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
         assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
         test.onError(new IllegalStateException("boom"));
