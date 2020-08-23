@@ -27,13 +27,13 @@ import reactor.core.CoreSubscriber;
  * {@link CoreSubscriber}.
  *
  * <p>
- * Note that any exception thrown by the hook short circuit the subscription process and
+ * Note that any exceptions thrown by the hook short circuit the subscription process and
  * are forwarded to the {@link Subscriber}'s {@link Subscriber#onError(Throwable)} method.
  *
  * @param <T> the value type
  * @author Simon Baslé
  */
-final class FluxDoFirst<T> extends FluxOperator<T, T> {
+final class FluxDoFirst<T> extends InternalFluxOperator<T, T> {
 
 	final Runnable onFirst;
 
@@ -43,14 +43,8 @@ final class FluxDoFirst<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		try {
-			onFirst.run();
-		}
-		catch (Throwable error) {
-			Operators.error(actual, error);
-			return;
-		}
-		source.subscribe(actual);
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		onFirst.run();
+		return actual;
 	}
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2017 Pivotal Software Inc, All Rights Reserved.
+ * Copyright (c) 2011-2019 Pivotal Software Inc, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,6 +42,7 @@ import static java.util.Arrays.copyOf;
  * This is an adaption of the original LMAX Disruptor RingBuffer code from
  * https://lmax-exchange.github.io/disruptor/.
  */
+@SuppressWarnings("deprecation")
 abstract class RingBuffer<E> implements LongSupplier {
 
 	static <T> void addSequence(final T holder,
@@ -122,7 +123,8 @@ abstract class RingBuffer<E> implements LongSupplier {
 			WaitStrategy waitStrategy, Runnable spinObserver) {
 
 		if (hasUnsafe()) {
-			MultiProducerRingBuffer sequencer = new MultiProducerRingBuffer(bufferSize, waitStrategy, spinObserver);
+			MultiProducerRingBuffer
+					sequencer = new MultiProducerRingBuffer(bufferSize, waitStrategy, spinObserver);
 
 			return new UnsafeRingBuffer<>(factory, sequencer);
 		}
@@ -160,7 +162,8 @@ abstract class RingBuffer<E> implements LongSupplier {
 			int bufferSize,
 			WaitStrategy waitStrategy,
 			@Nullable Runnable spinObserver) {
-		SingleProducerSequencer sequencer = new SingleProducerSequencer(bufferSize, waitStrategy, spinObserver);
+		SingleProducerSequencer
+				sequencer = new SingleProducerSequencer(bufferSize, waitStrategy, spinObserver);
 
 		if (hasUnsafe() && Queues.isPowerOfTwo(bufferSize)) {
 			return new UnsafeRingBuffer<>(factory, sequencer);
@@ -422,10 +425,10 @@ abstract class RingBuffer<E> implements LongSupplier {
 	 * using the given WaitStrategy.
 	 */
 	static final class Reader {
-	    private final WaitStrategy waitStrategy;
-	    private volatile boolean alerted = false;
-	    private final Sequence cursorSequence;
-	    private final RingBufferProducer  sequenceProducer;
+	    private final    WaitStrategy                              waitStrategy;
+	    private volatile boolean                                   alerted = false;
+	    private final    Sequence                                  cursorSequence;
+	    private final    RingBufferProducer sequenceProducer;
 
 	    Reader(final RingBufferProducer sequenceProducer,
 	                           final WaitStrategy waitStrategy,
@@ -626,20 +629,23 @@ enum  UnsafeSupport {
 
 	private static final Unsafe UNSAFE;
 }
+
 /**
  * Base class for the various sequencer types (single/multi).  Provides common functionality like the management of
  * gating sequences (add/remove) and ownership of the current cursor.
  */
+@SuppressWarnings("deprecation")
 abstract class RingBufferProducer {
 
 	static final AtomicReferenceFieldUpdater<RingBufferProducer, RingBuffer.Sequence[]>
 			SEQUENCE_UPDATER = AtomicReferenceFieldUpdater.newUpdater(RingBufferProducer.class, RingBuffer.Sequence[].class,
 			"gatingSequences");
 
-	final Runnable     spinObserver;
-	final int          bufferSize;
-	final WaitStrategy waitStrategy;
-	final    RingBuffer.Sequence   cursor          = RingBuffer.newSequence(RingBuffer.INITIAL_CURSOR_VALUE);
+	final Runnable                                        spinObserver;
+	final int                                             bufferSize;
+	final WaitStrategy                                    waitStrategy;
+	final    RingBuffer.Sequence   cursor          = RingBuffer.newSequence(
+			RingBuffer.INITIAL_CURSOR_VALUE);
 	volatile RingBuffer.Sequence[] gatingSequences = new RingBuffer.Sequence[0];
 
 	/**
@@ -779,6 +785,7 @@ abstract class RingBufferProducer {
 abstract class SingleProducerSequencerPad extends RingBufferProducer
 {
 	protected long p1, p2, p3, p4, p5, p6, p7;
+	@SuppressWarnings("deprecation")
 	SingleProducerSequencerPad(int bufferSize, WaitStrategy waitStrategy, @Nullable Runnable spinObserver)
 	{
 		super(bufferSize, waitStrategy, spinObserver);
@@ -787,6 +794,7 @@ abstract class SingleProducerSequencerPad extends RingBufferProducer
 
 abstract class SingleProducerSequencerFields extends SingleProducerSequencerPad
 {
+	@SuppressWarnings("deprecation")
 	SingleProducerSequencerFields(int bufferSize, WaitStrategy waitStrategy, @Nullable Runnable spinObserver)
 	{
 		super(bufferSize, waitStrategy, spinObserver);
@@ -815,6 +823,7 @@ final class SingleProducerSequencer extends SingleProducerSequencerFields {
 	 * @param waitStrategy for those waiting on sequences.
 	 * @param spinObserver the runnable to call on a spin-wait
 	 */
+	@SuppressWarnings("deprecation")
 	SingleProducerSequencer(int bufferSize, final WaitStrategy waitStrategy, @Nullable Runnable spinObserver) {
 		super(bufferSize, waitStrategy, spinObserver);
 	}
@@ -886,10 +895,10 @@ final class SingleProducerSequencer extends SingleProducerSequencerFields {
 
 abstract class NotFunRingBufferFields<E> extends RingBuffer<E>
 {
-	private final   long               indexMask;
-	private final   Object[]           entries;
-	final int                bufferSize;
-	final RingBufferProducer sequenceProducer;
+	private final long                                      indexMask;
+	private final Object[]                                  entries;
+	final         int                                       bufferSize;
+	final         RingBufferProducer sequenceProducer;
 
 	NotFunRingBufferFields(Supplier<E> eventFactory,
 			RingBufferProducer sequenceProducer)
@@ -1013,7 +1022,9 @@ final class NotFunRingBuffer<E> extends NotFunRingBufferFields<E>
 		return sequenceProducer;
 	}
 }
-final class AtomicSequence extends RhsPadding implements LongSupplier, RingBuffer.Sequence
+
+final class AtomicSequence extends RhsPadding
+		implements LongSupplier, RingBuffer.Sequence
 {
 
 	private static final AtomicLongFieldUpdater<Value> UPDATER =
@@ -1047,6 +1058,7 @@ final class AtomicSequence extends RhsPadding implements LongSupplier, RingBuffe
 		return UPDATER.compareAndSet(this, expectedValue, newValue);
 	}
 }
+
 abstract class RingBufferPad<E> extends RingBuffer<E>
 {
 	protected long p1, p2, p3, p4, p5, p6, p7;
@@ -1073,9 +1085,9 @@ abstract class RingBufferFields<E> extends RingBufferPad<E>
 		REF_ARRAY_BASE = UNSAFE.arrayBaseOffset(Object[].class) + (BUFFER_PAD << REF_ELEMENT_SHIFT);
 	}
 
-	private final   long               indexMask;
-	private final   Object[]           entries;
-	protected final int                bufferSize;
+	private final   long                                      indexMask;
+	private final   Object[]                                  entries;
+	protected final int                                       bufferSize;
 	protected final RingBufferProducer sequenceProducer;
 
 	RingBufferFields(Supplier<E> eventFactory,
@@ -1227,7 +1239,8 @@ class RhsPadding extends Value
  * <p>Also attempts to be more efficient with regards to false
  * sharing by adding padding around the volatile field.
  */
-final class UnsafeSequence extends RhsPadding implements RingBuffer.Sequence, LongSupplier
+final class UnsafeSequence extends RhsPadding
+		implements RingBuffer.Sequence, LongSupplier
 {
 	private static final Unsafe UNSAFE;
 	private static final long VALUE_OFFSET;
@@ -1274,6 +1287,7 @@ final class UnsafeSequence extends RhsPadding implements RingBuffer.Sequence, Lo
 	}
 
 }
+
 /**
  * <p>Coordinator for claiming sequences for access to a data structure while tracking dependent {@link RingBuffer.Sequence}s.
  * Suitable for use for sequencing across multiple publisher threads.</p>
@@ -1289,7 +1303,8 @@ final class MultiProducerRingBuffer extends RingBufferProducer
 	private static final long   BASE   = UNSAFE.arrayBaseOffset(int[].class);
 	private static final long   SCALE  = UNSAFE.arrayIndexScale(int[].class);
 
-	private final RingBuffer.Sequence gatingSequenceCache = new UnsafeSequence(RingBuffer.INITIAL_CURSOR_VALUE);
+	private final RingBuffer.Sequence gatingSequenceCache = new UnsafeSequence(
+			RingBuffer.INITIAL_CURSOR_VALUE);
 
 	// availableBuffer tracks the state of each ringbuffer slot
 	// see below for more details on the approach
@@ -1303,6 +1318,7 @@ final class MultiProducerRingBuffer extends RingBufferProducer
 	 * @param bufferSize the size of the buffer that this will sequence over.
 	 * @param waitStrategy for those waiting on sequences.
 	 */
+	@SuppressWarnings("deprecation")
 	MultiProducerRingBuffer(int bufferSize, final WaitStrategy waitStrategy, Runnable spinObserver) {
 		super(bufferSize, waitStrategy, spinObserver);
 		availableBuffer = new int[bufferSize];

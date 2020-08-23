@@ -38,7 +38,7 @@ import reactor.util.annotation.Nullable;
 import reactor.util.context.Context;
 
 /**
- * buffers elements into possibly overlapping buffers whose boundaries are determined
+ * Buffers elements into possibly overlapping buffers whose boundaries are determined
  * by a start Publisher's element and a signal of a derived Publisher
  *
  * @param <T> the source value type
@@ -49,7 +49,7 @@ import reactor.util.context.Context;
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
 final class FluxBufferWhen<T, OPEN, CLOSE, BUFFER extends Collection<? super T>>
-		extends FluxOperator<T, BUFFER> {
+		extends InternalFluxOperator<T, BUFFER> {
 
 	final Publisher<OPEN> start;
 
@@ -77,7 +77,7 @@ final class FluxBufferWhen<T, OPEN, CLOSE, BUFFER extends Collection<? super T>>
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super BUFFER> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super BUFFER> actual) {
 		BufferWhenMainSubscriber<T, OPEN, CLOSE, BUFFER> main =
 				new BufferWhenMainSubscriber<>(actual, bufferSupplier, queueSupplier, start, end);
 
@@ -86,7 +86,10 @@ final class FluxBufferWhen<T, OPEN, CLOSE, BUFFER extends Collection<? super T>>
 		BufferWhenOpenSubscriber<OPEN> bos = new BufferWhenOpenSubscriber<>(main);
 		if (main.subscribers.add(bos)) {
 			start.subscribe(bos);
-			source.subscribe(main);
+			return main;
+		}
+		else {
+			return null;
 		}
 	}
 
@@ -439,6 +442,11 @@ final class FluxBufferWhen<T, OPEN, CLOSE, BUFFER extends Collection<? super T>>
 		}
 
 		@Override
+		public Context currentContext() {
+			return parent.currentContext();
+		}
+
+		@Override
 		public void onSubscribe(Subscription s) {
 			if (Operators.setOnce(SUBSCRIPTION, this, s)) {
 				subscription.request(Long.MAX_VALUE);
@@ -498,6 +506,11 @@ final class FluxBufferWhen<T, OPEN, CLOSE, BUFFER extends Collection<? super T>>
 		BufferWhenCloseSubscriber(BufferWhenMainSubscriber<T, ?, ?, BUFFER> parent, long index) {
 			this.parent = parent;
 			this.index = index;
+		}
+
+		@Override
+		public Context currentContext() {
+			return parent.currentContext();
 		}
 
 		@Override
