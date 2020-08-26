@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -42,7 +42,7 @@ import reactor.core.Exceptions;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxWindowStartEnd<T, U, V> extends FluxSource<T, Flux<T>> {
+final class FluxWindowWhen<T, U, V> extends FluxSource<T, Flux<T>> {
 
 	final Publisher<U> start;
 
@@ -52,7 +52,7 @@ final class FluxWindowStartEnd<T, U, V> extends FluxSource<T, Flux<T>> {
 
 	final Supplier<? extends Queue<T>> processorQueueSupplier;
 
-	FluxWindowStartEnd(Flux<? extends T> source,
+	FluxWindowWhen(Flux<? extends T> source,
 			Publisher<U> start,
 			Function<? super U, ? extends Publisher<V>> end,
 			Supplier<? extends Queue<Object>> drainQueueSupplier,

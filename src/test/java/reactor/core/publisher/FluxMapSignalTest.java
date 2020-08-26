@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -116,7 +116,7 @@ public class FluxMapSignalTest extends FluxOperatorTest<String, String> {
 	@Test
 	public void flatMapSignal2() {
 		StepVerifier.create(Mono.just(1)
-		                        .flatMap(d -> Flux.just(d * 2),
+		                        .flatMapMany(d -> Flux.just(d * 2),
 				                        e -> Flux.just(99),
 				                        () -> Flux.just(10)))
 		            .expectNext(2, 10)

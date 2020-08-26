@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -610,7 +610,6 @@ public final class TopicProcessor<E> extends EventLoopProcessor<E>  {
 	 * internally on each subscription.
 	 * @param service A provided ExecutorService to manage threading infrastructure
 	 * @param requestTaskExecutor A provided ExecutorService to manage threading infrastructure.
-	 * @param service A provided ExecutorService to manage threading infrastructure
 	 * @param bufferSize A Backlog Size to mitigate slow subscribers
 	 * @param strategy A RingBuffer WaitStrategy to use instead of the default
 	 * blocking wait strategy.

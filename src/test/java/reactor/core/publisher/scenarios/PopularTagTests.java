@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -66,7 +66,7 @@ public class PopularTagTests extends AbstractReactorTest {
 		         .flatMap(s -> s.groupBy(w -> w)
 		                       .flatMap(w -> w.count().map(c -> Tuples.of(w.key(), c)))
 		                       .collectSortedList((a, b) -> -a.getT2().compareTo(b.getT2()))
-		                        .flatMap(Flux::fromIterable)
+		                        .flatMapMany(Flux::fromIterable)
 		                       .take(10)
 		                       .doAfterTerminate(() -> LOG.info("------------------------ window terminated" +
 						      "----------------------"))

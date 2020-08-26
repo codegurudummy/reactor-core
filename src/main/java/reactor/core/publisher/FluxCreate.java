@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -63,32 +63,29 @@ final class FluxCreate<T> extends Flux<T> {
 		this.createMode = createMode;
 	}
 
-	@Override
-	public void subscribe(Subscriber<? super T> t) {
-		BaseSink<T> sink;
-
+	static <T> BaseSink<T> createSink(Subscriber<? super T> t, OverflowStrategy
+			backpressure){
 		switch (backpressure) {
 			case IGNORE: {
-				sink = new IgnoreSink<>(t);
-				break;
+				return new IgnoreSink<>(t);
 			}
 			case ERROR: {
-				sink = new ErrorAsyncSink<>(t);
-				break;
+				return new ErrorAsyncSink<>(t);
 			}
 			case DROP: {
-				sink = new DropAsyncSink<>(t);
-				break;
+				return new DropAsyncSink<>(t);
 			}
 			case LATEST: {
-				sink = new LatestAsyncSink<>(t);
-				break;
+				return new LatestAsyncSink<>(t);
 			}
 			default: {
-				sink = new BufferAsyncSink<>(t, QueueSupplier.SMALL_BUFFER_SIZE);
-				break;
+				return new BufferAsyncSink<>(t, QueueSupplier.SMALL_BUFFER_SIZE);
 			}
 		}
+	}
+	@Override
+	public void subscribe(Subscriber<? super T> t) {
+		BaseSink<T> sink = createSink(t, backpressure);
 
 		t.onSubscribe(sink);
 		try {

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -89,12 +89,12 @@ public class MonoPublishMulticastTest {
 
     @Test
     public void syncCancelBeforeComplete() {
-        assertThat(Mono.just(Mono.just(1).publish(v -> v)).flatMap(v -> v).blockLast()).isEqualTo(1);
+        assertThat(Mono.just(Mono.just(1).publish(v -> v)).flatMapMany(v -> v).blockLast()).isEqualTo(1);
     }
 
     @Test
     public void normalCancelBeforeComplete() {
-        assertThat(Mono.just(Mono.just(1).hide().publish(v -> v)).flatMap(v -> v).blockLast()).isEqualTo(1);
+        assertThat(Mono.just(Mono.just(1).hide().publish(v -> v)).flatMapMany(v -> v).blockLast()).isEqualTo(1);
     }
 
 }

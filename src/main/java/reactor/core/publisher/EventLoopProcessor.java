@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -47,6 +47,7 @@ abstract class EventLoopProcessor<IN> extends FluxProcessor<IN, IN>
 
 	/**
 	 * Whether the RingBuffer*Processor can be graphed by wrapping the individual Sequence with the target downstream
+	 * @deprecated will be removed in 3.1.0
 	 */
 	@Deprecated
 	public static final  boolean TRACEABLE_RING_BUFFER_PROCESSOR =
@@ -220,10 +221,10 @@ abstract class EventLoopProcessor<IN> extends FluxProcessor<IN, IN>
 		return r;
 	}
 
-	final ExecutorService executor;
-	final ClassLoader     contextClassLoader;
-	final String          name;
-	final boolean         autoCancel;
+	final ExecutorService  executor;
+	final EventLoopContext contextClassLoader;
+	final String           name;
+	final boolean          autoCancel;
 
 	final RingBuffer<Slot<IN>> ringBuffer;
 	final WaitStrategy readWait = WaitStrategy.liteBlocking();
@@ -255,7 +256,7 @@ abstract class EventLoopProcessor<IN> extends FluxProcessor<IN, IN>
 
 		this.autoCancel = autoCancel;
 
-		contextClassLoader = new EventLoopContext();
+		contextClassLoader = new EventLoopContext(multiproducers);
 
 		this.name = defaultName(threadFactory, getClass());
 
@@ -284,6 +285,13 @@ abstract class EventLoopProcessor<IN> extends FluxProcessor<IN, IN>
 	public Subscription upstream() {
 		return upstreamSubscription;
 	}
+
+	/**
+	 * Return the number of parked elements in the emitter backlog.
+	 *
+	 * @return the number of parked elements in the emitter backlog.
+	 */
+	public abstract long getPending();
 
 	@Override
 	public Object scan(Attr key) {
@@ -411,8 +419,14 @@ abstract class EventLoopProcessor<IN> extends FluxProcessor<IN, IN>
 	}
 
 	@Override
+	@Deprecated
 	final public boolean isStarted() {
 		return upstreamSubscription != null || ringBuffer.getAsLong() != -1;
+	}
+
+	@Override
+	public boolean isSerialized() {
+		return contextClassLoader.multiproducer;
 	}
 
 	@Override
@@ -614,9 +628,12 @@ abstract class EventLoopProcessor<IN> extends FluxProcessor<IN, IN>
 
 	final static class EventLoopContext extends ClassLoader {
 
-		EventLoopContext() {
+		final boolean multiproducer;
+
+		EventLoopContext(boolean multiproducer) {
 			super(Thread.currentThread()
 			            .getContextClassLoader());
+			this.multiproducer = multiproducer;
 		}
 	}
 

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -331,9 +331,6 @@ public class FluxFlatMapTest {
 
 		source.flatMap(v -> v == 1 ? source1 : source2, 1, 32).subscribe(ts);
 
-		source1.connect();
-		source2.connect();
-		
 		Assert.assertEquals(1, emission.get());
 		
 		ts.assertNoValues()
@@ -368,9 +365,6 @@ public class FluxFlatMapTest {
 		EmitterProcessor<Integer> source2 = EmitterProcessor.create();
 		
 		source.flatMap(v -> v == 1 ? source1 : source2, Integer.MAX_VALUE, 32).subscribe(ts);
-
-		source1.connect();
-		source2.connect();
 
 		Assert.assertEquals(1000, emission.get());
 		
@@ -528,14 +522,14 @@ public class FluxFlatMapTest {
 		StepVerifier.create(Mono.fromCallable(() -> {
 			throw new Exception("test");
 		})
-		                        .flatMap(Flux::just))
+		                        .flatMapMany(Flux::just))
 		            .verifyErrorMessage("test");
 	}
 
 	@Test
 	public void failScalarMap() {
 		StepVerifier.create(Mono.just(1)
-		                        .flatMap(f -> {
+		                        .flatMapMany(f -> {
 			                        throw new RuntimeException("test");
 		                        }))
 		            .verifyErrorMessage("test");
@@ -544,14 +538,14 @@ public class FluxFlatMapTest {
 	@Test
 	public void failScalarMapNull() {
 		StepVerifier.create(Mono.just(1)
-		                        .flatMap(f -> null))
+		                        .flatMapMany(f -> null))
 		            .verifyError(NullPointerException.class);
 	}
 
 	@Test
 	public void failScalarMapCallableError() {
 		StepVerifier.create(Mono.just(1)
-		                        .flatMap(f -> Mono.fromCallable(() -> {
+		                        .flatMapMany(f -> Mono.fromCallable(() -> {
 			                        throw new Exception("test");
 		                        })))
 		            .verifyErrorMessage("test");
@@ -560,21 +554,21 @@ public class FluxFlatMapTest {
 	@Test
 	public void failMapCallableNullError() {
 		StepVerifier.create(Mono.just(1)
-		                        .flatMap(f -> Mono.fromCallable(() -> null)))
+		                        .flatMapMany(f -> Mono.fromCallable(() -> null)))
 		            .verifyError(NullPointerException.class);
 	}
 
 	@Test
 	public void prematureScalarMapCallableNullComplete() {
 		StepVerifier.create(Mono.just(1)
-		                        .flatMap(f -> Mono.empty()))
+		                        .flatMapMany(f -> Mono.empty()))
 		            .verifyComplete();
 	}
 
 	@Test
 	public void prematureScalarMapCallableJust() {
 		StepVerifier.create(Mono.just(1)
-		                        .flatMap(f -> Mono.fromCallable(() -> 2)))
+		                        .flatMapMany(f -> Mono.fromCallable(() -> 2)))
 		            .expectNext(2)
 		            .verifyComplete();
 	}

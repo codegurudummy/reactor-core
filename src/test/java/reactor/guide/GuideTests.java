@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *        http://www.apache.org/licenses/LICENSE-2.0
+ *        https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -286,12 +286,12 @@ public class GuideTests {
 	}
 
 	@Test
-	public void errorHandlingSwitchOnError() {
+	public void errorHandlingOnErrorResume() {
 		Flux<String> flux =
 				Flux.just("key1", "key2")
 				    .flatMap(k ->
 						    callExternalService(k) // <1>
-								    .switchOnError(getFromCache(k)) // <2>
+								    .onErrorResume(e -> getFromCache(k)) // <2>
 				    );
 
 		StepVerifier.create(flux)
@@ -308,12 +308,12 @@ public class GuideTests {
 	}
 
 	@Test
-	public void errorHandlingResumeWith() {
+	public void errorHandlingOnErrorResumeDependingOnError() {
 		Flux<String> flux =
 		Flux.just("timeout1", "unknown", "key2")
 		    .flatMap(k ->
 				    callExternalService(k)
-						    .onErrorResumeWith(error -> { // <1>
+						    .onErrorResume(error -> { // <1>
 							    if (error instanceof TimeoutException) // <2>
 								    return getFromCache(k);
 							    else if (error instanceof UnknownKeyException) // <3>
@@ -337,13 +337,27 @@ public class GuideTests {
 	}
 
 	@Test
-	public void errorHandlingRethrow() {
+	public void errorHandlingRethrow1() {
 		Flux<String> flux =
 		Flux.just("timeout1")
 		    .flatMap(k -> callExternalService(k)
-				    .onErrorResumeWith(original -> Flux.error(
+				    .onErrorResume(original -> Flux.error(
 						    new BusinessException("oops, SLA exceeded", original))
 				    )
+		    );
+
+		StepVerifier.create(flux)
+		            .verifyErrorMatches(e -> e instanceof BusinessException &&
+				            e.getMessage().equals("oops, SLA exceeded") &&
+				            e.getCause() instanceof TimeoutException);
+	}
+
+	@Test
+	public void errorHandlingRethrow2() {
+		Flux<String> flux =
+		Flux.just("timeout1")
+		    .flatMap(k -> callExternalService(k)
+				    .onErrorMap(original -> new BusinessException("oops, SLA exceeded", original))
 		    );
 
 		StepVerifier.create(flux)
@@ -366,7 +380,7 @@ public class GuideTests {
 				        failureStat.increment();
 				        log("uh oh, falling back, service failed for key " + k); // <2>
 				    })
-		        .switchOnError(getFromCache(k)) // <3>
+		        .onErrorResume(e -> getFromCache(k)) // <3>
 		    );
 
 		StepVerifier.create(flux)
@@ -707,7 +721,7 @@ public class GuideTests {
 
 	private Flux<String> urls() {
 		return Flux.range(1, 5)
-		           .map(i -> "http://mysite.io/quote/" + i);
+		           .map(i -> "https://www.mysite.io/quote" + i);
 	}
 
 	private Flux<String> doRequest(String url) {
@@ -761,7 +775,7 @@ public class GuideTests {
 				assertThat(withSuppressed.getSuppressed()).hasSize(1);
 				assertThat(withSuppressed.getSuppressed()[0])
 						.hasMessageStartingWith("\nAssembly trace from producer [reactor.core.publisher.MonoSingle] :")
-						.hasMessageEndingWith("Flux.single(GuideTests.java:719)\n");
+						.hasMessageEndingWith("Flux.single(GuideTests.java:733)\n");
 			});
 		}
 	}

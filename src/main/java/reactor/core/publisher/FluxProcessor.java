@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,6 +16,7 @@
 
 package reactor.core.publisher;
 
+import java.util.Objects;
 import java.util.Iterator;
 import java.util.concurrent.CancellationException;
 import java.util.stream.Stream;
@@ -88,7 +89,11 @@ public abstract class FluxProcessor<IN, OUT> extends Flux<OUT>
 	 * Note that {@link org.reactivestreams.Processor} can extend this behavior to effectively start its subscribers.
 	 *
 	 * @return this
+	 * @deprecated Will be removed in 3.1.0. {@link FluxProcessor#onSubscribe(Subscription)} is not required by
+	 * default anymore and brings no benefit given the private scope of the
+	 * Subscription.
 	 */
+	@Deprecated
 	public FluxProcessor<IN, OUT> connect() {
 		onSubscribe(Operators.emptySubscription());
 		return this;
@@ -98,7 +103,9 @@ public abstract class FluxProcessor<IN, OUT> extends Flux<OUT>
 	 * Create a {@link BlockingSink} and attach it via {@link #onSubscribe(Subscription)}.
 	 *
 	 * @return a new subscribed {@link BlockingSink}
+	 * @deprecated Will be removed in 3.1.0, use {@link #sink()}
 	 */
+	@Deprecated
 	public final BlockingSink<IN> connectSink() {
 		return connectSink(true);
 	}
@@ -109,9 +116,25 @@ public abstract class FluxProcessor<IN, OUT> extends Flux<OUT>
 	 *
 	 * @param autostart automatically start?
 	 * @return a new {@link BlockingSink}
+	 * @deprecated Will be removed in 3.1.0, use {@link #sink()}
 	 */
+	@Deprecated
 	public final BlockingSink<IN> connectSink(boolean autostart) {
 		return BlockingSink.create(this, autostart);
+	}
+
+	@Override
+	public void dispose() {
+		onError(new CancellationException("Disposed"));
+	}
+
+	/**
+	 * Return the number of active {@link Subscriber} or {@literal -1} if untracked.
+	 *
+	 * @return the number of active {@link Subscriber} or {@literal -1} if untracked
+	 */
+	public long downstreamCount(){
+		return inners().count();
 	}
 
 	/**
@@ -124,6 +147,7 @@ public abstract class FluxProcessor<IN, OUT> extends Flux<OUT>
 	}
 
 	@Override
+	@Deprecated
 	public final long getCapacity() {
 		return getBufferSize();
 	}
@@ -138,35 +162,27 @@ public abstract class FluxProcessor<IN, OUT> extends Flux<OUT>
 	}
 
 	/**
-	 * Create a {@link FluxProcessor} that safely gates multi-threaded producer
-	 * {@link Subscriber#onNext(Object)}.
+	 * Return true if any {@link Subscriber} is actively subscribed
 	 *
-	 * @return a serializing {@link FluxProcessor}
+	 * @return true if any {@link Subscriber} is actively subscribed
 	 */
-	public final FluxProcessor<IN, OUT> serialize() {
-		return new DelegateProcessor<>(this, Operators.serialize(this));
-	}
-
-	/**
-	 * Note: From 3.1 this is to be left unimplemented
-	 */
-	@Override
-	public void subscribe(Subscriber<? super OUT> s) {
-		if (s == null) {
-			throw Exceptions.argumentIsNullException();
-		}
+	public boolean hasDownstreams() {
+		return downstreamCount() != 0L;
 	}
 
 	@Override
-	public void dispose() {
-		onError(new CancellationException("Disposed"));
+	public Stream<? extends Scannable> inners() {
+		return Stream.empty();
 	}
 
 	/**
 	 * Has this upstream started or "onSubscribed" ?
 	 *
 	 * @return has this upstream started or "onSubscribed" ?
+	 * @deprecated Will be removed in 3.1.0. Processor are stateful and started by default which means you can
+	 * onNext them directly
 	 */
+	@Deprecated
 	public boolean isStarted() {
 		return true;
 	}
@@ -181,31 +197,12 @@ public abstract class FluxProcessor<IN, OUT> extends Flux<OUT>
 	}
 
 	/**
-	 * Return the number of active {@link Subscriber} or {@literal -1} if untracked.
+	 * Return true if this {@link FluxProcessor} supports multithread producing
 	 *
-	 * @return the number of active {@link Subscriber} or {@literal -1} if untracked
+	 * @return true if this {@link FluxProcessor} supports multithread producing
 	 */
-	public long downstreamCount(){
-		return inners().count();
-	}
-
-	/**
-	 * Return true if any {@link Subscriber} is actively subscribed
-	 *
-	 * @return true if any {@link Subscriber} is actively subscribed
-	 */
-	public boolean hasDownstreams() {
-		return downstreamCount() != 0L;
-	}
-
-	@Override
-	public Iterator<?> downstreams() {
-		return inners().iterator();
-	}
-
-	@Override
-	public Stream<? extends Scannable> inners() {
-		return Stream.empty();
+	public boolean isSerialized() {
+		return false;
 	}
 
 	@Override
@@ -219,5 +216,85 @@ public abstract class FluxProcessor<IN, OUT> extends Flux<OUT>
 				return getBufferSize();
 		}
 		return null;
+	}
+
+	@Override
+	@Deprecated
+	public Iterator<?> downstreams() {
+		return inners().iterator();
+	}
+
+	/**
+	 * Create a {@link FluxProcessor} that safely gates multi-threaded producer
+	 * {@link Subscriber#onNext(Object)}.
+	 *
+	 * @return a serializing {@link FluxProcessor}
+	 */
+	public final FluxProcessor<IN, OUT> serialize() {
+		return new DelegateProcessor<>(this, Operators.serialize(this));
+	}
+
+	/**
+	 * Create a {@link FluxSink} that safely gates multi-threaded producer
+	 * {@link Subscriber#onNext(Object)}.
+	 *
+	 * <p> The returned {@link FluxSink} will not apply any
+	 * {@link FluxSink.OverflowStrategy} and overflowing {@link FluxSink#next(Object)}
+	 * will behave in two possible ways depending on the Processor:
+	 * <ul>
+	 * <li> an unbounded processor will handle the overflow itself by dropping or
+	 * buffering </li>
+	 * <li> a bounded processor will block/spin</li>
+	 * </ul>
+	 *
+	 * @return a serializing {@link FluxSink}
+	 */
+	public final FluxSink<IN> sink() {
+		return sink(FluxSink.OverflowStrategy.IGNORE);
+	}
+
+	/**
+	 * Create a {@link FluxSink} that safely gates multi-threaded producer
+	 * {@link Subscriber#onNext(Object)}.
+	 *
+	 * <p> The returned {@link FluxSink} will not apply any
+	 * {@link FluxSink.OverflowStrategy} and overflowing {@link FluxSink#next(Object)}
+	 * will behave in two possible ways depending on the Processor:
+	 * <ul>
+	 * <li> an unbounded processor will handle the overflow itself by dropping or
+	 * buffering </li>
+	 * <li> a bounded processor will block/spin on IGNORE strategy, or apply the
+	 * strategy behavior</li>
+	 * </ul>
+	 *
+	 * @param strategy the overflow strategy, see {@link FluxSink.OverflowStrategy}
+	 * for the
+	 * available strategies
+	 * @return a serializing {@link FluxSink}
+	 */
+	public final FluxSink<IN> sink(FluxSink.OverflowStrategy strategy) {
+		Objects.requireNonNull(strategy, "strategy");
+		if (getBufferSize() == Integer.MAX_VALUE){
+			strategy = FluxSink.OverflowStrategy.IGNORE;
+		}
+
+		FluxCreate.BaseSink<IN> s = FluxCreate.createSink(this, strategy);
+		onSubscribe(s);
+
+		if(s.isCancelled() ||
+				(isSerialized() && getBufferSize() == Integer.MAX_VALUE)){
+			return s;
+		}
+		return new FluxCreate.SerializedSink<>(s);
+	}
+
+	/**
+	 * Note: From 3.1 this is to be left unimplemented
+	 */
+	@Override
+	public void subscribe(Subscriber<? super OUT> s) {
+		if (s == null) {
+			throw Exceptions.argumentIsNullException();
+		}
 	}
 }
