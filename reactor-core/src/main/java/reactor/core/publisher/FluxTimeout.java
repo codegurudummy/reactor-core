@@ -27,6 +27,7 @@ import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
 import reactor.core.Scannable;
 import reactor.util.annotation.Nullable;
+import reactor.util.context.Context;
 
 /**
  * Signals a timeout (or switches to another sequence) in case a per-item
@@ -39,7 +40,7 @@ import reactor.util.annotation.Nullable;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxTimeout<T, U, V> extends FluxOperator<T, T> {
+final class FluxTimeout<T, U, V> extends InternalFluxOperator<T, T> {
 
 	final Publisher<U> firstTimeout;
 
@@ -74,21 +75,8 @@ final class FluxTimeout<T, U, V> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		CoreSubscriber<T> serial = Operators.serialize(actual);
-
-		TimeoutMainSubscriber<T, V> main =
-				new TimeoutMainSubscriber<>(serial, itemTimeout, other, timeoutDescription);
-
-		serial.onSubscribe(main);
-
-		TimeoutTimeoutSubscriber ts = new TimeoutTimeoutSubscriber(main, 0L);
-
-		main.setTimeout(ts);
-
-		firstTimeout.subscribe(ts);
-
-		source.subscribe(main);
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return new TimeoutMainSubscriber<>(actual, firstTimeout, itemTimeout, other, timeoutDescription);
 	}
 
 	@Nullable
@@ -110,6 +98,8 @@ final class FluxTimeout<T, U, V> extends FluxOperator<T, T> {
 	static final class TimeoutMainSubscriber<T, V>
 			extends Operators.MultiSubscriptionSubscriber<T, T> {
 
+		final Publisher<?> firstTimeout;
+
 		final Function<? super T, ? extends Publisher<V>> itemTimeout;
 
 		final Publisher<? extends T> other;
@@ -130,14 +120,18 @@ final class FluxTimeout<T, U, V> extends FluxOperator<T, T> {
 		static final AtomicLongFieldUpdater<TimeoutMainSubscriber> INDEX =
 				AtomicLongFieldUpdater.newUpdater(TimeoutMainSubscriber.class, "index");
 
-		TimeoutMainSubscriber(CoreSubscriber<? super T> actual,
+		TimeoutMainSubscriber(
+				CoreSubscriber<? super T> actual,
+				Publisher<?> firstTimeout,
 				Function<? super T, ? extends Publisher<V>> itemTimeout,
 				@Nullable Publisher<? extends T> other,
-				@Nullable String timeoutDescription) {
-			super(actual);
+				@Nullable String timeoutDescription
+		) {
+			super(Operators.serialize(actual));
 			this.itemTimeout = itemTimeout;
 			this.other = other;
 			this.timeoutDescription = timeoutDescription;
+			this.firstTimeout = firstTimeout;
 		}
 
 		@Override
@@ -146,6 +140,12 @@ final class FluxTimeout<T, U, V> extends FluxOperator<T, T> {
 				this.s = s;
 
 				set(s);
+
+				TimeoutTimeoutSubscriber timeoutSubscriber = new TimeoutTimeoutSubscriber(this, 0L);
+				this.timeout = timeoutSubscriber;
+
+				actual.onSubscribe(this);
+				firstTimeout.subscribe(timeoutSubscriber);
 			}
 		}
 
@@ -306,6 +306,11 @@ final class FluxTimeout<T, U, V> extends FluxOperator<T, T> {
 				Operators.MultiSubscriptionSubscriber<T, T> arbiter) {
 			this.actual = actual;
 			this.arbiter = arbiter;
+		}
+
+		@Override
+		public Context currentContext() {
+			return actual.currentContext();
 		}
 
 		@Override

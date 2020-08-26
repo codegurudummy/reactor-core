@@ -21,9 +21,9 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -31,9 +31,10 @@ import org.assertj.core.api.Assertions;
 import org.assertj.core.api.LongAssert;
 import org.assertj.core.data.Percentage;
 import org.junit.Test;
-import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
+import reactor.core.Exceptions;
 import reactor.core.Scannable;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
@@ -42,7 +43,8 @@ import reactor.test.scheduler.VirtualTimeScheduler;
 import reactor.test.subscriber.AssertSubscriber;
 import reactor.util.context.Context;
 import reactor.util.function.Tuple2;
-import reactor.util.function.Tuples;
+import reactor.util.retry.Retry;
+import reactor.util.retry.RetryBackoffSpec;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -56,13 +58,21 @@ public class FluxRetryWhenTest {
 
 	@Test(expected = NullPointerException.class)
 	public void sourceNull() {
-		new FluxRetryWhen<>(null, v -> v);
+		new FluxRetryWhen<>(null, Retry.from(v -> v));
 	}
 
+	@SuppressWarnings({"deprecation", "unchecked", "rawtypes", "ConstantConditions"})
 	@Test(expected = NullPointerException.class)
-	public void whenFactoryNull() {
+	public void whenThrowableFactoryNull() {
 		Flux.never()
-		    .retryWhen(null);
+		    .retryWhen((Function) null);
+	}
+
+	@SuppressWarnings("ConstantConditions")
+	@Test(expected = NullPointerException.class)
+	public void whenRetrySignalFactoryNull() {
+		Flux.never()
+		    .retryWhen((Retry) null);
 	}
 
 	@Test
@@ -71,7 +81,7 @@ public class FluxRetryWhenTest {
 		Flux<Integer> when = Flux.range(1, 10)
 		                         .doOnCancel(() -> cancelled.set(true));
 
-		StepVerifier.create(justError.retryWhen(other -> when))
+		StepVerifier.create(justError.retryWhen(Retry.from(other -> when)))
 		            .thenCancel()
 		            .verify();
 
@@ -84,7 +94,7 @@ public class FluxRetryWhenTest {
 		Flux<Integer> when = Flux.range(1, 10)
 		                         .doOnCancel(cancelled::incrementAndGet);
 
-		justError.retryWhen(other -> when)
+		justError.retryWhen(Retry.from(other -> when))
 		         .subscribe(new BaseSubscriber<Integer>() {
 			         @Override
 			         protected void hookOnSubscribe(Subscription subscription) {
@@ -105,7 +115,7 @@ public class FluxRetryWhenTest {
 		                           .doOnSubscribe(sub -> sourceSubscribed.set(true))
 		                           .doOnCancel(() -> sourceCancelled.set(true));
 
-		Flux<Integer> retry = source.retryWhen(other -> Mono.error(new IllegalStateException("boom")));
+		Flux<Integer> retry = source.retryWhen(Retry.from(other -> Mono.error(new IllegalStateException("boom"))));
 
 		StepVerifier.create(retry)
 		            .expectSubscription()
@@ -125,8 +135,8 @@ public class FluxRetryWhenTest {
 		                           .doOnCancel(() -> sourceCancelled.set(true));
 
 
-		Flux<Integer> retry = source.retryWhen(other -> other.flatMap(l ->
-				count.getAndIncrement() == 0 ? Mono.just(l) : Mono.<Long>error(new IllegalStateException("boom"))));
+		Flux<Integer> retry = source.retryWhen(Retry.from(other -> other.flatMap(l ->
+				count.getAndIncrement() == 0 ? Mono.just(l) : Mono.<Long>error(new IllegalStateException("boom")))));
 
 		StepVerifier.create(retry)
 		            .expectSubscription()
@@ -146,7 +156,7 @@ public class FluxRetryWhenTest {
 		                           .doOnSubscribe(sub -> sourceSubscribed.set(true))
 		                           .doOnCancel(() -> sourceCancelled.set(true));
 
-		Flux<Integer> retry = source.retryWhen(other -> Flux.empty());
+		Flux<Integer> retry = source.retryWhen(Retry.from(other -> Flux.empty()));
 
 		StepVerifier.create(retry)
 		            .expectSubscription()
@@ -164,7 +174,7 @@ public class FluxRetryWhenTest {
 		                           .doOnSubscribe(sub -> sourceSubscribed.set(true))
 		                           .doOnCancel(() -> sourceCancelled.set(true));
 
-		Flux<Integer> retry = source.retryWhen(other -> other.take(1));
+		Flux<Integer> retry = source.retryWhen(Retry.from(other -> other.take(1)));
 
 		StepVerifier.create(retry)
 		            .expectSubscription()
@@ -180,7 +190,7 @@ public class FluxRetryWhenTest {
 	public void coldRepeater() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
-		justError.retryWhen(v -> Flux.range(1, 10))
+		justError.retryWhen(Retry.from(other -> Flux.range(1, 10)))
 		         .subscribe(ts);
 
 		ts.assertValues(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
@@ -192,7 +202,7 @@ public class FluxRetryWhenTest {
 	public void coldRepeaterBackpressured() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create(0);
 
-		rangeError.retryWhen(v -> Flux.range(1, 5))
+		rangeError.retryWhen(Retry.from(other -> Flux.range(1, 5)))
 		          .subscribe(ts);
 
 		ts.assertNoValues()
@@ -228,7 +238,7 @@ public class FluxRetryWhenTest {
 	public void coldEmpty() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create(0);
 
-		rangeError.retryWhen(v -> Flux.empty())
+		rangeError.retryWhen(Retry.from(other -> Flux.empty()))
 		          .subscribe(ts);
 
 		ts.assertNoValues()
@@ -240,7 +250,7 @@ public class FluxRetryWhenTest {
 	public void coldError() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create(0);
 
-		rangeError.retryWhen(v -> Flux.error(new RuntimeException("forced failure")))
+		rangeError.retryWhen(Retry.from(other -> Flux.error(new RuntimeException("forced failure"))))
 		          .subscribe(ts);
 
 		ts.assertNoValues()
@@ -253,38 +263,36 @@ public class FluxRetryWhenTest {
 	public void whenFactoryThrows() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
-		rangeError.retryWhen(v -> {
+		rangeError.retryWhen(Retry.from(other -> {
 			throw new RuntimeException("forced failure");
-		})
+		}))
 		          .subscribe(ts);
 
 		ts.assertNoValues()
 		  .assertError(RuntimeException.class)
 		  .assertErrorMessage("forced failure")
 		  .assertNotComplete();
-
 	}
 
 	@Test
 	public void whenFactoryReturnsNull() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
-		rangeError.retryWhen(v -> null)
+		rangeError.retryWhen(Retry.from(other -> null))
 		          .subscribe(ts);
 
 		ts.assertNoValues()
 		  .assertError(NullPointerException.class)
 		  .assertNotComplete();
-
 	}
 
 	@Test
 	public void retryErrorsInResponse() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
-		rangeError.retryWhen(v -> v.map(a -> {
+		rangeError.retryWhen(Retry.from(v -> v.map(a -> {
 			throw new RuntimeException("forced failure");
-		}))
+		})))
 		          .subscribe(ts);
 
 		ts.assertValues(1, 2)
@@ -298,7 +306,7 @@ public class FluxRetryWhenTest {
 	public void retryAlways() {
 		AssertSubscriber<Integer> ts = AssertSubscriber.create(0);
 
-		rangeError.retryWhen(v -> v)
+		rangeError.retryWhen(Retry.from(v -> v))
 		          .subscribe(ts);
 
 		ts.request(8);
@@ -308,23 +316,52 @@ public class FluxRetryWhenTest {
 		  .assertNotComplete();
 	}
 
-	Flux<String> exponentialRetryScenario() {
+	Flux<String> linearRetryScenario() {
 		AtomicInteger i = new AtomicInteger();
 		return Flux.<String>create(s -> {
 			if (i.incrementAndGet() == 4) {
 				s.next("hey");
+				s.complete();
 			}
 			else {
 				s.error(new RuntimeException("test " + i));
 			}
-		}).retryWhen(repeat -> repeat.zipWith(Flux.range(1, 3), (t1, t2) -> t2)
-		                             .flatMap(time -> Mono.delay(Duration.ofSeconds(time))));
+		}).retryWhen(Retry
+				.max(3)
+				.doBeforeRetry(rs -> System.out.println(rs.copy()))
+				.doBeforeRetryAsync(rs -> Mono.delay(Duration.ofSeconds(rs.totalRetries() + 1)).then())
+		);
+	}
+
+	Flux<String> fixedDelaysRetryScenario() {
+		AtomicInteger i = new AtomicInteger();
+		return Flux.<String>create(s -> {
+			if (i.incrementAndGet() == 4) {
+				s.next("hey");
+				s.complete();
+			}
+			else {
+				s.error(new RuntimeException("test " + i));
+			}
+		}).retryWhen(Retry.fixedDelay(3, Duration.ofSeconds(3))
+				.doBeforeRetry(rs -> System.out.println(rs.copy()))
+		);
 	}
 
 	@Test
-	public void exponentialRetry() {
-		StepVerifier.withVirtualTime(this::exponentialRetryScenario)
+	public void linearRetry() {
+		StepVerifier.withVirtualTime(this::linearRetryScenario)
 		            .thenAwait(Duration.ofSeconds(6))
+		            .expectNext("hey")
+		            .expectComplete()
+		            .verify();
+	}
+
+	@Test
+	public void fixedDelaysRetry() {
+		StepVerifier.withVirtualTime(this::fixedDelaysRetryScenario)
+		            .expectSubscription()
+		            .expectNoEvent(Duration.ofSeconds(3 * 3))
 		            .expectNext("hey")
 		            .expectComplete()
 		            .verify();
@@ -364,7 +401,7 @@ public class FluxRetryWhenTest {
 	@Test
 	public void inners() {
 		CoreSubscriber<Integer> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
-		CoreSubscriber<Throwable> signaller = new LambdaSubscriber<>(null, e -> {}, null, null);
+		CoreSubscriber<Retry.RetrySignal> signaller = new LambdaSubscriber<>(null, e -> {}, null, null);
 		Flux<Integer> when = Flux.empty();
 		FluxRetryWhen.RetryWhenMainSubscriber<Integer> main = new FluxRetryWhen
 				.RetryWhenMainSubscriber<>(actual, signaller, when);
@@ -375,7 +412,7 @@ public class FluxRetryWhenTest {
 	}
 
 	@Test
-	public void retryWhenContextTrigger_ReplacesOriginalContext() {
+	public void retryWhenContextTrigger_MergesOriginalContext() {
 		final int RETRY_COUNT = 3;
 		List<Integer> retriesLeft = Collections.synchronizedList(new ArrayList<>(4));
 		List<Context> contextPerRetry = Collections.synchronizedList(new ArrayList<>(4));
@@ -388,73 +425,27 @@ public class FluxRetryWhenTest {
 						    contextPerRetry.add(sig.getContext());
 					    }
 				    })
-				    .retryWhen(errorFlux -> errorFlux.flatMap(e -> Mono.subscriberContext().map(ctx -> Tuples.of(e, ctx)))
-				                                     .flatMap(t2 -> {
-					                                     Throwable e = t2.getT1();
-					                                     Context ctx = t2.getT2();
-					                                     int rl = ctx.getOrDefault("retriesLeft", 0);
-					                                     if (rl > 0) {
-						                                     return Mono.just(Context.of("retriesLeft", rl - 1));
-					                                     } else {
-						                                     return Mono.<Context>error(new IllegalStateException("retries exhausted", e));
-					                                     }
-				                                     })
-				    )
+				    .retryWhen(Retry.from(retrySignalFlux -> retrySignalFlux.handle((rs, sink) -> {
+	                    Context ctx = sink.currentContext();
+	                    int rl = ctx.getOrDefault("retriesLeft", 0);
+	                    if (rl > 0) {
+		                    sink.next(Context.of("retriesLeft", rl - 1));
+	                    }
+	                    else {
+		                    sink.error(Exceptions.retryExhausted("retries exhausted", rs.failure()));
+	                    }
+                    })))
 				    .subscriberContext(Context.of("retriesLeft", RETRY_COUNT))
 					.subscriberContext(Context.of("thirdPartyContext", "present"));
 
 		StepVerifier.create(retryWithContext)
-		            .expectErrorSatisfies(e -> assertThat(e).isInstanceOf(IllegalStateException.class)
+		            .expectErrorSatisfies(e -> assertThat(e).matches(Exceptions::isRetryExhausted, "isRetryExhausted")
 		                                                    .hasMessage("retries exhausted")
 		                                                    .hasCause(new IllegalStateException("boom")))
 		            .verify(Duration.ofSeconds(1));
 
 		assertThat(retriesLeft).containsExactly(3, 2, 1, 0);
-		assertThat(contextPerRetry)
-				.first()
-				.matches(ctx  -> ctx.hasKey("thirdPartyContext"));
-		assertThat(contextPerRetry.subList(1, contextPerRetry.size() - 1))
-				.noneMatch(ctx  -> ctx.hasKey("thirdPartyContext"));
-	}
-
-	@Test
-	public void retryWhenContextTrigger_OriginalContextManuallyUpdated() {
-		final int RETRY_COUNT = 3;
-		List<Integer> retriesLeft = Collections.synchronizedList(new ArrayList<>(4));
-		List<Context> contextPerRetry = Collections.synchronizedList(new ArrayList<>(4));
-
-		Flux<Object> retryWithContext =
-				Flux.error(new IllegalStateException("boom"))
-				    .doOnEach(sig -> {
-					    retriesLeft.add(sig.getContext().get("retriesLeft"));
-					    if (!sig.isOnNext()) {
-						    contextPerRetry.add(sig.getContext());
-					    }
-				    })
-				    .retryWhen(errorFlux -> errorFlux.flatMap(e -> Mono.subscriberContext().map(ctx -> Tuples.of(e, ctx)))
-				                                     .flatMap(t2 -> {
-					                                     Throwable e = t2.getT1();
-					                                     Context ctx = t2.getT2();
-					                                     int rl = ctx.getOrDefault("retriesLeft", 0);
-					                                     if (rl > 0) {
-						                                     return Mono.just(ctx.put("retriesLeft", rl - 1));
-					                                     } else {
-						                                     return Mono.<Context>error(new IllegalStateException("retries exhausted", e));
-					                                     }
-				                                     })
-				    )
-				    .subscriberContext(Context.of("retriesLeft", RETRY_COUNT))
-				    .subscriberContext(Context.of("thirdPartyContext", "present"));
-
-		StepVerifier.create(retryWithContext)
-		            .expectErrorSatisfies(e -> assertThat(e).isInstanceOf(IllegalStateException.class)
-		                                                    .hasMessage("retries exhausted")
-		                                                    .hasCause(new IllegalStateException("boom")))
-		            .verify(Duration.ofSeconds(1));
-
-		assertThat(retriesLeft).containsExactly(3, 2, 1, 0);
-		assertThat(contextPerRetry)
-				.allMatch(ctx  -> ctx.hasKey("thirdPartyContext"));
+		assertThat(contextPerRetry).allMatch(ctx -> ctx.hasKey("thirdPartyContext"));
 	}
 
 	@Test
@@ -464,7 +455,11 @@ public class FluxRetryWhenTest {
 
 		StepVerifier.withVirtualTime(() ->
 				Flux.concat(Flux.range(0, 2), Flux.error(exception))
-				    .retryBackoff(4, Duration.ofMillis(100), Duration.ofMillis(2000), 0.1)
+				    .retryWhen(Retry
+						    .backoff(4, Duration.ofMillis(100))
+						    .maxBackoff(Duration.ofMillis(2000))
+						    .jitter(0.1)
+				    )
 				    .elapsed()
 				    .doOnNext(elapsed -> { if (elapsed.getT2() == 0) elapsedList.add(elapsed.getT1());} )
 				    .map(Tuple2::getT2)
@@ -497,7 +492,10 @@ public class FluxRetryWhenTest {
 
 		StepVerifier.withVirtualTime(() ->
 				Flux.concat(Flux.range(0, 2), Flux.error(exception))
-				    .retryBackoff(4, Duration.ofMillis(100), Duration.ofMillis(2000))
+				    .retryWhen(Retry
+						    .backoff(4, Duration.ofMillis(100))
+						    .maxBackoff(Duration.ofMillis(2000))
+				    )
 				    .elapsed()
 				    .doOnNext(elapsed -> { if (elapsed.getT2() == 0) elapsedList.add(elapsed.getT1());} )
 				    .map(Tuple2::getT2)
@@ -530,8 +528,7 @@ public class FluxRetryWhenTest {
 
 		StepVerifier.withVirtualTime(() ->
 				Flux.concat(Flux.range(0, 2), Flux.error(exception))
-				    .log()
-				    .retryBackoff(4, Duration.ofMillis(100))
+				    .retryWhen(Retry.backoff(4, Duration.ofMillis(100)))
 				    .elapsed()
 				    .doOnNext(elapsed -> { if (elapsed.getT2() == 0) elapsedList.add(elapsed.getT1());} )
 				    .map(Tuple2::getT2)
@@ -564,7 +561,11 @@ public class FluxRetryWhenTest {
 
 		StepVerifier.withVirtualTime(() ->
 				Flux.concat(Flux.range(0, 2), Flux.error(exception))
-				    .retryBackoff(4, Duration.ofMillis(100), Duration.ofMillis(220), 0.9)
+				    .retryWhen(Retry
+						    .backoff(4, Duration.ofMillis(100))
+						    .maxBackoff(Duration.ofMillis(220))
+						    .jitter(0.9)
+				    )
 				    .elapsed()
 				    .doOnNext(elapsed -> { if (elapsed.getT2() == 0) elapsedList.add(elapsed.getT1());} )
 				    .map(Tuple2::getT2)
@@ -608,7 +609,11 @@ public class FluxRetryWhenTest {
 
 			StepVerifier.withVirtualTime(() ->
 					Flux.concat(Flux.range(0, 2), Flux.error(exception))
-					    .retryBackoff(1, Duration.ofMillis(100), Duration.ofMillis(2000), 0.9)
+					    .retryWhen(Retry
+							    .backoff(1, Duration.ofMillis(100))
+							    .maxBackoff(Duration.ofMillis(2000))
+							    .jitter(0.9)
+					    )
 					    .elapsed()
 					    .doOnNext(elapsed -> { if (elapsed.getT2() == 0) elapsedList.add(elapsed.getT1());} )
 					    .map(Tuple2::getT2)
@@ -639,7 +644,11 @@ public class FluxRetryWhenTest {
 
 		StepVerifier.withVirtualTime(() ->
 				Flux.concat(Flux.range(0, 2), Flux.error(exception))
-				    .retryBackoff(4, Duration.ofMillis(100), Duration.ofMillis(2000), 0)
+				    .retryWhen(Retry
+						    .backoff(4, Duration.ofMillis(100))
+						    .maxBackoff(Duration.ofMillis(2000))
+						    .jitter(0)
+				    )
 				    .elapsed()
 				    .doOnNext(elapsed -> { if (elapsed.getT2() == 0) elapsedList.add(elapsed.getT1());} )
 				    .map(Tuple2::getT2)
@@ -661,15 +670,14 @@ public class FluxRetryWhenTest {
 		final Duration INIT = Duration.ofSeconds(10);
 
 		StepVerifier.withVirtualTime(() -> {
-			Function<Flux<Throwable>, Publisher<Long>> backoffFunction = FluxRetryWhen.randomExponentialBackoffFunction(
-					80, //with pure exponential, this amount of retries would overflow Duration's capacity
-					INIT,
-					EXPLICIT_MAX,
-					0d,
-					Schedulers.parallel());
+			RetryBackoffSpec retryBuilder = Retry
+					//with pure exponential, 80 retries would overflow Duration's capacity
+					.backoff(80, INIT)
+					.maxBackoff(EXPLICIT_MAX)
+					.jitter(0d);
 
 			return Flux.error(new IllegalStateException("boom"))
-			    .retryWhen(backoffFunction);
+			    .retryWhen(retryBuilder);
 		})
 		            .expectSubscription()
 		            .thenAwait(Duration.ofNanos(Long.MAX_VALUE))
@@ -681,16 +689,19 @@ public class FluxRetryWhenTest {
 	}
 
 	@Test
-	public void fluxRetryBackoffWithGivenScheduler() {
+	public void fluxRetryBackoffWithSpecificScheduler() {
 		VirtualTimeScheduler backoffScheduler = VirtualTimeScheduler.create();
 
 		Exception exception = new IOException("boom retry");
 
 		StepVerifier.create(
 				Flux.concat(Flux.range(0, 2), Flux.error(exception))
-				    .log()
-				    .retryBackoff(4, Duration.ofHours(1), Duration.ofHours(1), 0, backoffScheduler)
-				.doOnNext(i -> System.out.println(i + " on " + Thread.currentThread().getName()))
+				    .retryWhen(Retry
+						    .backoff(4, Duration.ofHours(1))
+						    .maxBackoff(Duration.ofHours(1))
+						    .jitter(0)
+						    .scheduler(backoffScheduler)
+				    )
 		)
 		            .expectNext(0, 1) //normal output
 		            .expectNoEvent(Duration.ofMillis(100))
@@ -704,7 +715,7 @@ public class FluxRetryWhenTest {
 
 	@Test
 	public void fluxRetryBackoffRetriesOnGivenScheduler() {
-		//the fluxRetryBackoffWithGivenScheduler above is not suitable to verify the retry scheduler, as VTS is akin to immediate()
+		//the fluxRetryBackoffWithSpecificScheduler above is not suitable to verify the retry scheduler, as VTS is akin to immediate()
 		//and doesn't really change the Thread
 		Scheduler backoffScheduler = Schedulers.newSingle("backoffScheduler");
 		String main = Thread.currentThread().getName();
@@ -713,8 +724,12 @@ public class FluxRetryWhenTest {
 		try {
 			StepVerifier.create(Flux.concat(Flux.range(0, 2), Flux.error(exception))
 			                        .doOnError(e -> threadNames.add(Thread.currentThread().getName().replaceAll("-\\d+", "")))
-			                        .retryBackoff(2, Duration.ofMillis(10), Duration.ofMillis(100), 0.5d, backoffScheduler)
-
+			                        .retryWhen(Retry
+					                        .backoff(2, Duration.ofMillis(10))
+					                        .maxBackoff(Duration.ofMillis(100))
+					                        .jitter(0.5d)
+					                        .scheduler(backoffScheduler)
+			                        )
 			)
 			            .expectNext(0, 1, 0, 1, 0, 1)
 			            .expectErrorSatisfies(e -> assertThat(e).isInstanceOf(IllegalStateException.class)
@@ -730,4 +745,152 @@ public class FluxRetryWhenTest {
 			backoffScheduler.dispose();
 		}
 	}
+
+	@Test
+	public void backoffFunctionNotTransient() {
+		Flux<Integer> source = transientErrorSource();
+
+		Retry retryFunction =
+				Retry.backoff(2, Duration.ZERO)
+				     .maxBackoff(Duration.ofMillis(100))
+				     .jitter(0d)
+				     .transientErrors(false);
+
+		new FluxRetryWhen<>(source, retryFunction)
+				.as(StepVerifier::create)
+				.expectNext(3, 4)
+				.expectErrorMessage("Retries exhausted: 2/2")
+				.verify(Duration.ofSeconds(2));
+	}
+
+	@Test
+	public void backoffFunctionTransient() {
+		Flux<Integer> source = transientErrorSource();
+
+		Retry retryFunction =
+				Retry.backoff(2, Duration.ZERO)
+				     .maxBackoff(Duration.ofMillis(100))
+				     .jitter(0d)
+				     .transientErrors(true);
+
+		new FluxRetryWhen<>(source, retryFunction)
+				.as(StepVerifier::create)
+				.expectNext(3, 4, 7, 8, 11, 12)
+				.expectComplete()
+				.verify(Duration.ofSeconds(2));
+	}
+
+	@Test
+	public void simpleFunctionTransient() {
+		Flux<Integer> source = transientErrorSource();
+
+		Retry retryFunction =
+				Retry.max(2)
+				     .transientErrors(true);
+
+		new FluxRetryWhen<>(source, retryFunction)
+				.as(StepVerifier::create)
+				.expectNext(3, 4, 7, 8, 11, 12)
+				.expectComplete()
+				.verify(Duration.ofSeconds(2));
+	}
+
+	@Test
+	public void gh1978() {
+		final int elementPerCycle = 3;
+		final int stopAfterCycles = 10;
+		Flux<Long> source =
+				Flux.generate(() -> new AtomicLong(0), (counter, s) -> {
+					long currentCount = counter.incrementAndGet();
+					if (currentCount % elementPerCycle == 0) {
+						s.error(new RuntimeException("Error!"));
+					}
+					else {
+						s.next(currentCount);
+					}
+					return counter;
+				});
+
+		List<Long> pauses = new ArrayList<>();
+
+		StepVerifier.withVirtualTime(() ->
+				source.retryWhen(Retry
+						.backoff(Long.MAX_VALUE, Duration.ofSeconds(1))
+						.maxBackoff(Duration.ofMinutes(1))
+						.jitter(0d)
+						.transientErrors(true)
+				)
+				      .take(stopAfterCycles * elementPerCycle)
+				      .elapsed()
+				      .map(Tuple2::getT1)
+				      .doOnNext(pause -> { if (pause > 500) pauses.add(pause / 1000); })
+		)
+		            .thenAwait(Duration.ofHours(1))
+		            .expectNextCount(stopAfterCycles * elementPerCycle)
+		            .expectComplete()
+		            .verify(Duration.ofSeconds(1));
+
+		assertThat(pauses).allMatch(p -> p == 1, "pause is constantly 1s");
+	}
+
+	public static Flux<Integer> transientErrorSource() {
+		AtomicInteger count = new AtomicInteger();
+		return Flux.generate(sink -> {
+			int step = count.incrementAndGet();
+			switch (step) {
+				case 1:
+				case 2:
+				case 5:
+				case 6:
+				case 9:
+				case 10:
+					sink.error(new IllegalStateException("failing on step " + step));
+					break;
+				case 3: //should reset
+				case 4: //should NOT reset
+				case 7: //should reset
+				case 8: //should NOT reset
+				case 11: //should reset
+					sink.next(step);
+					break;
+				case 12:
+					sink.next(step); //should NOT reset
+					sink.complete();
+					break;
+				default:
+					sink.complete();
+					break;
+			}
+		});
+	}
+
+	@SuppressWarnings("deprecation")
+	@Test
+	public void retryWhenThrowableCompanionIsComparableToRetryWhenRetryFromFunction() {
+		AtomicInteger sourceHelper = new AtomicInteger();
+		Flux<Integer> source = Flux.create(sink -> {
+			if (sourceHelper.getAndIncrement() == 3) {
+				sink.next(1).next(2).next(3).complete();
+			}
+			else {
+				sink.error(new IllegalStateException("boom"));
+			}
+		});
+
+		StepVerifier.withVirtualTime(() -> source.retryWhen(companion -> companion.delayElements(Duration.ofSeconds(3))))
+		            .expectSubscription()
+		            .expectNoEvent(Duration.ofSeconds(3 * 3))
+		            .expectNext(1, 2, 3)
+		            .verifyComplete();
+
+		sourceHelper.set(0);
+		StepVerifier.withVirtualTime(() -> source.retryWhen(
+				Retry.from(companion -> companion.delayElements(Duration.ofSeconds(3))))
+		)
+		            .expectSubscription()
+		            .expectNoEvent(Duration.ofSeconds(3 * 3))
+		            .expectNext(1, 2, 3)
+		            .verifyComplete();
+	}
+
 }
