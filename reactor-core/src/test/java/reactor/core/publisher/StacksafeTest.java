@@ -20,10 +20,13 @@ import java.time.Duration;
 import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListSet;
 
-import org.junit.Ignore;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import reactor.core.CoreSubscriber;
+import reactor.core.scheduler.Schedulers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
@@ -43,6 +46,56 @@ class StacksafeTest {
 	@AfterEach
 	void tearDown() {
 		Operators.setStacksafeMaxOperatorDepth(defaultDepth);
+	}
+
+	@Test
+	void stackSafeSubscriberHasMeaningfulToString() {
+		FluxMap.MapSubscriber<String, Integer> subscriber = new FluxMap.MapSubscriber<>(Operators.emptySubscriber(), String::length);
+
+		@SuppressWarnings("ConstantConditions") //intentionally null worker
+		Operators.Stacksafe.StacksafeSubscriber<String> stackSafeSubscriber = new Operators.Stacksafe.StacksafeSubscriber<>(subscriber,
+				null, "printsWhateverIsHere");
+
+		assertThat(stackSafeSubscriber).hasToString("StacksafeSubscriber{printsWhateverIsHere}");
+	}
+
+	@Test
+	void stacksafeGeneratesMeaningfulToString() {
+		FluxMap<String, Integer> operator = new FluxMap<>(Flux.empty(), String::length);
+		FluxMap.MapSubscriber<String, Integer> subscriber = new FluxMap.MapSubscriber<>(Operators.emptySubscriber(), String::length);
+
+		Operators.Stacksafe stacksafe = new Operators.Stacksafe(1);
+		CoreSubscriber<String> stackSafeSubscriber = stacksafe.protect(subscriber, operator);
+
+		assertThat(stackSafeSubscriber).hasToString("StacksafeSubscriber{depth=1, wrapping=FluxMap}");
+	}
+
+	@Test
+	void negativeMaxDepthIsNoOp() {
+		CoreSubscriber<Object> subscriber = Operators.emptySubscriber();
+		OptimizableOperator<Object, Object> fakeOptimizable = Mockito.mock(OptimizableOperator.class);
+		Operators.Stacksafe stacksafe = new Operators.Stacksafe(-1);
+
+		CoreSubscriber<Object> s = subscriber;
+		for (int i = 0; i < 10_000; i++) {
+			s = stacksafe.protect(s, fakeOptimizable);
+			assertThat(s).as("no wrapping in round #" + i)
+			             .isSameAs(subscriber);
+		}
+	}
+
+	@Test
+	void zeroMaxDepthIsNoOp() {
+		CoreSubscriber<Object> subscriber = Operators.emptySubscriber();
+		OptimizableOperator<Object, Object> fakeOptimizable = Mockito.mock(OptimizableOperator.class);
+		Operators.Stacksafe stacksafe = new Operators.Stacksafe(0);
+
+		CoreSubscriber<Object> s = subscriber;
+		for (int i = 0; i < 10_000; i++) {
+			s = stacksafe.protect(s, fakeOptimizable);
+			assertThat(s).as("no wrapping in round #" + i)
+			             .isSameAs(subscriber);
+		}
 	}
 
 	@Test
@@ -90,8 +143,48 @@ class StacksafeTest {
 		}
 
 		assertThat(tooDeep.blockLast(Duration.ofSeconds(5))).isEqualTo(500_000);
-		assertThat(threadNames).startsWith(Thread.currentThread().getName());
-		assertThat(threadNames.size()).as("number of threads").isGreaterThan(1);
+		assertThat(threadNames)
+				.startsWith(Thread.currentThread().getName())
+				.hasSize(Runtime.getRuntime().availableProcessors() + 1);
+	}
+
+	@Test
+	void hugeOperatorChainWithFlatmap() {
+		Set<String> threadNames = new ConcurrentSkipListSet<>();
+		Flux<Integer> tooDeep = Flux.just(0).hide();
+
+		for (int i = 0; i <= 500_000; i++) {
+			int currentI = i;
+			tooDeep = tooDeep
+					.doOnSubscribe(s -> threadNames.add(Thread.currentThread().getName()))
+					.flatMap(previous -> Mono.just(currentI));
+		}
+
+		assertThat(tooDeep.blockLast(Duration.ofSeconds(5))).isEqualTo(500_000);
+		assertThat(threadNames)
+				.startsWith(Thread.currentThread().getName())
+				.hasSize(Runtime.getRuntime().availableProcessors() + 1);
+	}
+
+	@Test
+	void hugeOperatorChainWithFlatMapAndSparsePublishOn() {
+		Set<String> threadNames = new ConcurrentSkipListSet<>();
+		Flux<Integer> tooDeep = Flux.just(0).hide();
+
+		for (int i = 0; i <= 500_000; i++) {
+			int currentI = i;
+			tooDeep = tooDeep
+					.doOnSubscribe(s -> threadNames.add(Thread.currentThread().getName()))
+					.flatMap(previous -> Mono.just(currentI));
+			if (i % 5000 == 0) {
+				tooDeep = tooDeep.publishOn(Schedulers.single());
+			}
+		}
+
+		assertThat(tooDeep.blockLast(Duration.ofSeconds(5))).isEqualTo(500_000);
+		assertThat(threadNames)
+				.startsWith(Thread.currentThread().getName())
+				.hasSize(Runtime.getRuntime().availableProcessors() + 1);
 	}
 
 	@Test
@@ -176,6 +269,25 @@ class StacksafeTest {
 
 		assertThat(shallowEnough.blockLast(Duration.ofSeconds(5))).isEqualTo(199);
 		assertThat(threadNames).containsOnly(Thread.currentThread().getName());
+	}
+
+	@Test
+	void hugeOperatorChainWithSwitchIfEmpty() {
+		Set<String> threadNames = new ConcurrentSkipListSet<>();
+
+		final int bound = 5000;
+		Flux<Integer> tooDeep = chain(0, bound, threadNames);
+
+		assertThat(tooDeep.blockLast(Duration.ofSeconds(5))).isEqualTo(bound);
+		assertThat(threadNames).startsWith(Thread.currentThread().getName());
+		assertThat(threadNames.size()).as("number of threads").isGreaterThan(1);
+	}
+
+	Flux<Integer> chain(int i, int bound, Set<String> threadNames) {
+		return Flux.defer(() -> i < bound
+				? Flux.<Integer>empty().switchIfEmpty(chain(i + 1, bound, threadNames))
+				: Flux.just(i).hide()
+		).doOnSubscribe(s -> threadNames.add(Thread.currentThread().getName()));
 	}
 
 	//TODO test with errors, debug mode, etc...
