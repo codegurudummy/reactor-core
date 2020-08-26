@@ -97,11 +97,12 @@ public class BlockingOptionalMonoSubscriberTest {
 
 	@Test
 	public void timeoutOptionalTimingOut() {
-		Mono<Long> source = Mono.delay(Duration.ofSeconds(1));
+		Mono<Long> source = Mono.delay(Duration.ofMillis(500));
 
+		// Using sub-millis timeouts after gh-1734
 		assertThatExceptionOfType(IllegalStateException.class)
-				.isThrownBy(() -> source.blockOptional(Duration.ofMillis(500)))
-				.withMessage("Timeout on blocking read for 500 MILLISECONDS");
+				.isThrownBy(() -> source.blockOptional(Duration.ofNanos(100)))
+				.withMessage("Timeout on blocking read for 100 NANOSECONDS");
 	}
 
 	@Test
@@ -159,7 +160,7 @@ public class BlockingOptionalMonoSubscriberTest {
 
 		assertThat(test.scan(Scannable.Attr.PARENT)).as("PARENT").isSameAs(parent);
 		assertThat(test.scan(Scannable.Attr.PREFETCH)).as("PREFETCH").isEqualTo(Integer.MAX_VALUE);
-
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).as("RUN_STYLE").isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		assertThat(test.scan(Scannable.Attr.TERMINATED)).as("TERMINATED").isFalse();
 		assertThat(test.scan(Scannable.Attr.CANCELLED)).as("CANCELLED").isFalse();

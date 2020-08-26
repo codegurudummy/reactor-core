@@ -19,6 +19,7 @@ package reactor.core.publisher;
 import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
 import reactor.core.Fuseable;
+import reactor.core.Scannable;
 import reactor.util.annotation.Nullable;
 
 /**
@@ -28,15 +29,21 @@ import reactor.util.annotation.Nullable;
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxHide<T> extends FluxOperator<T, T> {
+final class FluxHide<T> extends InternalFluxOperator<T, T> {
 
 	FluxHide(Flux<? extends T> source) {
 		super(source);
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		source.subscribe(new HideSubscriber<>(actual));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return new HideSubscriber<>(actual);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+	    if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+	    return super.scanUnsafe(key);
 	}
 
 	static final class HideSubscriber<T> implements InnerOperator<T, T> {
@@ -88,6 +95,7 @@ final class FluxHide<T> extends FluxOperator<T, T> {
 		@Nullable
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return s;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -118,6 +126,7 @@ final class FluxHide<T> extends FluxOperator<T, T> {
 		@Nullable
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return s;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

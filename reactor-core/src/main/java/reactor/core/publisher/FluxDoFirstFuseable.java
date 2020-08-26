@@ -28,13 +28,13 @@ import reactor.core.Fuseable;
  * {@link CoreSubscriber}.
  *
  * <p>
- * Note that any exception thrown by the hook short circuit the subscription process and
+ * Note that any exceptions thrown by the hook short circuit the subscription process and
  * are forwarded to the {@link Subscriber}'s {@link Subscriber#onError(Throwable)} method.
  *
  * @param <T> the value type
  * @author Simon Baslé
  */
-final class FluxDoFirstFuseable<T> extends FluxOperator<T, T> implements Fuseable {
+final class FluxDoFirstFuseable<T> extends InternalFluxOperator<T, T> implements Fuseable {
 
 	final Runnable onFirst;
 
@@ -44,15 +44,15 @@ final class FluxDoFirstFuseable<T> extends FluxOperator<T, T> implements Fuseabl
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		try {
-			onFirst.run();
-		}
-		catch (Throwable error) {
-			Operators.error(actual, error);
-			return;
-		}
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		onFirst.run();
 
-		source.subscribe(actual);
+		return actual;
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 }

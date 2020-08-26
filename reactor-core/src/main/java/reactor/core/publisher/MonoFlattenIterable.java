@@ -63,45 +63,32 @@ final class MonoFlattenIterable<T, R> extends FluxFromMonoOperator<T, R>
 
 	@SuppressWarnings("unchecked")
 	@Override
-	public void subscribe(CoreSubscriber<? super R> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super R> actual) throws Exception {
 		if (source instanceof Callable) {
-			T v;
-
-			try {
-				v = ((Callable<T>) source).call();
-			}
-			catch (Throwable ex) {
-				Operators.error(actual, Operators.onOperatorError(ex,
-						actual.currentContext()));
-				return;
-			}
+			T v = ((Callable<T>) source).call();
 
 			if (v == null) {
 				Operators.complete(actual);
-				return;
+				return null;
 			}
 
-			Iterator<? extends R> it;
-			boolean itFinite;
-			try {
-				Iterable<? extends R> iter = mapper.apply(v);
-				it = iter.iterator();
-				itFinite = FluxIterable.checkFinite(iter);
-			}
-			catch (Throwable ex) {
-				Operators.error(actual, Operators.onOperatorError(ex,
-						actual.currentContext()));
-				return;
-			}
+			Iterable<? extends R> iter = mapper.apply(v);
+			Iterator<? extends R>  it = iter.iterator();
+			boolean itFinite = FluxIterable.checkFinite(iter);
 
 			FluxIterable.subscribe(actual, it, itFinite);
 
-			return;
+			return null;
 		}
-		source.subscribe(new FluxFlattenIterable.FlattenIterableSubscriber<>(actual,
+		return new FluxFlattenIterable.FlattenIterableSubscriber<>(actual,
 				mapper,
 				prefetch,
-				queueSupplier));
+				queueSupplier);
 	}
 
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
+	}
 }

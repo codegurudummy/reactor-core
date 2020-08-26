@@ -29,6 +29,9 @@ import reactor.core.Exceptions;
 import reactor.util.annotation.Nullable;
 import reactor.util.context.Context;
 
+import static reactor.core.Scannable.Attr.RUN_STYLE;
+import static reactor.core.Scannable.Attr.RunStyle.SYNC;
+
 /**
  * Buffers elements into custom collections where the buffer boundary is signalled
  * by another publisher.
@@ -40,7 +43,7 @@ import reactor.util.context.Context;
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
 final class FluxBufferBoundary<T, U, C extends Collection<? super T>>
-		extends FluxOperator<T, C> {
+		extends InternalFluxOperator<T, C> {
 
 	final Publisher<U> other;
 
@@ -60,17 +63,9 @@ final class FluxBufferBoundary<T, U, C extends Collection<? super T>>
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super C> actual) {
-		C buffer;
-
-		try {
-			buffer = Objects.requireNonNull(bufferSupplier.get(),
-					"The bufferSupplier returned a null buffer");
-		}
-		catch (Throwable e) {
-			Operators.error(actual, Operators.onOperatorError(e,  actual.currentContext()));
-			return;
-		}
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super C> actual) {
+		C buffer = Objects.requireNonNull(bufferSupplier.get(),
+				"The bufferSupplier returned a null buffer");
 
 		BufferBoundaryMain<T, U, C> parent =
 				new BufferBoundaryMain<>(
@@ -82,7 +77,13 @@ final class FluxBufferBoundary<T, U, C extends Collection<? super T>>
 
 		other.subscribe(parent.other);
 
-		source.subscribe(parent);
+		return parent;
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == RUN_STYLE) return SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class BufferBoundaryMain<T, U, C extends Collection<? super T>>
@@ -135,6 +136,7 @@ final class FluxBufferBoundary<T, U, C extends Collection<? super T>>
 			}
 			if (key == Attr.PREFETCH) return Integer.MAX_VALUE;
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return requested;
+			if (key == RUN_STYLE) return SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -323,6 +325,9 @@ final class FluxBufferBoundary<T, U, C extends Collection<? super T>>
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.ACTUAL) {
 				return main;
+			}
+			if (key == RUN_STYLE) {
+			    return SYNC;
 			}
 			return super.scanUnsafe(key);
 		}

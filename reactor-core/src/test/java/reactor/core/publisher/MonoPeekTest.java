@@ -18,13 +18,16 @@ package reactor.core.publisher;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.assertj.core.api.Assertions;
 import org.junit.Test;
 import org.reactivestreams.Subscription;
-import reactor.core.Exceptions;
+
+import reactor.core.Scannable;
+import reactor.test.LoggerUtils;
 import reactor.test.StepVerifier;
+import reactor.test.util.TestLogger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 public class MonoPeekTest {
 
@@ -33,8 +36,10 @@ public class MonoPeekTest {
 		Mono<String> mp = Mono.error(new Exception("test"));
 		AtomicReference<Throwable> ref = new AtomicReference<>();
 
-		mp.doOnSuccessOrError((s, f) -> ref.set(f))
-		  .subscribe();
+		@SuppressWarnings("deprecation")
+		Mono<String> mono = mp.doOnSuccessOrError((s, f) -> ref.set(f));
+
+		mono.subscribe();
 
 		assertThat(ref.get()).hasMessage("test");
 	}
@@ -44,8 +49,10 @@ public class MonoPeekTest {
 		Mono<String> mp = Mono.just("test");
 		AtomicReference<String> ref = new AtomicReference<>();
 
-		mp.doOnSuccessOrError((s, f) -> ref.set(s))
-		  .subscribe();
+		@SuppressWarnings("deprecation")
+		Mono<String> mono = mp.doOnSuccessOrError((s, f) -> ref.set(s));
+
+		mono.subscribe();
 
 		assertThat(ref.get()).isEqualToIgnoringCase("test");
 	}
@@ -157,12 +164,35 @@ public class MonoPeekTest {
 
 	@Test
 	public void testErrorWithDoOnSuccess() {
-		assertThatExceptionOfType(RuntimeException.class)
-				.isThrownBy(() ->
-						Mono.error(new NullPointerException("boom"))
-						    .doOnSuccess(aValue -> {})
-						    .subscribe())
-				.withCauseInstanceOf(NullPointerException.class)
-				.matches(Exceptions::isErrorCallbackNotImplemented, "ErrorCallbackNotImplemented");
+		TestLogger testLogger = new TestLogger();
+		LoggerUtils.addAppender(testLogger, Operators.class);
+		try {
+			Mono.error(new NullPointerException("boom"))
+			    .doOnSuccess(aValue -> {
+			    })
+			    .subscribe();
+
+			Assertions.assertThat(testLogger.getErrContent())
+			          .contains("Operator called default onErrorDropped")
+			          .contains("reactor.core.Exceptions$ErrorCallbackNotImplemented: java.lang.NullPointerException: boom");
+		}
+		finally {
+			LoggerUtils.resetAppender(Operators.class);
+		}
 	}
+
+	@Test
+	public void scanOperator(){
+	    MonoPeek<Integer> test = new MonoPeek<>(Mono.just(1), null, null, null, null);
+
+	    assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
+	public void scanFuseableOperator(){
+		MonoPeekFuseable<Integer> test = new MonoPeekFuseable<>(Mono.just(1), null, null, null, null);
+
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
 }

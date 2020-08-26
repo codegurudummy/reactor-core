@@ -22,12 +22,15 @@ import java.util.Iterator;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+import java.util.function.BiPredicate;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
+import reactor.core.Disposable;
 import reactor.core.Exceptions;
 import reactor.core.Fuseable.ConditionalSubscriber;
 import reactor.util.annotation.Nullable;
@@ -51,7 +54,7 @@ import reactor.util.context.Context;
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
 final class FluxBufferPredicate<T, C extends Collection<? super T>>
-		extends FluxOperator<T, C> {
+		extends InternalFluxOperator<T, C> {
 
 	public enum Mode {
 		UNTIL, UNTIL_CUT_BEFORE, WHILE
@@ -77,22 +80,20 @@ final class FluxBufferPredicate<T, C extends Collection<? super T>>
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super C> actual) {
-		C initialBuffer;
-
-		try {
-			initialBuffer = Objects.requireNonNull(bufferSupplier.get(),
-					"The bufferSupplier returned a null initial buffer");
-		}
-		catch (Throwable e) {
-			Operators.error(actual, Operators.onOperatorError(e, actual.currentContext()));
-			return;
-		}
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super C> actual) {
+		C initialBuffer = Objects.requireNonNull(bufferSupplier.get(),
+				"The bufferSupplier returned a null initial buffer");
 
 		BufferPredicateSubscriber<T, C> parent = new BufferPredicateSubscriber<>(actual,
 				initialBuffer, bufferSupplier, predicate, mode);
 
-		source.subscribe(parent);
+		return parent;
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class BufferPredicateSubscriber<T, C extends Collection<? super T>>
@@ -100,7 +101,6 @@ final class FluxBufferPredicate<T, C extends Collection<? super T>>
 			implements ConditionalSubscriber<T>, InnerOperator<T, C>, BooleanSupplier {
 
 		final CoreSubscriber<? super C> actual;
-		final Context ctx;
 
 		final Supplier<C> bufferSupplier;
 
@@ -137,7 +137,6 @@ final class FluxBufferPredicate<T, C extends Collection<? super T>>
 		BufferPredicateSubscriber(CoreSubscriber<? super C> actual, C initialBuffer,
 				Supplier<C> bufferSupplier, Predicate<? super T> predicate, Mode mode) {
 			this.actual = actual;
-			this.ctx = actual.currentContext();
 			this.buffer = initialBuffer;
 			this.bufferSupplier = bufferSupplier;
 			this.predicate = predicate;
@@ -176,8 +175,9 @@ final class FluxBufferPredicate<T, C extends Collection<? super T>>
 
 		@Override
 		public void cancel() {
+			cleanup();
 			Operators.terminate(S, this);
-			Operators.onDiscardMultiple(buffer, this.ctx);
+			Operators.onDiscardMultiple(buffer, actual.currentContext());
 		}
 
 		@Override
@@ -197,7 +197,7 @@ final class FluxBufferPredicate<T, C extends Collection<? super T>>
 		@Override
 		public boolean tryOnNext(T t) {
 			if (done) {
-				Operators.onNextDropped(t, this.ctx);
+				Operators.onNextDropped(t, actual.currentContext());
 				return true;
 			}
 
@@ -207,9 +207,10 @@ final class FluxBufferPredicate<T, C extends Collection<? super T>>
 				match = predicate.test(t);
 			}
 			catch (Throwable e) {
-				onError(Operators.onOperatorError(s, e, t, this.ctx));
-				Operators.onDiscardMultiple(buffer, this.ctx);
-				Operators.onDiscard(t, this.ctx);
+				Context ctx = actual.currentContext();
+				onError(Operators.onOperatorError(s, e, t, ctx));
+				Operators.onDiscardMultiple(buffer, ctx);
+				Operators.onDiscard(t, ctx);
 				return true;
 			}
 
@@ -243,7 +244,7 @@ final class FluxBufferPredicate<T, C extends Collection<? super T>>
 		}
 
 		@Nullable
-		private C triggerNewBuffer() {
+		C triggerNewBuffer() {
 			C b = buffer;
 
 			if (b.isEmpty()) {
@@ -259,7 +260,7 @@ final class FluxBufferPredicate<T, C extends Collection<? super T>>
 						"The bufferSupplier returned a null buffer");
 			}
 			catch (Throwable e) {
-				onError(Operators.onOperatorError(s, e, this.ctx));
+				onError(Operators.onOperatorError(s, e, actual.currentContext()));
 				return null;
 			}
 
@@ -292,11 +293,12 @@ final class FluxBufferPredicate<T, C extends Collection<? super T>>
 		@Override
 		public void onError(Throwable t) {
 			if (done) {
-				Operators.onErrorDropped(t, this.ctx);
+				Operators.onErrorDropped(t, actual.currentContext());
 				return;
 			}
 			done = true;
-			Operators.onDiscardMultiple(buffer, this.ctx);
+			cleanup();
+			Operators.onDiscardMultiple(buffer, actual.currentContext());
 			buffer = null;
 			actual.onError(t);
 		}
@@ -307,7 +309,15 @@ final class FluxBufferPredicate<T, C extends Collection<? super T>>
 				return;
 			}
 			done = true;
+			cleanup();
 			DrainUtils.postComplete(actual, this, REQUESTED_BUFFERS, this, this);
+		}
+
+		void cleanup() {
+			// necessary cleanup if predicate contains a state
+			if (predicate instanceof Disposable) {
+				((Disposable) predicate).dispose();
+			}
 		}
 
 		@Override
@@ -320,6 +330,7 @@ final class FluxBufferPredicate<T, C extends Collection<? super T>>
 				return b != null ? b.size() : 0;
 			}
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return requestedBuffers;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -368,5 +379,40 @@ final class FluxBufferPredicate<T, C extends Collection<? super T>>
 		public String toString() {
 			return "FluxBufferPredicate";
 		}
+	}
+
+	static class ChangedPredicate<T, K> implements Predicate<T>, Disposable {
+
+		private Function<? super T, ? extends K>  keySelector;
+		private BiPredicate<? super K, ? super K> keyComparator;
+		private K                                 lastKey;
+
+		ChangedPredicate(Function<? super T, ? extends K> keySelector,
+				BiPredicate<? super K, ? super K> keyComparator) {
+			this.keySelector = keySelector;
+			this.keyComparator = keyComparator;
+		}
+
+		@Override
+		public void dispose() {
+			lastKey = null;
+		}
+
+		@Override
+		public boolean test(T t) {
+			K k = keySelector.apply(t);
+
+			if (null == lastKey) {
+				lastKey = k;
+				return false;
+			}
+
+			boolean match;
+			match = keyComparator.test(lastKey, k);
+			lastKey = k;
+
+			return !match;
+		}
+
 	}
 }

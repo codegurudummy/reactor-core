@@ -143,6 +143,7 @@ final class FluxPublish<T> extends ConnectableFlux<T> implements Scannable {
 	public Object scanUnsafe(Attr key) {
 		if (key == Attr.PREFETCH) return getPrefetch();
 		if (key == Attr.PARENT) return source;
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 		return null;
 	}
@@ -306,6 +307,7 @@ final class FluxPublish<T> extends ConnectableFlux<T> implements Scannable {
 		}
 
 		void disconnectAction() {
+			@SuppressWarnings("unchecked")
 			PubSubInner<T>[] inners = SUBSCRIBERS.getAndSet(this, CANCELLED);
 			if (inners.length > 0) {
 				queue.clear();
@@ -551,6 +553,7 @@ final class FluxPublish<T> extends ConnectableFlux<T> implements Scannable {
 			if (key == Attr.BUFFERED) return queue != null ? queue.size() : 0;
 			if (key == Attr.TERMINATED) return isTerminated();
 			if (key == Attr.CANCELLED) return s == Operators.cancelledSubscription();
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}
@@ -608,6 +611,7 @@ final class FluxPublish<T> extends ConnectableFlux<T> implements Scannable {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.CANCELLED) return isCancelled();
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return isCancelled() ? 0L : requested;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerProducer.super.scanUnsafe(key);
 		}
@@ -645,6 +649,7 @@ final class FluxPublish<T> extends ConnectableFlux<T> implements Scannable {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return parent;
 			if (key == Attr.TERMINATED) return parent != null && parent.isTerminated();
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return super.scanUnsafe(key);
 		}
