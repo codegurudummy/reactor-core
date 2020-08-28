@@ -49,7 +49,7 @@ import static reactor.util.retry.RetrySpec.*;
  */
 public abstract class Retry {
 
-	protected final ContextView retryContext;
+	private final ContextView retryContext;
 
 	protected Retry(ContextView retryContext) {
 		this.retryContext = retryContext;
@@ -68,8 +68,14 @@ public abstract class Retry {
 	 */
 	public abstract Publisher<?> generateCompanion(Flux<RetrySignal> retrySignals);
 
-
-	public ContextView retryContext() {return retryContext;}
+	/**
+	 * Return the user provided context that was set at construction time.
+	 *
+	 * @return the user provided context that will be accessible via {@link RetrySignal#retryContextView()}.
+	 */
+	public ContextView retryContext() {
+		return retryContext;
+	}
 
 
 	/**
