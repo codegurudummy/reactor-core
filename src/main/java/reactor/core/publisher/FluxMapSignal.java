@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       http://www.apache.org/licenses/LICENSE-2.0
+ *       https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -37,7 +37,7 @@ import org.reactivestreams.Subscription;
 final class FluxMapSignal<T, R> extends FluxSource<T, R> {
 
     final Function<? super T, ? extends R> mapperNext;
-    final Function<Throwable, ? extends R> mapperError;
+    final Function<? super Throwable, ? extends R> mapperError;
     final Supplier<? extends R>            mapperComplete;
 
     /**
@@ -52,7 +52,7 @@ final class FluxMapSignal<T, R> extends FluxSource<T, R> {
      */
     FluxMapSignal(Publisher<? extends T> source,
             Function<? super T, ? extends R> mapperNext,
-            Function<Throwable, ? extends R> mapperError,
+            Function<? super Throwable, ? extends R> mapperError,
             Supplier<? extends R>            mapperComplete) {
         super(source);
 	    if(mapperNext == null && mapperError == null && mapperComplete == null){
