@@ -35,6 +35,7 @@ import java.util.logging.Level;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.core.Disposables;
@@ -44,33 +45,39 @@ import reactor.core.publisher.FluxConcatMap.ErrorMode;
 import reactor.core.publisher.FluxOnAssembly.AssemblyLightSnapshot;
 import reactor.core.publisher.FluxOnAssembly.AssemblySnapshot;
 import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
 import reactor.util.Logger;
 import reactor.util.annotation.Nullable;
 import reactor.util.concurrent.Queues;
+import reactor.util.context.Context;
 
 /**
  * A ParallelFlux publishes to an array of Subscribers, in parallel 'rails' (or
  * {@link #groups() 'groups'}).
  * <p>
- * Use {@code from()} to start processing a regular Publisher in 'rails', which each
+ * Use {@link #from} to start processing a regular Publisher in 'rails', which each
  * cover a subset of the original Publisher's data. {@link Flux#parallel()} is a
  * convenient shortcut to achieve that on a {@link Flux}.
  * <p>
- * Use {@code runOn()} to introduce where each 'rail' should run on thread-vise.
+ * Use {@link #runOn} to introduce where each 'rail' should run on thread-wise.
  * <p>
- * Use {@code sequential()} to merge the sources back into a single {@link Flux} or
+ * Use {@link #sequential)} to merge the sources back into a single {@link Flux}.
+ * <p>
+ * Use {@link #then)} to listen for all rails termination in the produced {@link Mono}
+ * <p>
  * {@link #subscribe(Subscriber)} if you simply want to subscribe to the merged sequence.
  * Note that other variants like {@link #subscribe(Consumer)} instead do multiple
  * subscribes, one on each rail (which means that the lambdas should be as stateless and
  * side-effect free as possible).
  *
+ *
  * @param <T> the value type
  */
-public abstract class ParallelFlux<T> implements Publisher<T> {
+public abstract class ParallelFlux<T> implements CorePublisher<T> {
 
 	/**
 	 * Take a Publisher and prepare to consume it on multiple 'rails' (one per CPU core)
-	 * in a round-robin fashion.
+	 * in a round-robin fashion. Equivalent to {@link Flux#parallel}.
 	 *
 	 * @param <T> the value type
 	 * @param source the source Publisher
@@ -78,9 +85,7 @@ public abstract class ParallelFlux<T> implements Publisher<T> {
 	 * @return the {@link ParallelFlux} instance
 	 */
 	public static <T> ParallelFlux<T> from(Publisher<? extends T> source) {
-		return from(source,
-				Runtime.getRuntime()
-				       .availableProcessors(), Queues.SMALL_BUFFER_SIZE,
+		return from(source, Schedulers.DEFAULT_POOL_SIZE, Queues.SMALL_BUFFER_SIZE,
 				Queues.small());
 	}
 
@@ -300,31 +305,6 @@ public abstract class ParallelFlux<T> implements Publisher<T> {
 		Mono<List<T>> merged = railSorted.reduce((a, b) -> sortedMerger(a, b, comparator));
 
 		return merged;
-	}
-
-
-	/**
-	 * Allows composing operators off the 'rails', as individual {@link GroupedFlux} instances keyed by
-	 * the zero based rail's index. The transformed groups are {@link Flux#parallel parallelized} back
-	 * once the transformation has been applied.
-	 * <p>
-	 * Note that like in {@link #groups()}, requests and cancellation compose through, and
-	 * cancelling only one rail may result in undefined behavior.
-	 *
-	 * @param composer the composition function to apply on each {@link GroupedFlux rail}
-	 * @param <U> the type of the resulting parallelized flux
-	 * @return a {@link ParallelFlux} of the composed groups
-	 */
-	public final <U> ParallelFlux<U> composeGroup(Function<? super GroupedFlux<Integer, T>,
-			? extends Publisher<? extends U>> composer) {
-		if (getPrefetch() > -1) {
-			return from(groups().flatMap(composer::apply),
-				parallelism(), getPrefetch(),
-				Queues.small());
-		}
-		else {
-			return from(groups().flatMap(composer::apply), parallelism());
-		}
 	}
 
 	/**
@@ -840,8 +820,8 @@ public abstract class ParallelFlux<T> implements Publisher<T> {
 	}
 
 	/**
-	 * Specifies where each 'rail' will observe its incoming values with no work-stealing
-	 * and default prefetch amount.
+	 * Specifies where each 'rail' will observe its incoming values with possible
+	 * work-stealing and default prefetch amount.
 	 * <p>
 	 * This operator uses the default prefetch size returned by {@code
 	 * Queues.SMALL_BUFFER_SIZE}.
@@ -865,7 +845,7 @@ public abstract class ParallelFlux<T> implements Publisher<T> {
 	}
 
 	/**
-	 * Specifies where each 'rail' will observe its incoming values with possibly
+	 * Specifies where each 'rail' will observe its incoming values with possible
 	 * work-stealing and a given prefetch amount.
 	 * <p>
 	 * This operator uses the default prefetch size returned by {@code
@@ -1015,7 +995,16 @@ public abstract class ParallelFlux<T> implements Publisher<T> {
 			@Nullable Consumer<? super T> onNext,
 			@Nullable Consumer<? super Throwable> onError,
 			@Nullable Runnable onComplete) {
-		return subscribe(onNext, onError, onComplete, null);
+		return this.subscribe(onNext, onError, onComplete, null, (Context) null);
+	}
+
+	@Override
+	@SuppressWarnings("unchecked")
+	public final void subscribe(CoreSubscriber<? super T> s) {
+		FluxHide.SuppressFuseableSubscriber<T> subscriber =
+				new FluxHide.SuppressFuseableSubscriber<>(Operators.toCoreSubscriber(s));
+
+		sequential().subscribe(Operators.toCoreSubscriber(subscriber));
 	}
 
 	/**
@@ -1027,24 +1016,62 @@ public abstract class ParallelFlux<T> implements Publisher<T> {
 	 * @param onError consumer of error signal
 	 * @param onComplete callback on completion signal
 	 * @param onSubscribe consumer of the subscription signal
+	 */ //TODO maybe deprecate in 3.4, provided there is at least an alternative for tests
+	public final Disposable subscribe(
+			@Nullable Consumer<? super T> onNext,
+			@Nullable Consumer<? super Throwable> onError,
+			@Nullable Runnable onComplete,
+			@Nullable Consumer<? super Subscription> onSubscribe) {
+		return this.subscribe(onNext, onError, onComplete, onSubscribe, null);
+	}
+
+	/**
+	 * Subscribes to this {@link ParallelFlux} by providing an onNext, onError and
+	 * onComplete callback as well as an initial {@link Context}, then trigger the execution chain for all
+	 * 'rails'.
+	 *
+	 * @param onNext consumer of onNext signals
+	 * @param onError consumer of error signal
+	 * @param onComplete callback on completion signal
+	 * @param initialContext {@link Context} for the rails
 	 */
 	public final Disposable subscribe(
 			@Nullable Consumer<? super T> onNext,
 			@Nullable Consumer<? super Throwable> onError,
 			@Nullable Runnable onComplete,
-			@Nullable Consumer<? super Subscription> onSubscribe){
+			@Nullable Context initialContext) {
+		return this.subscribe(onNext, onError, onComplete, null, initialContext);
+	}
 
-		@SuppressWarnings("unchecked")
-		LambdaSubscriber<? super T>[] subscribers = new LambdaSubscriber[parallelism()];
+	final Disposable subscribe(
+			@Nullable Consumer<? super T> onNext,
+			@Nullable Consumer<? super Throwable> onError,
+			@Nullable Runnable onComplete,
+			@Nullable Consumer<? super Subscription> onSubscribe,
+			@Nullable Context initialContext) {
+		CorePublisher<T> publisher = Operators.onLastAssembly(this);
+		if (publisher instanceof ParallelFlux) {
+			@SuppressWarnings("unchecked")
+			LambdaSubscriber<? super T>[] subscribers = new LambdaSubscriber[parallelism()];
 
-		int i = 0;
-		while(i < subscribers.length){
-			subscribers[i++] =
-					new LambdaSubscriber<>(onNext, onError, onComplete, onSubscribe);
+			int i = 0;
+			while(i < subscribers.length){
+				subscribers[i++] =
+						new LambdaSubscriber<>(onNext, onError, onComplete, onSubscribe, initialContext);
+			}
+
+			((ParallelFlux<T>) publisher).subscribe(subscribers);
+
+			return Disposables.composite(subscribers);
 		}
+		else {
+			LambdaSubscriber<? super T> subscriber =
+					new LambdaSubscriber<>(onNext, onError, onComplete, onSubscribe, initialContext);
 
-		onLastAssembly(this).subscribe(subscribers);
-		return Disposables.composite(subscribers);
+			publisher.subscribe(Operators.toCoreSubscriber(new FluxHide.SuppressFuseableSubscriber<>(subscriber)));
+
+			return subscriber;
+		}
 	}
 
 	/**
@@ -1056,8 +1083,10 @@ public abstract class ParallelFlux<T> implements Publisher<T> {
 	@Override
 	@SuppressWarnings("unchecked")
 	public final void subscribe(Subscriber<? super T> s) {
-		Flux.onLastAssembly(sequential())
-		    .subscribe(new FluxHide.SuppressFuseableSubscriber<>(Operators.toCoreSubscriber(s)));
+		FluxHide.SuppressFuseableSubscriber<T> subscriber =
+				new FluxHide.SuppressFuseableSubscriber<>(Operators.toCoreSubscriber(s));
+
+		Operators.onLastAssembly(sequential()).subscribe(Operators.toCoreSubscriber(subscriber));
 	}
 
 	/**
@@ -1075,6 +1104,18 @@ public abstract class ParallelFlux<T> implements Publisher<T> {
 		return ParallelFluxName.createOrAppend(this, key, value);
 	}
 
+
+
+	/**
+	 * Emit an onComplete or onError signal once all values across 'rails' have been observed.
+	 *
+	 * @return the new Mono instance emitting the reduced value or empty if the
+	 * {@link ParallelFlux} was empty
+	 */
+	public final Mono<Void> then() {
+		return Mono.onAssembly(new ParallelThen(this));
+	}
+
 	/**
 	 * Allows composing operators, in assembly time, on top of this {@link ParallelFlux}
 	 * and returns another {@link ParallelFlux} with composed features.
@@ -1087,6 +1128,32 @@ public abstract class ParallelFlux<T> implements Publisher<T> {
 	 */
 	public final <U> ParallelFlux<U> transform(Function<? super ParallelFlux<T>, ParallelFlux<U>> composer) {
 		return onAssembly(as(composer));
+	}
+
+	/**
+	 * Allows composing operators off the groups (or 'rails'), as individual {@link GroupedFlux}
+	 * instances keyed by the zero based rail's index. The transformed groups are
+	 * {@link Flux#parallel parallelized} back once the transformation has been applied.
+	 * Since groups are generated anew per each subscription, this is all done in a "lazy"
+	 * fashion where each subscription trigger distinct applications of the {@link Function}.
+	 * <p>
+	 * Note that like in {@link #groups()}, requests and cancellation compose through, and
+	 * cancelling only one rail may result in undefined behavior.
+	 *
+	 * @param composer the composition function to apply on each {@link GroupedFlux rail}
+	 * @param <U> the type of the resulting parallelized flux
+	 * @return a {@link ParallelFlux} of the composed groups
+	 */
+	public final <U> ParallelFlux<U> transformGroups(Function<? super GroupedFlux<Integer, T>,
+			? extends Publisher<? extends U>> composer) {
+		if (getPrefetch() > -1) {
+			return from(groups().flatMap(composer::apply),
+					parallelism(), getPrefetch(),
+					Queues.small());
+		}
+		else {
+			return from(groups().flatMap(composer::apply), parallelism());
+		}
 	}
 
 	@Override
@@ -1202,25 +1269,6 @@ public abstract class ParallelFlux<T> implements Publisher<T> {
 			source = (ParallelFlux<T>) Hooks.addAssemblyInfo(source, stacktrace);
 		}
 		return source;
-	}
-
-	/**
-	 * Invoke {@link Hooks} pointcut given a {@link ParallelFlux} and returning an
-	 * eventually new {@link ParallelFlux}
-	 *
-	 * @param <T> the value type
-	 * @param source the source to wrap
-	 *
-	 * @return the potentially wrapped source
-	 */
-	@SuppressWarnings("unchecked")
-	protected static <T> ParallelFlux<T> onLastAssembly(ParallelFlux<T> source) {
-		Function<Publisher, Publisher> hook = Hooks.onLastOperatorHook;
-		if (hook == null) {
-			return source;
-		}
-		return (ParallelFlux<T>) Objects.requireNonNull(hook.apply(source),
-				"LastOperator hook returned null");
 	}
 
 	@SuppressWarnings("unchecked")

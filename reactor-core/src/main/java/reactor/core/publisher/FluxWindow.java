@@ -27,6 +27,7 @@ import java.util.stream.Stream;
 import org.reactivestreams.Processor;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.core.Scannable;
@@ -40,7 +41,7 @@ import reactor.util.context.Context;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">https://github.com/reactor/reactive-streams-commons</a>
  */
-final class FluxWindow<T> extends FluxOperator<T, Flux<T>> {
+final class FluxWindow<T> extends InternalFluxOperator<T, Flux<T>> {
 
 	final int size;
 
@@ -48,7 +49,7 @@ final class FluxWindow<T> extends FluxOperator<T, Flux<T>> {
 
 	final Supplier<? extends Queue<T>> processorQueueSupplier;
 
-	final Supplier<? extends Queue<UnicastProcessor<T>>> overflowQueueSupplier;
+	final Supplier<? extends Queue<FluxIdentityProcessor<T>>> overflowQueueSupplier;
 
 	FluxWindow(Flux<? extends T> source,
 			int size,
@@ -68,7 +69,7 @@ final class FluxWindow<T> extends FluxOperator<T, Flux<T>> {
 			int size,
 			int skip,
 			Supplier<? extends Queue<T>> processorQueueSupplier,
-			Supplier<? extends Queue<UnicastProcessor<T>>> overflowQueueSupplier) {
+			Supplier<? extends Queue<FluxIdentityProcessor<T>>> overflowQueueSupplier) {
 		super(source);
 		if (size <= 0) {
 			throw new IllegalArgumentException("size > 0 required but it was " + size);
@@ -85,21 +86,27 @@ final class FluxWindow<T> extends FluxOperator<T, Flux<T>> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super Flux<T>> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super Flux<T>> actual) {
 		if (skip == size) {
-			source.subscribe(new WindowExactSubscriber<>(actual,
+			return new WindowExactSubscriber<>(actual,
 					size,
-					processorQueueSupplier));
+					processorQueueSupplier);
 		}
 		else if (skip > size) {
-			source.subscribe(new WindowSkipSubscriber<>(actual,
-					size, skip, processorQueueSupplier));
+			return new WindowSkipSubscriber<>(actual,
+					size, skip, processorQueueSupplier);
 		}
 		else {
-			source.subscribe(new WindowOverlapSubscriber<>(actual,
+			return new WindowOverlapSubscriber<>(actual,
 					size,
-					skip, processorQueueSupplier, overflowQueueSupplier.get()));
+					skip, processorQueueSupplier, overflowQueueSupplier.get());
 		}
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class WindowExactSubscriber<T>
@@ -125,7 +132,7 @@ final class FluxWindow<T> extends FluxOperator<T, Flux<T>> {
 
 		Subscription s;
 
-		UnicastProcessor<T> window;
+		FluxIdentityProcessor<T> window;
 
 		boolean done;
 
@@ -155,11 +162,11 @@ final class FluxWindow<T> extends FluxOperator<T, Flux<T>> {
 
 			int i = index;
 
-			UnicastProcessor<T> w = window;
+			FluxIdentityProcessor<T> w = window;
 			if (cancelled == 0 && i == 0) {
 				WINDOW_COUNT.getAndIncrement(this);
 
-				w = new UnicastProcessor<>(processorQueueSupplier.get(), this);
+				w = Processors.more().unicast(processorQueueSupplier.get(), this);
 				window = w;
 
 				actual.onNext(w);
@@ -249,6 +256,7 @@ final class FluxWindow<T> extends FluxOperator<T, Flux<T>> {
 			if (key == Attr.CANCELLED) return cancelled == 1;
 			if (key == Attr.CAPACITY) return size;
 			if (key == Attr.TERMINATED) return done;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -291,7 +299,7 @@ final class FluxWindow<T> extends FluxOperator<T, Flux<T>> {
 
 		Subscription s;
 
-		UnicastProcessor<T> window;
+		FluxIdentityProcessor<T> window;
 
 		boolean done;
 
@@ -324,11 +332,11 @@ final class FluxWindow<T> extends FluxOperator<T, Flux<T>> {
 
 			int i = index;
 
-			UnicastProcessor<T> w = window;
+			FluxIdentityProcessor<T> w = window;
 			if (i == 0) {
 				WINDOW_COUNT.getAndIncrement(this);
 
-				w = new UnicastProcessor<>(processorQueueSupplier.get(), this);
+				w = Processors.more().unicast(processorQueueSupplier.get(), this);
 				window = w;
 
 				actual.onNext(w);
@@ -438,6 +446,7 @@ final class FluxWindow<T> extends FluxOperator<T, Flux<T>> {
 			if (key == Attr.CANCELLED) return cancelled == 1;
 			if (key == Attr.CAPACITY) return size;
 			if (key == Attr.TERMINATED) return done;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -448,14 +457,14 @@ final class FluxWindow<T> extends FluxOperator<T, Flux<T>> {
 		}
 	}
 
-	static final class WindowOverlapSubscriber<T> extends ArrayDeque<UnicastProcessor<T>>
+	static final class WindowOverlapSubscriber<T> extends ArrayDeque<FluxIdentityProcessor<T>>
 			implements Disposable, InnerOperator<T, Flux<T>> {
 
 		final CoreSubscriber<? super Flux<T>> actual;
 
 		final Supplier<? extends Queue<T>> processorQueueSupplier;
 
-		final Queue<UnicastProcessor<T>> queue;
+		final Queue<FluxIdentityProcessor<T>> queue;
 
 		final int size;
 
@@ -503,7 +512,7 @@ final class FluxWindow<T> extends FluxOperator<T, Flux<T>> {
 				int size,
 				int skip,
 				Supplier<? extends Queue<T>> processorQueueSupplier,
-				Queue<UnicastProcessor<T>> overflowQueue) {
+				Queue<FluxIdentityProcessor<T>> overflowQueue) {
 			this.actual = actual;
 			this.size = size;
 			this.skip = skip;
@@ -533,7 +542,7 @@ final class FluxWindow<T> extends FluxOperator<T, Flux<T>> {
 				if (cancelled == 0) {
 					WINDOW_COUNT.getAndIncrement(this);
 
-					UnicastProcessor<T> w = new UnicastProcessor<>(processorQueueSupplier.get(), this);
+					FluxIdentityProcessor<T> w = Processors.more().unicast(processorQueueSupplier.get(), this);
 
 					offer(w);
 
@@ -607,7 +616,7 @@ final class FluxWindow<T> extends FluxOperator<T, Flux<T>> {
 			}
 
 			final Subscriber<? super Flux<T>> a = actual;
-			final Queue<UnicastProcessor<T>> q = queue;
+			final Queue<FluxIdentityProcessor<T>> q = queue;
 			int missed = 1;
 
 			for (; ; ) {
@@ -618,7 +627,7 @@ final class FluxWindow<T> extends FluxOperator<T, Flux<T>> {
 				while (e != r) {
 					boolean d = done;
 
-					UnicastProcessor<T> t = q.poll();
+					FluxIdentityProcessor<T> t = q.poll();
 
 					boolean empty = t == null;
 
@@ -734,6 +743,7 @@ final class FluxWindow<T> extends FluxOperator<T, Flux<T>> {
 			}
 			if (key == Attr.ERROR) return error;
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return requested;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

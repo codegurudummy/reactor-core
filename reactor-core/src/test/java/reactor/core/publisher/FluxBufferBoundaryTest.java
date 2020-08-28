@@ -25,6 +25,7 @@ import java.util.function.Supplier;
 import org.junit.Assert;
 import org.junit.Test;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.Scannable;
@@ -76,8 +77,8 @@ public class FluxBufferBoundaryTest
 	public void normal() {
 		AssertSubscriber<List<Integer>> ts = AssertSubscriber.create();
 
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
-		DirectProcessor<Integer> sp2 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
+		FluxIdentityProcessor<Integer> sp2 = Processors.more().multicastNoBackpressure();
 
 		sp1.buffer(sp2)
 		   .subscribe(ts);
@@ -127,8 +128,8 @@ public class FluxBufferBoundaryTest
 	public void mainError() {
 		AssertSubscriber<List<Integer>> ts = AssertSubscriber.create();
 
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
-		DirectProcessor<Integer> sp2 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
+		FluxIdentityProcessor<Integer> sp2 = Processors.more().multicastNoBackpressure();
 
 		sp1.buffer(sp2)
 		   .subscribe(ts);
@@ -173,8 +174,8 @@ public class FluxBufferBoundaryTest
 	public void otherError() {
 		AssertSubscriber<List<Integer>> ts = AssertSubscriber.create();
 
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
-		DirectProcessor<Integer> sp2 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
+		FluxIdentityProcessor<Integer> sp2 = Processors.more().multicastNoBackpressure();
 
 		sp1.buffer(sp2)
 		   .subscribe(ts);
@@ -219,8 +220,8 @@ public class FluxBufferBoundaryTest
 	public void bufferSupplierThrows() {
 		AssertSubscriber<List<Integer>> ts = AssertSubscriber.create();
 
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
-		DirectProcessor<Integer> sp2 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
+		FluxIdentityProcessor<Integer> sp2 = Processors.more().multicastNoBackpressure();
 
 		sp1.buffer(sp2, (Supplier<List<Integer>>) () -> {
 			throw new RuntimeException("forced failure");
@@ -240,8 +241,8 @@ public class FluxBufferBoundaryTest
 	public void bufferSupplierThrowsLater() {
 		AssertSubscriber<List<Integer>> ts = AssertSubscriber.create();
 
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
-		DirectProcessor<Integer> sp2 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
+		FluxIdentityProcessor<Integer> sp2 = Processors.more().multicastNoBackpressure();
 
 		int count[] = {1};
 
@@ -271,8 +272,8 @@ public class FluxBufferBoundaryTest
 	public void bufferSupplierReturnsNUll() {
 		AssertSubscriber<List<Integer>> ts = AssertSubscriber.create();
 
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
-		DirectProcessor<Integer> sp2 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
+		FluxIdentityProcessor<Integer> sp2 = Processors.more().multicastNoBackpressure();
 
 		sp1.buffer(sp2, (Supplier<List<Integer>>) () -> null)
 		   .subscribe(ts);
@@ -322,10 +323,10 @@ public class FluxBufferBoundaryTest
 	@Test
 	public void bufferWillAccumulateMultipleListsOfValues() {
 		//given: "a source and a collected flux"
-		EmitterProcessor<Integer> numbers = EmitterProcessor.create();
+		FluxIdentityProcessor<Integer> numbers = Processors.multicast();
 
 		//non overlapping buffers
-		EmitterProcessor<Integer> boundaryFlux = EmitterProcessor.create();
+		FluxIdentityProcessor<Integer> boundaryFlux = Processors.multicast();
 
 		MonoProcessor<List<List<Integer>>> res = numbers.buffer(boundaryFlux)
 		                                       .buffer()
@@ -371,6 +372,14 @@ public class FluxBufferBoundaryTest
 		assertThat(ranges).isEmpty();
 	}
 
+	@Test
+	public void scanOperator(){
+		Flux<Integer> parent = Flux.just(1);
+		FluxBufferBoundary<Integer, Object, ArrayList<Integer>> test = new FluxBufferBoundary<>(parent, Flux.empty(), ArrayList::new);
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
 
 	@Test
 	public void scanMain() {
@@ -390,6 +399,7 @@ public class FluxBufferBoundaryTest
 
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		assertThat(test.scan(Scannable.Attr.CANCELLED)).isTrue();
 	}
@@ -410,6 +420,7 @@ public class FluxBufferBoundaryTest
 
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(main);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
 		test.cancel();

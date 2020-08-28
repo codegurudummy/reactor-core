@@ -20,6 +20,7 @@ import java.util.Objects;
 import java.util.function.Function;
 
 import org.reactivestreams.Subscription;
+import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.Fuseable;
 import reactor.util.annotation.Nullable;
@@ -34,7 +35,7 @@ import reactor.util.annotation.Nullable;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxMapFuseable<T, R> extends FluxOperator<T, R> implements Fuseable {
+final class FluxMapFuseable<T, R> extends InternalFluxOperator<T, R> implements Fuseable {
 
 	final Function<? super T, ? extends R> mapper;
 
@@ -54,13 +55,18 @@ final class FluxMapFuseable<T, R> extends FluxOperator<T, R> implements Fuseable
 
 	@Override
 	@SuppressWarnings("unchecked")
-	public void subscribe(CoreSubscriber<? super R> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super R> actual) {
 		if (actual instanceof ConditionalSubscriber) {
 			ConditionalSubscriber<? super R> cs = (ConditionalSubscriber<? super R>) actual;
-			source.subscribe(new MapFuseableConditionalSubscriber<>(cs, mapper));
-			return;
+			return new MapFuseableConditionalSubscriber<>(cs, mapper);
 		}
-		source.subscribe(new MapFuseableSubscriber<>(actual, mapper));
+		return new MapFuseableSubscriber<>(actual, mapper);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class MapFuseableSubscriber<T, R>
@@ -148,6 +154,7 @@ final class FluxMapFuseable<T, R> extends FluxOperator<T, R> implements Fuseable
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.TERMINATED) return done;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -243,6 +250,7 @@ final class FluxMapFuseable<T, R> extends FluxOperator<T, R> implements Fuseable
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.TERMINATED) return done;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
+
 import reactor.core.Disposable;
 import reactor.core.Scannable;
 import reactor.test.MockUtils;
@@ -42,7 +43,7 @@ public class FluxAutoConnectTest {
 	
 	@Test
 	public void connectImmediately() {
-		EmitterProcessor<Integer> e = EmitterProcessor.create();
+		FluxIdentityProcessor<Integer> e = Processors.multicast();
 
 		AtomicReference<Disposable> cancel = new AtomicReference<>();
 		
@@ -57,7 +58,7 @@ public class FluxAutoConnectTest {
 
 	@Test
 	public void connectAfterMany() {
-		EmitterProcessor<Integer> e = EmitterProcessor.create();
+		FluxIdentityProcessor<Integer> e = Processors.multicast();
 
 		AtomicReference<Disposable> cancel = new AtomicReference<>();
 		
@@ -90,5 +91,6 @@ public class FluxAutoConnectTest {
 		assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(888);
 		assertThat(test.scan(Scannable.Attr.CAPACITY)).isEqualTo(123);
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(source);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 	}
 }

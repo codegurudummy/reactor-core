@@ -25,7 +25,7 @@ import reactor.util.annotation.Nullable;
 /**
  * Represents an empty publisher which only calls onSubscribe and onComplete.
  * <p>
- * This Publisher is effectively stateless and only a single instance any.
+ * This Publisher is effectively stateless and only a single instance exists.
  * Use the {@link #instance()} method to obtain a properly type-parametrized view of it.
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
@@ -76,6 +76,7 @@ extends Mono<Object>
 
 	@Override
 	public Object scanUnsafe(Attr key) {
-		return null; //no particular key to be represented, still useful in hooks
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return null;
 	}
 }

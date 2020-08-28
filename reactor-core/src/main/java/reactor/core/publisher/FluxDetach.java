@@ -23,25 +23,31 @@ import reactor.util.annotation.Nullable;
 import reactor.util.context.Context;
 
 /**
- * Detaches the both the child Subscriber and the Subscription on
+ * Detaches both the child Subscriber and the Subscription on
  * termination or cancellation.
  * <p>This should help with odd retention scenarios when running
- * wit non Rx mentality based Publishers.
+ * with non Rx mentality based Publishers.
  * 
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxDetach<T> extends FluxOperator<T, T> {
+final class FluxDetach<T> extends InternalFluxOperator<T, T> {
 
 	FluxDetach(Flux<? extends T> source) {
 		super(source);
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		source.subscribe(new DetachSubscriber<>(actual));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return new DetachSubscriber<>(actual);
 	}
-	
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
+	}
+
 	static final class DetachSubscriber<T> implements InnerOperator<T, T> {
 
 		CoreSubscriber<? super T> actual;
@@ -63,6 +69,7 @@ final class FluxDetach<T> extends FluxOperator<T, T> {
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.TERMINATED) return actual == null;
 			if (key == Attr.CANCELLED) return actual == null && s == null;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

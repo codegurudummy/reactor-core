@@ -24,6 +24,7 @@ import java.util.List;
 import org.junit.Test;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Fuseable;
 import reactor.core.Scannable;
@@ -106,6 +107,7 @@ public class FluxCombineLatestTest extends FluxOperatorTest<String, String> {
 						Flux.never())).shouldHitDropNextHookAfterTerminate(false));
 	}
 
+	//FIXME these tests are weird, no way to ensure which source produces the data
 	@Override
 	protected List<Scenario<String, String>> scenarios_operatorSuccess() {
 		return Arrays.asList(scenario(f -> Flux.combineLatest(o -> (String) o[0],
@@ -157,8 +159,8 @@ public class FluxCombineLatestTest extends FluxOperatorTest<String, String> {
 
 	@Test
 	public void fused() {
-		DirectProcessor<Integer> dp1 = DirectProcessor.create();
-		DirectProcessor<Integer> dp2 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> dp1 = Processors.more().multicastNoBackpressure();
+		FluxIdentityProcessor<Integer> dp2 = Processors.more().multicastNoBackpressure();
 
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 		ts.requestedFusionMode(Fuseable.ANY);
@@ -262,6 +264,7 @@ public class FluxCombineLatestTest extends FluxOperatorTest<String, String> {
 	public void scanOperator() {
 		FluxCombineLatest s = new FluxCombineLatest<>(Collections.emptyList(), v -> v, Queues.small(), 123);
 		assertThat(s.scan(Scannable.Attr.PREFETCH)).isEqualTo(123);
+		assertThat(s.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 	}
 
 	@Test
@@ -298,6 +301,7 @@ public class FluxCombineLatestTest extends FluxOperatorTest<String, String> {
 		assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(789);
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(main);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
 		test.cancel();

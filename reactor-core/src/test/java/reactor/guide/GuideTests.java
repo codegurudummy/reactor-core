@@ -36,22 +36,23 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import org.junit.After;
+import org.assertj.core.api.Assertions;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
+
 import reactor.core.Disposable;
 import reactor.core.Exceptions;
 import reactor.core.publisher.BaseSubscriber;
 import reactor.core.publisher.ConnectableFlux;
-import reactor.core.publisher.DirectProcessor;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Hooks;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.SignalType;
+import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Schedulers;
 import reactor.test.StepVerifier;
 import reactor.test.publisher.PublisherProbe;
@@ -59,6 +60,7 @@ import reactor.test.scheduler.VirtualTimeScheduler;
 import reactor.util.context.Context;
 import reactor.util.function.Tuple2;
 import reactor.util.function.Tuples;
+import reactor.util.retry.Retry;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -156,7 +158,7 @@ public class GuideTests {
 	}
 
 	@Test
-	public void advancedCompose() {
+	public void advancedComposedNow() {
 		Function<Flux<String>, Flux<String>> filterAndMap =
 				f -> f.filter(color -> !color.equals("orange"))
 				      .map(String::toUpperCase);
@@ -168,7 +170,7 @@ public class GuideTests {
 	}
 
 	@Test
-	public void advancedTransform() {
+	public void advancedComposedDefer() {
 		AtomicInteger ai = new AtomicInteger();
 		Function<Flux<String>, Flux<String>> filterAndMap = f -> {
 			if (ai.incrementAndGet() == 1) {
@@ -182,7 +184,7 @@ public class GuideTests {
 		Flux<String> composedFlux =
 				Flux.fromIterable(Arrays.asList("blue", "green", "orange", "purple"))
 				    .doOnNext(System.out::println)
-				    .compose(filterAndMap);
+				    .transformDeferred(filterAndMap);
 
 		composedFlux.subscribe(d -> System.out.println("Subscriber 1 to Composed MapAndFilter :"+d));
 		composedFlux.subscribe(d -> System.out.println("Subscriber 2 to Composed MapAndFilter: "+d));
@@ -199,21 +201,21 @@ public class GuideTests {
 
 	@Test
 	public void advancedHot() {
-		DirectProcessor<String> hotSource = DirectProcessor.create();
+		Sinks.StandaloneFluxSink<String> hotSource = Sinks.multicastNoWarmup();
 
-		Flux<String> hotFlux = hotSource.map(String::toUpperCase);
+		Flux<String> hotFlux = hotSource.asFlux().map(String::toUpperCase);
 
 
 		hotFlux.subscribe(d -> System.out.println("Subscriber 1 to Hot Source: "+d));
 
-		hotSource.onNext("blue");
-		hotSource.onNext("green");
+		hotSource.next("blue")
+		         .next("green");
 
 		hotFlux.subscribe(d -> System.out.println("Subscriber 2 to Hot Source: "+d));
 
-		hotSource.onNext("orange");
-		hotSource.onNext("purple");
-		hotSource.onComplete();
+		hotSource.next("orange")
+		         .next("purple")
+		         .complete();
 	}
 
 	@Test
@@ -655,7 +657,8 @@ public class GuideTests {
 		Flux<String> flux =
 		Flux.<String>error(new IllegalArgumentException()) // <1>
 				.doOnError(System.out::println) // <2>
-				.retryWhen(companion -> companion.take(3)); // <3>
+				.retryWhen(Retry.from(companion -> // <3>
+						companion.take(3))); // <4>
 
 		StepVerifier.create(flux)
 	                .verifyComplete();
@@ -666,38 +669,102 @@ public class GuideTests {
 
 	@Test
 	public void errorHandlingRetryWhenEquatesRetry() {
+		AtomicInteger errorCount = new AtomicInteger();
 		Flux<String> flux =
-		Flux.<String>error(new IllegalArgumentException())
-				.retryWhen(companion -> companion
-						.zipWith(Flux.range(1, 4), (error, index) -> { // <1>
-							if (index < 4) return index; // <2>
-							else throw Exceptions.propagate(error); // <3>
-						})
-				);
+				Flux.<String>error(new IllegalArgumentException())
+						.doOnError(e -> errorCount.incrementAndGet())
+						.retryWhen(Retry.from(companion -> // <1>
+								companion.map(rs -> { // <2>
+									if (rs.totalRetries() < 3) return rs.totalRetries(); // <3>
+									else throw Exceptions.propagate(rs.failure()); // <4>
+								})
+						));
 
 		StepVerifier.create(flux)
 	                .verifyError(IllegalArgumentException.class);
 
-		StepVerifier.create(Flux.<String>error(new IllegalArgumentException()).retry(3))
+		AtomicInteger retryNErrorCount = new AtomicInteger();
+		StepVerifier.create(Flux.<String>error(new IllegalArgumentException()).doOnError(e -> retryNErrorCount.incrementAndGet()).retry(3))
 	                .verifyError();
+
+		assertThat(errorCount).hasValue(retryNErrorCount.get());
+	}
+
+	@Test
+	public void errorHandlingRetryBuilders() {
+		Throwable exception = new IllegalStateException("boom");
+		Flux<String> errorFlux = Flux.error(exception);
+
+		errorFlux.retryWhen(Retry.max(3))
+		         .as(StepVerifier::create)
+		         .verifyErrorSatisfies(e -> assertThat(e)
+				         .hasMessage("Retries exhausted: 3/3")
+				         .hasCause(exception));
+
+		errorFlux.retryWhen(Retry.max(3).filter(error -> error instanceof NullPointerException))
+		         .as(StepVerifier::create)
+		         .verifyErrorMessage("boom");
 	}
 
 	@Test
 	public void errorHandlingRetryWhenExponential() {
+		AtomicInteger errorCount = new AtomicInteger();
 		Flux<String> flux =
-		Flux.<String>error(new IllegalArgumentException())
-				.retryWhen(companion -> companion
-						.doOnNext(s -> System.out.println(s + " at " + LocalTime.now())) // <1>
-						.zipWith(Flux.range(1, 4), (error, index) -> { // <2>
-							if (index < 4) return index;
-							else throw Exceptions.propagate(error);
+				Flux.<String>error(new IllegalStateException("boom"))
+						.doOnError(e -> { // <1>
+							errorCount.incrementAndGet();
+							System.out.println(e + " at " + LocalTime.now());
 						})
-						.flatMap(index -> Mono.delay(Duration.ofMillis(index * 100))) // <3>
-						.doOnNext(s -> System.out.println("retried at " + LocalTime.now())) // <4>
-				);
+						.retryWhen(Retry
+								.backoff(3, Duration.ofMillis(100)).jitter(0d) // <2>
+								.doAfterRetry(rs -> System.out.println("retried at " + LocalTime.now())) // <3>
+								.onRetryExhaustedThrow((spec, rs) -> rs.failure()) // <4>
+						);
 
 		StepVerifier.create(flux)
-		            .verifyError(IllegalArgumentException.class);
+		            .verifyErrorSatisfies(e -> Assertions
+				            .assertThat(e)
+				            .isInstanceOf(IllegalStateException.class)
+				            .hasMessage("boom"));
+
+		assertThat(errorCount).hasValue(4);
+	}
+
+	@Test
+	public void errorHandlingRetryWhenTransient() {
+		AtomicInteger errorCount = new AtomicInteger(); // <1>
+		AtomicInteger transientHelper = new AtomicInteger();
+		Flux<Integer> transientFlux = Flux.<Integer>generate(sink -> {
+			int i = transientHelper.getAndIncrement();
+			if (i == 10) { // <2>
+				sink.next(i);
+				sink.complete();
+			}
+			else if (i % 3 == 0) { // <3>
+				sink.next(i);
+			}
+			else {
+				sink.error(new IllegalStateException("Transient error at " + i)); // <4>
+			}
+		})
+				.doOnError(e -> errorCount.incrementAndGet());
+
+transientFlux.retryWhen(Retry.max(2).transientErrors(true))  // <5>
+             .blockLast();
+assertThat(errorCount).hasValue(6); // <6>
+
+		transientHelper.set(0);
+		transientFlux.retryWhen(Retry.max(2).transientErrors(true))
+		             .as(StepVerifier::create)
+		             .expectNext(0, 3, 6, 9, 10)
+		             .verifyComplete();
+
+		transientHelper.set(0);
+		transientFlux.retryWhen(Retry.max(2))
+		             .as(StepVerifier::create)
+		             .expectNext(0, 3)
+		             .verifyErrorMessage("Retries exhausted: 2/2");
+
 	}
 
 	public String convert(int i) throws IOException {
@@ -958,13 +1025,6 @@ public class GuideTests {
 		}
 	}
 
-	@After
-	public void removeHooks() {
-		if (testName.getMethodName().startsWith("debuggingActivated")) {
-			Hooks.resetOnOperatorDebug();
-		}
-	}
-
 	public Mono<String> toDebug; //please overlook the public class attribute :p
 
 	private void printAndAssert(Throwable t, boolean checkForAssemblySuppressed) {
@@ -980,7 +1040,7 @@ public class GuideTests {
 				assertThat(withSuppressed.getSuppressed()).hasSize(1);
 				assertThat(withSuppressed.getSuppressed()[0])
 						.hasMessageStartingWith("\nAssembly trace from producer [reactor.core.publisher.MonoSingle] :")
-						.hasMessageEndingWith("Flux.single ⇢ reactor.guide.GuideTests.scatterAndGather(GuideTests.java:944)\n");
+						.hasMessageContaining("Flux.single ⇢ at reactor.guide.GuideTests.scatterAndGather(GuideTests.java:1011)\n");
 			});
 		}
 	}
@@ -1008,133 +1068,128 @@ public class GuideTests {
 
 	@Test
 	public void contextSimple1() {
-		String key = "message";
-		Mono<String> r = Mono.just("Hello")
-		                     .flatMap( s -> Mono.subscriberContext() //<2>
-		                                        .map( ctx -> s + " " + ctx.get(key))) //<3>
-		                     .subscriberContext(ctx -> ctx.put(key, "World")); //<1>
+		//use of two-space indentation on purpose to maximise readability in refguide
+String key = "message";
+Mono<String> r = Mono.just("Hello")
+    .flatMap(s -> Mono.deferWithContext(ctx ->
+         Mono.just(s + " " + ctx.get(key)))) //<2>
+    .subscriberContext(ctx -> ctx.put(key, "World")); //<1>
 
-		StepVerifier.create(r)
-		            .expectNext("Hello World") //<4>
-		            .verifyComplete();
+StepVerifier.create(r)
+            .expectNext("Hello World") //<3>
+            .verifyComplete();
 	}
 
 	@Test
 	public void contextSimple2() {
-		String key = "message";
-		Mono<String> r = Mono.just("Hello")
-		                     .subscriberContext(ctx -> ctx.put(key, "World")) //<1>
-		                     .flatMap( s -> Mono.subscriberContext()
-		                                        .map( ctx -> s + " " + ctx.getOrDefault(key, "Stranger")));  //<2>
+		//use of two-space indentation on purpose to maximise readability in refguide
+String key = "message";
+Mono<String> r = Mono.just("Hello")
+    .subscriberContext(ctx -> ctx.put(key, "World")) //<1>
+    .flatMap( s -> Mono.deferWithContext(ctx ->
+        Mono.just(s + " " + ctx.getOrDefault(key, "Stranger")))); //<2>
 
-		StepVerifier.create(r)
-		            .expectNext("Hello Stranger") //<3>
-		            .verifyComplete();
+StepVerifier.create(r)
+            .expectNext("Hello Stranger") //<3>
+            .verifyComplete();
 	}
 
-	@Test
-	public void contextSimple3() {
-		String key = "message";
-
-		Mono<String> r = Mono.subscriberContext() // <1>
-		                     .map( ctx -> ctx.put(key, "Hello")) // <2>
-		                     .flatMap( ctx -> Mono.subscriberContext()) // <3>
-		                     .map( ctx -> ctx.getOrDefault(key,"Default")); // <4>
-
-		StepVerifier.create(r)
-		            .expectNext("Default") // <5>
-		            .verifyComplete();
-	}
+	//contextSimple3 deleted since writes are not exposed anymore with ContextView
 
 	@Test
 	public void contextSimple4() {
-		String key = "message";
-		Mono<String> r = Mono.just("Hello")
-		                .flatMap( s -> Mono.subscriberContext()
-		                                   .map( ctx -> s + " " + ctx.get(key)))
-		                .subscriberContext(ctx -> ctx.put(key, "Reactor")) //<1>
-		                .subscriberContext(ctx -> ctx.put(key, "World")); //<2>
+		//use of two-space indentation on purpose to maximise readability in refguide
+String key = "message";
+Mono<String> r = Mono
+    .deferWithContext(ctx -> Mono.just("Hello " + ctx.get(key)))
+    .subscriberContext(ctx -> ctx.put(key, "Reactor")) //<1>
+    .subscriberContext(ctx -> ctx.put(key, "World")); //<2>
 
-		StepVerifier.create(r)
-		            .expectNext("Hello Reactor") //<3>
-		            .verifyComplete();
+StepVerifier.create(r)
+            .expectNext("Hello Reactor") //<3>
+            .verifyComplete();
 	}
 
 	@Test
 	public void contextSimple5() {
-		String key = "message";
-		Mono<String> r = Mono.just("Hello")
-		                     .flatMap( s -> Mono.subscriberContext()
-		                                        .map( ctx -> s + " " + ctx.get(key))) //<3>
-		                     .subscriberContext(ctx -> ctx.put(key, "Reactor")) //<2>
-		                     .flatMap( s -> Mono.subscriberContext()
-		                                        .map( ctx -> s + " " + ctx.get(key))) //<4>
-		                     .subscriberContext(ctx -> ctx.put(key, "World")); //<1>
+		//use of two-space indentation on purpose to maximise readability in refguide
+String key = "message";
+Mono<String> r = Mono
+    .deferWithContext(ctx -> Mono.just("Hello " + ctx.get(key))) //<3>
+    .subscriberContext(ctx -> ctx.put(key, "Reactor")) //<2>
+    .flatMap( s -> Mono.deferWithContext(ctx ->
+        Mono.just(s + " " + ctx.get(key)))) //<4>
+    .subscriberContext(ctx -> ctx.put(key, "World")); //<1>
 
-		StepVerifier.create(r)
-		            .expectNext("Hello Reactor World") //<5>
-		            .verifyComplete();
+StepVerifier.create(r)
+            .expectNext("Hello Reactor World") //<5>
+            .verifyComplete();
 	}
 
 	@Test
 	public void contextSimple6() {
-		String key = "message";
-		Mono<String> r =
-				Mono.just("Hello")
-				    .flatMap( s -> Mono.subscriberContext()
-				                       .map( ctx -> s + " " + ctx.get(key))
-				    )
-				    .flatMap( s -> Mono.subscriberContext()
-				                       .map( ctx -> s + " " + ctx.get(key))
-				                       .subscriberContext(ctx -> ctx.put(key, "Reactor")) //<1>
-				    )
-				    .subscriberContext(ctx -> ctx.put(key, "World")); // <2>
+		//use of two-space indentation on purpose to maximise readability in refguide
+String key = "message";
+Mono<String> r = Mono.just("Hello")
+    .flatMap( s -> Mono
+        .deferWithContext(ctxView -> Mono.just(s + " " + ctxView.get(key)))
+    )
+    .flatMap( s -> Mono
+        .deferWithContext(ctxView -> Mono.just(s + " " + ctxView.get(key)))
+        .subscriberContext(ctx -> ctx.put(key, "Reactor")) //<1>
+    )
+    .subscriberContext(ctx -> ctx.put(key, "World")); // <2>
 
-		StepVerifier.create(r)
-		            .expectNext("Hello World Reactor")
-		            .verifyComplete();
+StepVerifier.create(r)
+            .expectNext("Hello World Reactor")
+            .verifyComplete();
 	}
 
-	private static final String HTTP_CORRELATION_ID = "reactive.http.library.correlationId";
+//use of two-space indentation on purpose to maximise readability in refguide
+static final String HTTP_CORRELATION_ID = "reactive.http.library.correlationId";
 
-	Mono<Tuple2<Integer, String>> doPut(String url, Mono<String> data) {
-		Mono<Tuple2<String, Optional<Object>>> dataAndContext =
-				data.zipWith(Mono.subscriberContext()
-				                 .map(c -> c.getOrEmpty(HTTP_CORRELATION_ID)));
+Mono<Tuple2<Integer, String>> doPut(String url, Mono<String> data) {
+  Mono<Tuple2<String, Optional<Object>>> dataAndContext =
+      data.zipWith(Mono.deferWithContext(c -> // <1>
+          Mono.just(c.getOrEmpty(HTTP_CORRELATION_ID))) // <2>
+      );
 
-		return dataAndContext
-				.<String>handle((dac, sink) -> {
-					if (dac.getT2().isPresent()) {
-						sink.next("PUT <" + dac.getT1() + "> sent to " + url + " with header X-Correlation-ID = " + dac.getT2().get());
-					}
-					else {
-						sink.next("PUT <" + dac.getT1() + "> sent to " + url);
-					}
-					sink.complete();
-				})
-				.map(msg -> Tuples.of(200, msg));
-	}
+  return dataAndContext.<String>handle((dac, sink) -> {
+      if (dac.getT2().isPresent()) { // <3>
+        sink.next("PUT <" + dac.getT1() + "> sent to " + url +
+            " with header X-Correlation-ID = " + dac.getT2().get());
+      }
+      else {
+        sink.next("PUT <" + dac.getT1() + "> sent to " + url);
+      }
+        sink.complete();
+      })
+      .map(msg -> Tuples.of(200, msg));
+}
 
-	@Test
-	public void contextForLibraryReactivePut() {
-		Mono<String> put = doPut("www.example.com", Mono.just("Walter"))
-				.subscriberContext(Context.of(HTTP_CORRELATION_ID, "2-j3r9afaf92j-afkaf"))
-				.filter(t -> t.getT1() < 300)
-				.map(Tuple2::getT2);
+//use of two-space indentation on purpose to maximise readability in refguide
+@Test
+public void contextForLibraryReactivePut() {
+  Mono<String> put = doPut("www.example.com", Mono.just("Walter"))
+      .subscriberContext(Context.of(HTTP_CORRELATION_ID, "2-j3r9afaf92j-afkaf"))
+      .filter(t -> t.getT1() < 300)
+      .map(Tuple2::getT2);
 
-		StepVerifier.create(put)
-		            .expectNext("PUT <Walter> sent to www.example.com with header X-Correlation-ID = 2-j3r9afaf92j-afkaf")
-		            .verifyComplete();
-	}
+  StepVerifier.create(put)
+              .expectNext("PUT <Walter> sent to www.example.com" +
+                  " with header X-Correlation-ID = 2-j3r9afaf92j-afkaf")
+              .verifyComplete();
+}
 
 	@Test
 	public void contextForLibraryReactivePutNoContext() {
-	Mono<String> put = doPut("www.example.com", Mono.just("Walter"))
-			.filter(t -> t.getT1() < 300)
-			.map(Tuple2::getT2);
+		//use of two-space indentation on purpose to maximise readability in refguide
+Mono<String> put = doPut("www.example.com", Mono.just("Walter"))
+    .filter(t -> t.getT1() < 300)
+    .map(Tuple2::getT2);
 
-		StepVerifier.create(put)
-		            .expectNext("PUT <Walter> sent to www.example.com")
-		            .verifyComplete();
+StepVerifier.create(put)
+            .expectNext("PUT <Walter> sent to www.example.com")
+            .verifyComplete();
 	}
 }

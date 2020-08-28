@@ -19,8 +19,12 @@ import java.time.Duration;
 import java.util.concurrent.TimeoutException;
 
 import org.junit.Test;
+import reactor.core.Scannable;
 import reactor.test.StepVerifier;
+import reactor.test.publisher.TestPublisher;
 import reactor.test.subscriber.AssertSubscriber;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class MonoTimeoutTest {
 
@@ -38,30 +42,40 @@ public class MonoTimeoutTest {
 	}
 
 	@Test
-	public void immediateTimeout() {
-		AssertSubscriber<Integer> ts = AssertSubscriber.create();
-
+	public void noTimeoutOnInstantSource() {
 		Mono.just(1)
 		    .timeout(Mono.empty())
-		    .subscribe(ts);
+		    .as(StepVerifier::create)
+		    .expectNext(1)
+		    .verifyComplete();
+	}
 
-		ts.assertNoValues()
-		  .assertNotComplete()
-		  .assertError(TimeoutException.class);
+	@Test
+	public void immediateTimeout() {
+		Mono.just(1)
+		    .delaySubscription(Duration.ofMillis(1))
+		    .timeout(Mono.empty())
+		    .as(StepVerifier::create)
+		    .expectError(TimeoutException.class);
+	}
+
+	@Test
+	public void dropsErrorOnCompletedSource() {
+		Mono.just(1)
+		    .timeout(Mono.error(new RuntimeException("forced " + "failure")))
+		    .as(StepVerifier::create)
+		    .expectNext(1)
+		    .verifyComplete();
 	}
 
 	@Test
 	public void firstTimeoutError() {
-		AssertSubscriber<Integer> ts = AssertSubscriber.create();
-
-		Mono.just(1)
-		    .timeout(Mono.error(new RuntimeException("forced " + "failure")))
-		    .subscribe(ts);
-
-		ts.assertNoValues()
-		  .assertNotComplete()
-		  .assertError(RuntimeException.class)
-		  .assertErrorMessage("forced failure");
+		TestPublisher<Object> source = TestPublisher.create();
+		source.flux()
+		      .timeout(Mono.error(new RuntimeException("forced " + "failure")))
+		      .as(StepVerifier::create)
+		      .then(source::complete)
+		      .verifyErrorMessage("forced failure");
 	}
 
 	@Test
@@ -70,7 +84,7 @@ public class MonoTimeoutTest {
 
 		MonoProcessor<Integer> source = MonoProcessor.create();
 
-		DirectProcessor<Integer> tp = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> tp = Processors.more().multicastNoBackpressure();
 
 		source.timeout(tp)
 		      .subscribe(ts);
@@ -155,5 +169,12 @@ public class MonoTimeoutTest {
 				            "first signal from a Publisher in 'source(MonoNever)' " +
 				            "(and no fallback has been configured)")
 		            .verify();
+	}
+
+	@Test
+	public void scanOperator(){
+	    MonoTimeout<Integer, String, String> test = new MonoTimeout<>(Mono.just(1), Mono.just("foo"), "timeout");
+
+	    assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 	}
 }

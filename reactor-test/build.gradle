@@ -15,7 +15,6 @@
  */
 import me.champeau.gradle.japicmp.JapicmpTask
 
-apply plugin: 'org.jetbrains.dokka'
 apply plugin: 'biz.aQute.bnd.builder'
 apply plugin: 'kotlin'
 
@@ -38,10 +37,15 @@ ext {
 
 dependencies {
 	api project(":reactor-core")
+	compileOnly "com.google.code.findbugs:jsr305:${findbugsVersion}"
 
 	implementation "org.jetbrains.kotlin:kotlin-stdlib:${kotlinVersion}"
 
-	testImplementation "junit:junit:$jUnitVersion"
+	testImplementation platform("org.junit:junit-bom:${jUnitPlatformVersion}")
+	testImplementation "junit:junit:${jUnitVersion}"
+	testImplementation "org.junit.jupiter:junit-jupiter-api"
+	testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine"
+	testRuntimeOnly "org.junit.vintage:junit-vintage-engine"
 
 	testRuntimeOnly "ch.qos.logback:logback-classic:$logbackVersion"
 
@@ -83,51 +87,16 @@ task japicmp(type: JapicmpTask) {
 	includeSynthetic = true
 
 	//TODO after a release, remove the reactor-test exclusions below if any
+	methodExcludes = [
+	        'reactor.test.StepVerifier$FirstStep#expectNoEvent(java.time.Duration)',
+	]
+}
+
+tasks.withType(Test).all {
+  useJUnitPlatform()
 }
 
 //javadoc is configured in gradle/javadoc.gradle
-
-// Need https://github.com/Kotlin/dokka/issues/184 to be fixed to avoid "Can't find node by signature" log spam
-dokka {
-	dependsOn jar
-	group = "documentation"
-	description = "Generates Kotlin API documentation."
-	moduleName = "reactor-test"
-	jdkVersion = 8
-
-	outputFormat = "html"
-	outputDirectory = new File(project.buildDir, "docs/kdoc")
-
-	//this is needed so that links to java classes are resolved
-	doFirst {
-		classpath += project.jar.outputs.files.getFiles()
-		classpath += project.sourceSets.main.compileClasspath
-	}
-	//this is needed so that the kdoc only generates for kotlin classes
-	//(default kotlinTasks sourceSet also includes java)
-	kotlinTasks {
-
-	}
-	processConfigurations = []
-	sourceDirs = files("src/main/kotlin")
-
-	externalDocumentationLink {
-		url = new URL("https://projectreactor.io/docs/core/release/api/")
-	}
-	externalDocumentationLink {
-		url = new URL("https://projectreactor.io/docs/test/release/api/")
-	}
-	externalDocumentationLink {
-		url = new URL("https://www.reactive-streams.org/reactive-streams-1.0.2-javadoc/")
-	}
-}
-
-task kdocZip(type: Zip, dependsOn: dokka) {
-	//ends up similar to javadoc jar: reactor-test-xxx.RELEASE-kdoc.zip
-	archiveClassifier.set('kdoc')
-	from("${project.buildDir}/docs/kdoc")
-}
-
 
 jar {
 	manifest {
@@ -139,6 +108,3 @@ jar {
 }
 
 check.dependsOn japicmp
-
-//add kdoc to the publication
-publishing.publications.mavenJava.artifact(kdocZip)

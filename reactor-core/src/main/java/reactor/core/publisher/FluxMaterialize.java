@@ -29,15 +29,21 @@ import reactor.util.context.Context;
 /**
  * @author Stephane Maldini
  */
-final class FluxMaterialize<T> extends FluxOperator<T, Signal<T>> {
+final class FluxMaterialize<T> extends InternalFluxOperator<T, Signal<T>> {
 
 	FluxMaterialize(Flux<T> source) {
 		super(source);
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super Signal<T>> actual) {
-		source.subscribe(new MaterializeSubscriber<>(actual));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super Signal<T>> actual) {
+		return new MaterializeSubscriber<>(actual);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	final static class MaterializeSubscriber<T>
@@ -79,6 +85,7 @@ final class FluxMaterialize<T> extends FluxOperator<T, Signal<T>> {
 			if (key == Attr.CANCELLED) return getAsBoolean();
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return requested;
 			if (key == Attr.BUFFERED) return size();
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -189,6 +196,11 @@ final class FluxMaterialize<T> extends FluxOperator<T, Signal<T>> {
         public int size() {
             return terminalSignal == null || terminalSignal == empty ? 0 : 1;
         }
+
+		@Override
+		public String toString() {
+			return "MaterializeSubscriber";
+		}
 
 		static final Signal empty = new ImmutableSignal<>(Context.empty(), SignalType.ON_NEXT, null, null, null);
 	}

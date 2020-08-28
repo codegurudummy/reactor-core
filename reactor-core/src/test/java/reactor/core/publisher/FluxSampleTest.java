@@ -22,6 +22,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Scannable;
 import reactor.test.StepVerifier;
@@ -42,9 +43,9 @@ public class FluxSampleTest {
 	}
 
 	void sample(boolean complete, boolean which) {
-		DirectProcessor<Integer> main = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> main = Processors.more().multicastNoBackpressure();
 
-		DirectProcessor<String> other = DirectProcessor.create();
+		FluxIdentityProcessor<String> other = Processors.more().multicastNoBackpressure();
 
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
@@ -84,7 +85,7 @@ public class FluxSampleTest {
 		  .assertNoError()
 		  .assertNotComplete();
 
-		DirectProcessor<?> p = which ? main : other;
+		FluxIdentityProcessor<?> p = which ? main : other;
 
 		if (complete) {
 			p.onComplete();
@@ -128,9 +129,9 @@ public class FluxSampleTest {
 
 	@Test
 	public void subscriberCancels() {
-		DirectProcessor<Integer> main = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> main = Processors.more().multicastNoBackpressure();
 
-		DirectProcessor<String> other = DirectProcessor.create();
+		FluxIdentityProcessor<String> other = Processors.more().multicastNoBackpressure();
 
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
@@ -150,9 +151,9 @@ public class FluxSampleTest {
 	}
 
 	public void completeImmediately(boolean which) {
-		DirectProcessor<Integer> main = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> main = Processors.more().multicastNoBackpressure();
 
-		DirectProcessor<String> other = DirectProcessor.create();
+		FluxIdentityProcessor<String> other = Processors.more().multicastNoBackpressure();
 
 		if (which) {
 			main.onComplete();
@@ -232,6 +233,7 @@ public class FluxSampleTest {
 
         assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
         assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
         test.requested = 35;
         assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(35L);
         test.value = 5;
@@ -250,6 +252,7 @@ public class FluxSampleTest {
 
         assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(main.other);
         assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(main);
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
         assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(Integer.MAX_VALUE);
 
         assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();

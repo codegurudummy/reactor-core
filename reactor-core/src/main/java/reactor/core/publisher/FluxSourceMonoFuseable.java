@@ -34,9 +34,8 @@ final class FluxSourceMonoFuseable<I> extends FluxFromMonoOperator<I, I> impleme
 	 * @param actual
 	 */
 	@Override
-	@SuppressWarnings("unchecked")
-	public void subscribe(CoreSubscriber<? super I> actual) {
-		source.subscribe(actual);
+	public CoreSubscriber<? super I> subscribeOrReturn(CoreSubscriber<? super I> actual) {
+		return actual;
 	}
 
 
@@ -47,4 +46,11 @@ final class FluxSourceMonoFuseable<I> extends FluxFromMonoOperator<I, I> impleme
 		}
 		return "FluxFromMono(" + source.toString() + ")";
 	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Scannable.from(source).scanUnsafe(key);
+		return super.scanUnsafe(key);
+	}
+
 }
