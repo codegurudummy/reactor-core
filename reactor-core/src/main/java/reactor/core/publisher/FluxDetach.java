@@ -26,22 +26,22 @@ import reactor.util.context.Context;
  * Detaches the both the child Subscriber and the Subscription on
  * termination or cancellation.
  * <p>This should help with odd retention scenarios when running
- * wit non Rx mentality based Publishers.
+ * with non Rx mentality based Publishers.
  * 
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxDetach<T> extends FluxOperator<T, T> {
+final class FluxDetach<T> extends InternalFluxOperator<T, T> {
 
 	FluxDetach(Flux<? extends T> source) {
 		super(source);
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		source.subscribe(new DetachSubscriber<>(actual));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return new DetachSubscriber<>(actual);
 	}
-	
+
 	static final class DetachSubscriber<T> implements InnerOperator<T, T> {
 
 		CoreSubscriber<? super T> actual;

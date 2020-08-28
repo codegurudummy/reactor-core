@@ -128,10 +128,12 @@ public class StepVerifierAssertionsTests {
 		StepVerifier.create(Flux.just(1, 2, 3).filter(i -> i == 2))
 		            .expectNext(2)
 		            .expectComplete()
-		            .verifyThenAssertThat()
-		            .hasDiscardedElements()
-		            .hasDiscardedExactly(1, 3)
-		            .hasDiscarded(1);
+			    .verifyThenAssertThat()
+			    .hasDiscardedElements()
+			    .hasDiscardedExactly(1, 3)
+			    .hasDiscarded(1)
+			    .hasDiscardedElementsMatching(list -> list.stream().allMatch(e -> (int)e % 2 != 0))
+			    .hasDiscardedElementsSatisfying(list -> assertThat(list).containsOnly(1, 3));
 	}
 
 	@Test
@@ -178,6 +180,37 @@ public class StepVerifierAssertionsTests {
 			assertThat(ae).hasMessage("Expected discarded elements to contain <[4]>, was <[1, 3]>.");
 		}
 	}
+
+        @Test
+        public void assertDiscardedElementsSatisfyingFailureOneExtra() {
+		try {
+	                 StepVerifier.create(Flux.just(1, 2, 3).filter(i -> i == 2))
+		                     .expectNext(2)
+		                     .expectComplete()
+		                     .verifyThenAssertThat()
+		                     .hasDiscardedElementsSatisfying(list -> assertThat(list).hasSize(3));
+	                 fail("expected an AssertionError");
+		}
+		catch (AssertionError ae) {
+	                 assertThat(ae).hasMessageContaining("Expected size:<3> but was:<2> in:");
+	        }
+        }
+
+	@Test
+	public void assertDiscardedElementsMatchingFailureOneExtra() {
+		try {
+			StepVerifier.create(Flux.just(1, 2, 3).filter(i -> i == 2))
+					.expectNext(2)
+					.expectComplete()
+					.verifyThenAssertThat()
+					.hasDiscardedElementsMatching(list -> list.stream().allMatch(e -> (int)e % 2 == 0));
+			fail("expected an AssertionError");
+		}
+		catch (AssertionError ae) {
+			assertThat(ae).hasMessage("Expected collection of discarded elements matching the given predicate, did not match: <[1, 3]>.");
+		}
+	}
+
 
 	@Test
 	public void assertDiscardedElementsFailureOneMissing() {
@@ -400,8 +433,10 @@ public class StepVerifierAssertionsTests {
 
 	@Test
 	public void assertOperatorErrorAllPass() {
-		Throwable err1 = new IllegalStateException("boom1");
-		StepVerifier.create(Flux.error(err1))
+		IllegalStateException err1 = new IllegalStateException("boom1");
+		StepVerifier.create(Flux.just("test").map(d -> {
+			throw err1;
+		}))
 		            .expectError()
 		            .verifyThenAssertThat()
 		            .hasOperatorErrors()
@@ -429,8 +464,10 @@ public class StepVerifierAssertionsTests {
 	@Test
 	public void assertOperatorErrorFailureWrongType() {
 		try {
-			Throwable err1 = new IllegalStateException("boom1");
-			StepVerifier.create(Flux.error(err1))
+			IllegalStateException err1 = new IllegalStateException("boom1");
+			StepVerifier.create(Flux.just("test").map(d -> {
+				throw err1;
+			}))
 			            .expectError()
 			            .verifyThenAssertThat()
 			            .hasOperatorErrorOfType(IllegalArgumentException.class);
@@ -444,8 +481,10 @@ public class StepVerifierAssertionsTests {
 	@Test
 	public void assertOperatorErrorFailureWrongContains() {
 		try {
-			Throwable err1 = new IllegalStateException("boom1");
-			StepVerifier.create(Flux.error(err1))
+			IllegalStateException err1 = new IllegalStateException("boom1");
+			StepVerifier.create(Flux.just("test").map(d -> {
+				throw err1;
+			}))
 			            .expectError()
 			            .verifyThenAssertThat()
 			            .hasOperatorErrorWithMessageContaining("foo");
@@ -459,8 +498,10 @@ public class StepVerifierAssertionsTests {
 	@Test
 	public void assertOperatorErrorFailureWrongMessage() {
 		try {
-			Throwable err1 = new IllegalStateException("boom1");
-			StepVerifier.create(Flux.error(err1))
+			IllegalStateException err1 = new IllegalStateException("boom1");
+			StepVerifier.create(Flux.just("test").map(d -> {
+				throw err1;
+			}))
 			            .expectError()
 			            .verifyThenAssertThat()
 			            .hasOperatorErrorWithMessage("boom2");
@@ -474,8 +515,10 @@ public class StepVerifierAssertionsTests {
 	@Test
 	public void assertOperatorErrorFailureWrongMatch() {
 		try {
-			Throwable err1 = new IllegalStateException("boom1");
-			StepVerifier.create(Flux.error(err1))
+			IllegalStateException err1 = new IllegalStateException("boom1");
+			StepVerifier.create(Flux.just("test").map(d -> {
+				throw err1;
+			}))
 			            .expectError()
 			            .verifyThenAssertThat()
 			            .hasOperatorErrorMatching(t -> t instanceof IllegalStateException && "foo".equals(t.getMessage()));
@@ -483,7 +526,7 @@ public class StepVerifierAssertionsTests {
 		}
 		catch (AssertionError ae) {
 			assertThat(ae).hasMessage("Expected operator error matching the given predicate, " +
-					"did not match: <[Optional[java.lang.IllegalStateException: boom1],Optional.empty]>.");
+					"did not match: <[Optional[java.lang.IllegalStateException: boom1],Optional[test]]>.");
 		}
 	}
 
@@ -589,7 +632,7 @@ public class StepVerifierAssertionsTests {
 	public void assertDurationConsidersEqualsASuccess() {
 		new DefaultStepVerifierBuilder.DefaultStepVerifierAssertions(null,
 				Duration.ofSeconds(3),
-				new ErrorFormatter(null))
+				new MessageFormatter(null, null, null))
 				.tookLessThan(Duration.ofMillis(3000L))
 				.tookMoreThan(Duration.ofSeconds(3));
 	}
@@ -600,7 +643,7 @@ public class StepVerifierAssertionsTests {
 				.isThrownBy(() ->
 						new DefaultStepVerifierBuilder.DefaultStepVerifierAssertions(null
 								, Duration.ofSeconds(3),
-								new ErrorFormatter("fooScenario"))
+								new MessageFormatter("fooScenario", null, null))
 								.tookLessThan(Duration.ofMillis(200))
 				)
 				.withMessage("[fooScenario] Expected scenario to be verified in less than 200ms, took 3000ms.");

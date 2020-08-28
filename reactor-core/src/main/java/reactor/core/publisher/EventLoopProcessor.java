@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2017 Pivotal Software Inc, All Rights Reserved.
+ * Copyright (c) 2011-2019 Pivotal Software Inc, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -44,6 +44,7 @@ import reactor.util.context.Context;
  *
  * @author Stephane Maldini
  */
+@SuppressWarnings("deprecation")
 abstract class EventLoopProcessor<IN> extends FluxProcessor<IN, IN>
 		implements Runnable {
 
@@ -328,7 +329,7 @@ abstract class EventLoopProcessor<IN> extends FluxProcessor<IN, IN>
 
 	/**
 	 * Block until all submitted tasks have completed, then do a normal {@code EventLoopProcessor#dispose()}.
-	 * @param timeout the timeout value as a {@link java.time.Duration}. Note this is converted to a {@link Long}
+	 * @param timeout the timeout value as a {@link Duration}. Note this is converted to a {@link Long}
 	 * of nanoseconds (which amounts to roughly 292 years maximum timeout).
      * @return if the underlying executor terminated and false if the timeout elapsed before termination
 	 */
@@ -354,7 +355,8 @@ abstract class EventLoopProcessor<IN> extends FluxProcessor<IN, IN>
 
 	/**
 	 * Drain is a hot replication of the current buffer delivered if supported. Since it is hot there might be no
-	 * guarantee to see a end if the buffer keeps replenishing due to concurrent producing.
+	 * guarantee to see an end if the buffer keeps replenishing due to concurrent
+	 * producing.
 	 *
 	 * @return a {@link Flux} sequence possibly unbounded of incoming buffered values or empty if not supported.
 	 */
@@ -595,13 +597,13 @@ abstract class EventLoopProcessor<IN> extends FluxProcessor<IN, IN>
 		}
 	}
 
-	static final int SHUTDOWN = 1;
-	static final int                                           FORCED_SHUTDOWN  = 2;
+	static final int                                                                  SHUTDOWN         = 1;
+	static final int                                                                  FORCED_SHUTDOWN  = 2;
 	@SuppressWarnings("rawtypes")
     static final AtomicIntegerFieldUpdater<EventLoopProcessor> SUBSCRIBER_COUNT =
 			AtomicIntegerFieldUpdater.newUpdater(EventLoopProcessor.class, "subscriberCount");
 	@SuppressWarnings("rawtypes")
-	final static AtomicIntegerFieldUpdater<EventLoopProcessor> TERMINATED =
+	final static AtomicIntegerFieldUpdater<EventLoopProcessor> TERMINATED       =
 			AtomicIntegerFieldUpdater.newUpdater(EventLoopProcessor.class, "terminated");
 
 	/**
