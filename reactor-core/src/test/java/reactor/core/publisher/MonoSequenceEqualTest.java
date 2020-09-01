@@ -136,7 +136,7 @@ public class MonoSequenceEqualTest {
 
 	@Test
 	public void largeSequence() {
-		Flux<Integer> source = Flux.range(1, Queues.SMALL_BUFFER_SIZE * 4).subscribeOn(Schedulers.elastic());
+		Flux<Integer> source = Flux.range(1, Queues.SMALL_BUFFER_SIZE * 4).subscribeOn(Schedulers.boundedElastic());
 
 		StepVerifier.create(Mono.sequenceEqual(source, source))
 		            .expectNext(Boolean.TRUE)
@@ -189,8 +189,8 @@ public class MonoSequenceEqualTest {
 		                            .hide();
 
 		Mono.sequenceEqual(source1, source2)
-		    .subscribe(System.out::println, Throwable::printStackTrace, null,
-				    Subscription::cancel);
+		    .subscribeWith(new LambdaSubscriber<>(System.out::println, Throwable::printStackTrace, null,
+				    Subscription::cancel));
 
 		Assert.assertNotNull("left not subscribed", sub1.get());
 		Assert.assertTrue("left not cancelled", cancel1.get());
@@ -215,8 +215,8 @@ public class MonoSequenceEqualTest {
 		                            .hide();
 
 		Mono.sequenceEqual(source1, source2)
-		    .subscribe(System.out::println, Throwable::printStackTrace, null,
-				    s -> { s.cancel(); s.cancel(); });
+		    .subscribeWith(new LambdaSubscriber<>(System.out::println, Throwable::printStackTrace, null,
+				    s -> { s.cancel(); s.cancel(); }));
 
 		Assert.assertNotNull("left not subscribed", sub1.get());
 		assertThat(cancel1.get()).isEqualTo(1);
@@ -240,8 +240,8 @@ public class MonoSequenceEqualTest {
 		                            .doOnCancel(() -> cancel2.set(true));
 
 		Mono.sequenceEqual(source1, source2)
-		    .subscribe(System.out::println, Throwable::printStackTrace, null,
-				    Subscription::cancel);
+		    .subscribeWith(new LambdaSubscriber<>(System.out::println, Throwable::printStackTrace, null,
+				    Subscription::cancel));
 
 		Assert.assertNotNull("left not subscribed", sub1.get());
 		Assert.assertTrue("left not cancelled", cancel1.get());
@@ -270,6 +270,7 @@ public class MonoSequenceEqualTest {
 	public void scanOperator() {
 		MonoSequenceEqual<Integer> s = new MonoSequenceEqual<>(Mono.just(1), Mono.just(2), (a, b) -> true, 123);
 		assertThat(s.scan(Scannable.Attr.PREFETCH)).isEqualTo(123);
+		assertThat(s.scan(Scannable.Attr.RUN_STYLE)).isEqualTo(Scannable.Attr.RunStyle.SYNC);
 	}
 
 	@Test
@@ -283,6 +284,7 @@ public class MonoSequenceEqualTest {
 
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
 		assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		test.cancel();
 		assertThat(test.scan(Scannable.Attr.CANCELLED)).isTrue();

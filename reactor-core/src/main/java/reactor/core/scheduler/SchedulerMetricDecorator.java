@@ -16,21 +16,22 @@
 package reactor.core.scheduler;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
 
-import io.micrometer.core.instrument.Tag;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
 import io.micrometer.core.instrument.search.Search;
 
 import reactor.core.Disposable;
 import reactor.core.Scannable;
 import reactor.core.Scannable.Attr;
-
-import static io.micrometer.core.instrument.Metrics.globalRegistry;
+import reactor.util.Metrics;
 
 final class SchedulerMetricDecorator
 			implements BiFunction<Scheduler, ScheduledExecutorService, ScheduledExecutorService>,
@@ -42,6 +43,11 @@ final class SchedulerMetricDecorator
 	final WeakHashMap<Scheduler, String>        seenSchedulers          = new WeakHashMap<>();
 	final Map<String, AtomicInteger>            schedulerDifferentiator = new HashMap<>();
 	final WeakHashMap<Scheduler, AtomicInteger> executorDifferentiator  = new WeakHashMap<>();
+	final MeterRegistry 						registry;
+
+	SchedulerMetricDecorator() {
+		registry = Metrics.MicrometerConfiguration.getRegistry();
+	}
 
 	@Override
 	public synchronized ScheduledExecutorService apply(Scheduler scheduler, ScheduledExecutorService service) {
@@ -66,6 +72,8 @@ final class SchedulerMetricDecorator
 				executorDifferentiator.computeIfAbsent(scheduler, key -> new AtomicInteger(0))
 				                      .getAndIncrement();
 
+		Tags tags = Tags.of(TAG_SCHEDULER_ID, schedulerId);
+
 		/*
 		Design note: we assume that a given Scheduler won't apply the decorator twice to the
 		same ExecutorService. Even though, it would simply create an extraneous meter for
@@ -76,21 +84,40 @@ final class SchedulerMetricDecorator
 		to distinguish between two instances with the same name and configuration).
 		 */
 
-		// TODO return the result of ExecutorServiceMetrics#monitor
-		//  once ScheduledExecutorService gets supported by Micrometer
-		//  See https://github.com/micrometer-metrics/micrometer/issues/1021
-		ExecutorServiceMetrics.monitor(globalRegistry, service, executorId,
-				Tag.of(TAG_SCHEDULER_ID, schedulerId));
+		class MetricsRemovingScheduledExecutorService extends DelegatingScheduledExecutorService {
 
-		return service;
+			MetricsRemovingScheduledExecutorService() {
+				super(ExecutorServiceMetrics.monitor(registry, service, executorId, tags));
+			}
+
+			@Override
+			public List<Runnable> shutdownNow() {
+				removeMetrics();
+				return super.shutdownNow();
+			}
+
+			@Override
+			public void shutdown() {
+				removeMetrics();
+				super.shutdown();
+			}
+
+			void removeMetrics() {
+				Search.in(registry)
+				      .tag("name", executorId)
+				      .meters()
+				      .forEach(registry::remove);
+			}
+		}
+		return new MetricsRemovingScheduledExecutorService();
 	}
 
 	@Override
 	public void dispose() {
-		Search.in(globalRegistry)
+		Search.in(registry)
 		      .tagKeys(TAG_SCHEDULER_ID)
 		      .meters()
-		      .forEach(globalRegistry::remove);
+		      .forEach(registry::remove);
 
 		//note default isDisposed (returning false) is good enough, since the cleared
 		//collections can always be reused even though they probably won't

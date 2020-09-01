@@ -23,9 +23,9 @@ import java.util.function.Function;
 import java.util.function.LongConsumer;
 import java.util.logging.Level;
 
-import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
 
+import reactor.core.CorePublisher;
 import reactor.core.Fuseable;
 import reactor.util.Logger;
 import reactor.util.Loggers;
@@ -55,7 +55,7 @@ final class SignalLogger<IN> implements SignalPeek<IN> {
 
 	final static AtomicLong IDS = new AtomicLong(1);
 
-	final Publisher<IN> source;
+	final CorePublisher<IN> source;
 
 	final Logger  log;
 	final boolean fuseable;
@@ -67,7 +67,7 @@ final class SignalLogger<IN> implements SignalPeek<IN> {
 	static final String LOG_TEMPLATE          = "{}({})";
 	static final String LOG_TEMPLATE_FUSEABLE = "| {}({})";
 
-	SignalLogger(Publisher<IN> source,
+	SignalLogger(CorePublisher<IN> source,
 			@Nullable String category,
 			Level level,
 			boolean correlateStack,
@@ -75,7 +75,7 @@ final class SignalLogger<IN> implements SignalPeek<IN> {
 		this(source, category, level, correlateStack, Loggers::getLogger, options);
 	}
 
-	SignalLogger(Publisher<IN> source,
+	SignalLogger(CorePublisher<IN> source,
 			@Nullable String category,
 			Level level,
 			boolean correlateStack,
@@ -257,9 +257,10 @@ final class SignalLogger<IN> implements SignalPeek<IN> {
 	@Nullable
 	@Override
 	public Consumer<? super Context> onCurrentContextCall() {
-		if ((options & CONTEXT_PARENT) == CONTEXT_PARENT && (level != Level.INFO || log
-				.isInfoEnabled())) {
-			return c -> log(SignalType.ON_CONTEXT, c);
+		if ((options & CONTEXT_PARENT) == CONTEXT_PARENT && (
+				(level == Level.FINE && log.isDebugEnabled())
+						|| (level == Level.FINEST && log.isTraceEnabled()))) {
+			return c -> log(SignalType.CURRENT_CONTEXT, c);
 		}
 		return null;
 	}

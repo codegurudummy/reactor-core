@@ -28,7 +28,7 @@ import reactor.util.annotation.Nullable;
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxDefaultIfEmpty<T> extends FluxOperator<T, T> {
+final class FluxDefaultIfEmpty<T> extends InternalFluxOperator<T, T> {
 
 	final T value;
 
@@ -38,8 +38,14 @@ final class FluxDefaultIfEmpty<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		source.subscribe(new DefaultIfEmptySubscriber<>(actual, value));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return new DefaultIfEmptySubscriber<>(actual, value);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class DefaultIfEmptySubscriber<T>
@@ -58,6 +64,7 @@ final class FluxDefaultIfEmpty<T> extends FluxOperator<T, T> {
 		@Nullable
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return s;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return super.scanUnsafe(key);
 		}

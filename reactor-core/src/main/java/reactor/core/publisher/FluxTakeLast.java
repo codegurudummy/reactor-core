@@ -31,7 +31,7 @@ import reactor.util.annotation.Nullable;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxTakeLast<T> extends FluxOperator<T, T> {
+final class FluxTakeLast<T> extends InternalFluxOperator<T, T> {
 
 	final int n;
 
@@ -44,13 +44,19 @@ final class FluxTakeLast<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		if (n == 0) {
-			source.subscribe(new TakeLastZeroSubscriber<>(actual));
+			return new TakeLastZeroSubscriber<>(actual);
 		}
 		else {
-			source.subscribe(new TakeLastManySubscriber<>(actual, n));
+			return new TakeLastManySubscriber<>(actual, n);
 		}
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	@Override
@@ -72,6 +78,7 @@ final class FluxTakeLast<T> extends FluxOperator<T, T> {
 		@Nullable
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT) return s;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -194,6 +201,7 @@ final class FluxTakeLast<T> extends FluxOperator<T, T> {
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return requested;
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.BUFFERED) return size();
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

@@ -16,12 +16,16 @@
 
 package reactor.core.publisher;
 
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 import org.junit.Test;
+import reactor.core.Scannable;
 import reactor.test.StepVerifier;
 import reactor.test.subscriber.AssertSubscriber;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class FluxRetryTest {
 
@@ -136,5 +140,47 @@ public class FluxRetryTest {
 		    .retry(2)
 		    .subscribeWith(AssertSubscriber.create())
 		    .assertValues(1);
+	}
+
+	@Test
+	public void onLastAssemblyOnce() {
+		AtomicInteger onAssemblyCounter = new AtomicInteger();
+		String hookKey = UUID.randomUUID().toString();
+		try {
+			Hooks.onLastOperator(hookKey, publisher -> {
+				onAssemblyCounter.incrementAndGet();
+				return publisher;
+			});
+			Mono.error(new IllegalStateException("boom"))
+			    .retry(1)
+			    .block();
+		}
+		catch (IllegalStateException ignored) {
+			// ignore
+		}
+		finally {
+			Hooks.resetOnLastOperator(hookKey);
+		}
+
+		assertThat(onAssemblyCounter).hasValue(1);
+	}
+
+	@Test
+	public void scanOperator(){
+		Flux<Integer> parent = Flux.just(1);
+		FluxRetry<Integer> test = new FluxRetry<>(parent, 3L);
+
+	    assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+	    assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(-1);
+	    assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
+	public void scanSubscriber(){
+		AssertSubscriber<Integer> ts = AssertSubscriber.create();
+		FluxRetry<Integer> source = new FluxRetry<>(Flux.just(1), 3L);
+		FluxRetry.RetrySubscriber<Integer> test = new FluxRetry.RetrySubscriber<>(source, ts, 1L);
+
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 	}
 }

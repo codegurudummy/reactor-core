@@ -19,8 +19,8 @@ package reactor.core.publisher;
 import java.util.function.Function;
 import java.util.function.LongConsumer;
 
-import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.util.context.Context;
@@ -31,12 +31,10 @@ import reactor.util.context.Context;
  * <p>
  * @param <T> the value type
  */
-public interface FluxSink<T> {
+public interface FluxSink<T> extends SequenceSink<T> {
 
-	/**
-     * @see Subscriber#onComplete()
-     */
-    void complete();
+	@Override
+	FluxSink<T> next(T t);
 
 	/**
 	 * Return the current subscriber {@link Context}.
@@ -49,18 +47,6 @@ public interface FluxSink<T> {
 	 */
 	Context currentContext();
 
-    /**
-     * @see Subscriber#onError(Throwable)
-     * @param e the exception to signal, not null
-     */
-    void error(Throwable e);
-
-    /**
-     * Try emitting, might throw an unchecked exception.
-     * @see Subscriber#onNext(Object)
-     * @param t the value to emit, not null
-     */
-    FluxSink<T> next(T t);
 
 	/**
 	 * The current outstanding request amount.
@@ -98,8 +84,10 @@ public interface FluxSink<T> {
 
 	/**
 	 * Attach a {@link Disposable} as a callback for when this {@link FluxSink} is
-	 * cancelled. This happens only when the downstream {@link Subscription}
-	 * is {@link Subscription#cancel() cancelled}.
+	 * cancelled. At most one callback can be registered, and subsequent calls to this method
+	 * will result in the immediate disposal of the extraneous {@link Disposable}.
+	 * <p>
+	 * The callback is only relevant when the downstream {@link Subscription} is {@link Subscription#cancel() cancelled}.
 	 *
 	 * @param d the {@link Disposable} to use as a callback
 	 * @return the {@link FluxSink} with a cancellation callback
@@ -111,6 +99,8 @@ public interface FluxSink<T> {
 	 * Attach a {@link Disposable} as a callback for when this {@link FluxSink} is effectively
 	 * disposed, that is it cannot be used anymore. This includes both having played terminal
 	 * signals (onComplete, onError) and having been cancelled (see {@link #onCancel(Disposable)}).
+	 * At most one callback can be registered, and subsequent calls to this method will result in
+	 * the immediate disposal of the extraneous {@link Disposable}.
 	 * <p>
 	 * Note that the "dispose" term is used from the perspective of the sink. Not to
 	 * be confused with {@link Flux#subscribe()}'s {@link Disposable#dispose()} method, which

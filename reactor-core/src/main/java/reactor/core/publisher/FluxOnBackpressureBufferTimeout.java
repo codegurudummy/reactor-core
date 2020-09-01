@@ -33,6 +33,9 @@ import reactor.util.Loggers;
 import reactor.util.annotation.Nullable;
 import reactor.util.context.Context;
 
+import static reactor.core.Scannable.Attr.RUN_STYLE;
+import static reactor.core.Scannable.Attr.RunStyle.ASYNC;
+
 /**
  * Buffers values if the subscriber doesn't request fast enough, bounding the buffer to a
  * chosen size and applying a TTL (time-to-live) to the elements. If the buffer overflows,
@@ -43,7 +46,7 @@ import reactor.util.context.Context;
  * @author David Karnok
  */
 //see https://github.com/akarnokd/RxJava2Extensions/blob/master/src/main/java/hu/akarnokd/rxjava2/operators/FlowableOnBackpressureTimeout.java
-final class FluxOnBackpressureBufferTimeout<O> extends FluxOperator<O, O> {
+final class FluxOnBackpressureBufferTimeout<O> extends InternalFluxOperator<O, O> {
 
 	private static final Logger LOGGER =
 			Loggers.getLogger(FluxOnBackpressureBufferTimeout.class);
@@ -66,12 +69,12 @@ final class FluxOnBackpressureBufferTimeout<O> extends FluxOperator<O, O> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super O> actual) {
-		source.subscribe(new BackpressureBufferTimeoutSubscriber<>(actual,
+	public CoreSubscriber<? super O> subscribeOrReturn(CoreSubscriber<? super O> actual) {
+		return new BackpressureBufferTimeoutSubscriber<>(actual,
 				ttl,
 				ttlScheduler,
 				bufferSize,
-				onBufferEviction));
+				onBufferEviction);
 	}
 
 	@Override
@@ -82,6 +85,7 @@ final class FluxOnBackpressureBufferTimeout<O> extends FluxOperator<O, O> {
 	@Override
 	public Object scanUnsafe(Attr key) {
 		if (key == Attr.RUN_ON) return ttlScheduler;
+		if (key == RUN_STYLE) return ASYNC;
 
 		return super.scanUnsafe(key);
 	}
@@ -158,7 +162,12 @@ final class FluxOnBackpressureBufferTimeout<O> extends FluxOperator<O, O> {
 			if (key == Attr.DELAY_ERROR) {
 				return false;
 			}
-			if (key == Attr.RUN_ON) return ttlScheduler;
+			if (key == Attr.RUN_ON) {
+				return ttlScheduler;
+			}
+			if (key == RUN_STYLE) {
+			    return ASYNC;
+			}
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -224,12 +233,12 @@ final class FluxOnBackpressureBufferTimeout<O> extends FluxOperator<O, O> {
 					this.poll();
 					evicted = (T) this.poll();
 				}
-				this.offer(ttlScheduler.now(TimeUnit.MILLISECONDS));
+				this.offer(ttlScheduler.now(TimeUnit.NANOSECONDS));
 				this.offer(t);
 			}
 			evict(evicted);
 			try {
-				worker.schedule(this, ttl.toMillis(), TimeUnit.MILLISECONDS);
+				worker.schedule(this, ttl.toNanos(), TimeUnit.NANOSECONDS);
 			}
 			catch (RejectedExecutionException re) {
 				done = true;
@@ -268,7 +277,7 @@ final class FluxOnBackpressureBufferTimeout<O> extends FluxOperator<O, O> {
 					Long ts = (Long) this.peek();
 					empty = ts == null;
 					if (!empty) {
-						if (ts <= ttlScheduler.now(TimeUnit.MILLISECONDS) - ttl.toMillis()) {
+						if (ts <= ttlScheduler.now(TimeUnit.NANOSECONDS) - ttl.toNanos()) {
 							this.poll();
 							evicted = (T) this.poll();
 						}

@@ -38,7 +38,7 @@ import reactor.util.annotation.Nullable;
 import reactor.util.context.Context;
 
 /**
- * buffers elements into possibly overlapping buffers whose boundaries are determined
+ * Buffers elements into possibly overlapping buffers whose boundaries are determined
  * by a start Publisher's element and a signal of a derived Publisher
  *
  * @param <T> the source value type
@@ -49,7 +49,7 @@ import reactor.util.context.Context;
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
 final class FluxBufferWhen<T, OPEN, CLOSE, BUFFER extends Collection<? super T>>
-		extends FluxOperator<T, BUFFER> {
+		extends InternalFluxOperator<T, BUFFER> {
 
 	final Publisher<OPEN> start;
 
@@ -77,7 +77,7 @@ final class FluxBufferWhen<T, OPEN, CLOSE, BUFFER extends Collection<? super T>>
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super BUFFER> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super BUFFER> actual) {
 		BufferWhenMainSubscriber<T, OPEN, CLOSE, BUFFER> main =
 				new BufferWhenMainSubscriber<>(actual, bufferSupplier, queueSupplier, start, end);
 
@@ -86,8 +86,17 @@ final class FluxBufferWhen<T, OPEN, CLOSE, BUFFER extends Collection<? super T>>
 		BufferWhenOpenSubscriber<OPEN> bos = new BufferWhenOpenSubscriber<>(main);
 		if (main.subscribers.add(bos)) {
 			start.subscribe(bos);
-			source.subscribe(main);
+			return main;
 		}
+		else {
+			return null;
+		}
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class BufferWhenMainSubscriber<T, OPEN, CLOSE, BUFFER extends Collection<? super T>>
@@ -420,6 +429,7 @@ final class FluxBufferWhen<T, OPEN, CLOSE, BUFFER extends Collection<? super T>>
 			if (key == Attr.TERMINATED) return done;
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return requested;
 			if (key == Attr.ERROR) return errors;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}
@@ -436,6 +446,11 @@ final class FluxBufferWhen<T, OPEN, CLOSE, BUFFER extends Collection<? super T>>
 
 		BufferWhenOpenSubscriber(BufferWhenMainSubscriber<?, OPEN, ?, ?> parent) {
 			this.parent = parent;
+		}
+
+		@Override
+		public Context currentContext() {
+			return parent.currentContext();
 		}
 
 		@Override
@@ -479,6 +494,7 @@ final class FluxBufferWhen<T, OPEN, CLOSE, BUFFER extends Collection<? super T>>
 			if (key == Attr.PARENT) return subscription;
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return Long.MAX_VALUE;
 			if (key == Attr.CANCELLED) return isDisposed();
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}
@@ -498,6 +514,11 @@ final class FluxBufferWhen<T, OPEN, CLOSE, BUFFER extends Collection<? super T>>
 		BufferWhenCloseSubscriber(BufferWhenMainSubscriber<T, ?, ?, BUFFER> parent, long index) {
 			this.parent = parent;
 			this.index = index;
+		}
+
+		@Override
+		public Context currentContext() {
+			return parent.currentContext();
 		}
 
 		@Override
@@ -553,6 +574,7 @@ final class FluxBufferWhen<T, OPEN, CLOSE, BUFFER extends Collection<? super T>>
 			if (key == Attr.PARENT) return subscription;
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return Long.MAX_VALUE;
 			if (key == Attr.CANCELLED) return isDisposed();
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}

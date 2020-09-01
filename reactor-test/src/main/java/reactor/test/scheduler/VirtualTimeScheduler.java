@@ -38,7 +38,7 @@ import reactor.util.concurrent.Queues;
 
 /**
  * A {@link Scheduler} that uses a virtual clock, allowing to manipulate time
- * (eg. in tests). Can replace the default reactor schedulers by using 
+ * (eg. in tests). Can replace the default reactor schedulers by using
  * the {@link #getOrSet} / {@link #set(VirtualTimeScheduler)} methods.
  *
  * @author Stephane Maldini
@@ -54,18 +54,51 @@ public class VirtualTimeScheduler implements Scheduler {
 	 * {@link Schedulers} factories.
 	 */
 	public static VirtualTimeScheduler create() {
-		return new VirtualTimeScheduler();
+		return create(false);
 	}
 
 	/**
-	 * Assign a single newly created {@link VirtualTimeScheduler} to all {@link reactor.core.scheduler.Schedulers.Factory}
-	 * factories. While the method is thread safe, its usually advised to execute such
+	 * Create a new {@link VirtualTimeScheduler} without enabling it. Call
+	 * {@link #getOrSet(VirtualTimeScheduler)} to enable it on
+	 * {@link reactor.core.scheduler.Schedulers.Factory} factories.
+	 *
+	 * @param defer true to defer all clock move operations until there are tasks in queue
+	 *
+	 * @return a new {@link VirtualTimeScheduler} intended for timed-only
+	 * {@link Schedulers} factories.
+	 */
+	public static VirtualTimeScheduler create(boolean defer) {
+		VirtualTimeScheduler instance = new VirtualTimeScheduler(defer);
+		instance.start();
+		return instance;
+	}
+
+	/**
+	 * Assign a newly created {@link VirtualTimeScheduler} to all {@link reactor.core.scheduler.Schedulers.Factory}
+	 * factories ONLY if no {@link VirtualTimeScheduler} is currently set. In case of scheduler creation,
+	 * there is no deferring of time operations (see {@link #create(boolean)}.
+	 * While the method is thread safe, its usually advised to execute such
 	 * wide-impact BEFORE all tested code runs (setup etc). The created scheduler is returned.
 	 *
 	 * @return the VirtualTimeScheduler that was created and set through the factory
 	 */
 	public static VirtualTimeScheduler getOrSet() {
-		return enable(VirtualTimeScheduler::new, false);
+		return enable(VirtualTimeScheduler::create, false);
+	}
+
+	/**
+	 * Assign a newly created {@link VirtualTimeScheduler} to all {@link reactor.core.scheduler.Schedulers.Factory}
+	 * factories ONLY if no {@link VirtualTimeScheduler} is currently set. In case of scheduler creation,
+	 * there is opt-in deferring of time related operations (see {@link #create(boolean)}.
+	 * While the method is thread safe, its usually advised to execute such
+	 * wide-impact BEFORE all tested code runs (setup etc). The created scheduler is returned.
+	 *
+	 * @param defer true to defer all clock move operations until there are tasks in queue, if a scheduler is created
+	 * @return the VirtualTimeScheduler that was created and set through the factory
+	 * @see #create(boolean)
+	 */
+	public static VirtualTimeScheduler getOrSet(final boolean defer) {
+		return enable(() -> VirtualTimeScheduler.create(defer), false);
 	}
 
 	/**
@@ -132,7 +165,7 @@ public class VirtualTimeScheduler implements Scheduler {
 			}
 			VirtualTimeScheduler newS = schedulerSupplier.get();
 			if (newS == CURRENT.get()) {
-				return newS; //nothing to do, it has already been set in the past
+				return newS; //nothing to do, it has already been set and started in the past
 			}
 
 			if (CURRENT.compareAndSet(s, newS)) {
@@ -195,9 +228,12 @@ public class VirtualTimeScheduler implements Scheduler {
 
 	volatile boolean shutdown;
 
+	final boolean defer;
+
 	final VirtualTimeWorker directWorker;
 
-	protected VirtualTimeScheduler() {
+	protected VirtualTimeScheduler(boolean defer) {
+		this.defer = defer;
 		directWorker = createWorker();
 	}
 
@@ -319,7 +355,7 @@ public class VirtualTimeScheduler implements Scheduler {
 			return;
 		}
 		for(;;) {
-			if (!queue.isEmpty()) {
+			if (!defer || !queue.isEmpty()) {
 				//resetting for the first time a delayed schedule is called after a deferredNanoTime is set
 				long targetNanoTime = nanoTime + DEFERRED_NANO_TIME.getAndSet(this, 0);
 
@@ -384,7 +420,13 @@ public class VirtualTimeScheduler implements Scheduler {
 		}
 
 		@Override
+		@SuppressWarnings("deprecation")
 		public Scheduler newElastic(int ttlSeconds, ThreadFactory threadFactory) {
+			return s;
+		}
+
+		@Override
+		public Scheduler newBoundedElastic(int threadCap, int taskCap, ThreadFactory threadFactory, int ttlSeconds) {
 			return s;
 		}
 

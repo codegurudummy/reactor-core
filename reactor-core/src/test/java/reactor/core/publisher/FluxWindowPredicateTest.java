@@ -19,7 +19,9 @@ package reactor.core.publisher;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -31,12 +33,14 @@ import org.assertj.core.api.Assertions;
 import org.junit.Assert;
 import org.junit.Test;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.core.Disposables;
 import reactor.core.Fuseable;
 import reactor.core.Scannable;
 import reactor.core.publisher.FluxBufferPredicate.Mode;
+import reactor.test.MemoryUtils;
 import reactor.test.StepVerifier;
 import reactor.test.StepVerifierOptions;
 import reactor.test.publisher.FluxOperatorTest;
@@ -45,6 +49,7 @@ import reactor.util.concurrent.Queues;
 import reactor.util.context.Context;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 public class FluxWindowPredicateTest extends
                                      FluxOperatorTest<String, Flux<String>> {
@@ -219,6 +224,98 @@ public class FluxWindowPredicateTest extends
 		    .verifyComplete();
 	}
 
+	@Test
+	public void untilChangedNoRepetition() {
+		StepVerifier.create(Flux.just(1, 2, 3, 4, 1)
+		.windowUntilChanged()
+		.flatMap(Flux::collectList))
+		            .expectSubscription()
+		            .expectNext(Collections.singletonList(1))
+		            .expectNext(Collections.singletonList(2))
+		            .expectNext(Collections.singletonList(3))
+		            .expectNext(Collections.singletonList(4))
+		            .expectNext(Collections.singletonList(1));
+	}
+
+	@Test
+	public void untilChangedSomeRepetition() {
+		StepVerifier.create(Flux.just(1, 1, 2, 2, 3, 3, 1)
+		                        .windowUntilChanged()
+								.flatMap(Flux::collectList))
+		            .expectSubscription()
+		            .expectNext(Arrays.asList(1, 1))
+		            .expectNext(Arrays.asList(2, 2))
+		            .expectNext(Arrays.asList(3, 3))
+		            .expectNext(Collections.singletonList(1))
+		            .expectComplete()
+		            .verify();
+	}
+
+	@Test
+	public void untilChangedDisposesStateOnComplete() {
+		MemoryUtils.RetainedDetector retainedDetector = new MemoryUtils.RetainedDetector();
+		Flux<Flux<AtomicInteger>> test =
+				Flux.range(1, 100)
+				    .map(AtomicInteger::new) // wrap integer with object to test gc
+				    .map(retainedDetector::tracked)
+				    .windowUntilChanged();
+
+		StepVerifier.create(test)
+		            .expectNextCount(100)
+		            .verifyComplete();
+
+		System.gc();
+
+		await()
+				.atMost(2, TimeUnit.SECONDS)
+				.untilAsserted(retainedDetector::assertAllFinalized);
+	}
+
+	@Test
+	public void untilChangedDisposesStateOnError() {
+		MemoryUtils.RetainedDetector retainedDetector = new MemoryUtils.RetainedDetector();
+		Flux<Flux<AtomicInteger>> test =
+				Flux.range(1, 100)
+				    .map(AtomicInteger::new) // wrap integer with object to test gc
+				    .map(retainedDetector::tracked)
+				    .concatWith(Mono.error(new Throwable("expected")))
+				    .windowUntilChanged();
+
+		StepVerifier.create(test)
+		            .expectSubscription()
+		            .expectNextCount(100)
+		            .verifyErrorMessage("expected");
+
+		System.gc();
+
+		await()
+				.atMost(2, TimeUnit.SECONDS)
+				.untilAsserted(retainedDetector::assertAllFinalized);
+	}
+
+	@Test
+	public void untilChangedDisposesStateOnCancel() {
+		MemoryUtils.RetainedDetector retainedDetector = new MemoryUtils.RetainedDetector();
+		Flux<Flux<AtomicInteger>> test =
+				Flux.range(1, 100)
+				    .map(AtomicInteger::new) // wrap integer with object to test gc
+				    .map(retainedDetector::tracked)
+				    .concatWith(Mono.error(new Throwable("unexpected")))
+				    .windowUntilChanged()
+				    .take(50);
+
+
+		StepVerifier.create(test)
+		            .expectNextCount(50)
+		            .verifyComplete();
+
+		System.gc();
+
+		await()
+				.atMost(2, TimeUnit.SECONDS)
+				.untilAsserted(retainedDetector::assertAllFinalized);
+	}
+
 	@Override
 	protected Scenario<String, Flux<String>> defaultScenarioOptions(Scenario<String, Flux<String>> defaultOptions) {
 		return defaultOptions.shouldAssertPostTerminateState(false)
@@ -334,7 +431,7 @@ public class FluxWindowPredicateTest extends
 
 	@Test
 	public void normalUntil() {
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
 		FluxWindowPredicate<Integer> windowUntil = new FluxWindowPredicate<>(sp1,
 				Queues.small(),
 				Queues.unbounded(),
@@ -401,7 +498,7 @@ public class FluxWindowPredicateTest extends
 
 	@Test
 	public void mainErrorUntilIsPropagatedToBothWindowAndMain() {
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
 		FluxWindowPredicate<Integer> windowUntil = new FluxWindowPredicate<>(
 				sp1, Queues.small(), Queues.unbounded(), Queues.SMALL_BUFFER_SIZE,
 				i -> i % 3 == 0, Mode.UNTIL);
@@ -427,7 +524,7 @@ public class FluxWindowPredicateTest extends
 
 	@Test
 	public void predicateErrorUntil() {
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
 		FluxWindowPredicate<Integer> windowUntil = new FluxWindowPredicate<>(
 				sp1, Queues.small(), Queues.unbounded(), Queues.SMALL_BUFFER_SIZE,
 				i -> {
@@ -455,7 +552,7 @@ public class FluxWindowPredicateTest extends
 
 	@Test
 	public void normalUntilCutBefore() {
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
 		FluxWindowPredicate<Integer> windowUntilCutBefore = new FluxWindowPredicate<>(sp1,
 				Queues.small(), Queues.unbounded(), Queues.SMALL_BUFFER_SIZE,
 				i -> i % 3 == 0, Mode.UNTIL_CUT_BEFORE);
@@ -486,7 +583,7 @@ public class FluxWindowPredicateTest extends
 
 	@Test
 	public void mainErrorUntilCutBeforeIsPropagatedToBothWindowAndMain() {
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
 		FluxWindowPredicate<Integer> windowUntilCutBefore =
 				new FluxWindowPredicate<>(sp1, Queues.small(), Queues.unbounded(), Queues.SMALL_BUFFER_SIZE,
 						i -> i % 3 == 0, Mode.UNTIL_CUT_BEFORE);
@@ -513,7 +610,7 @@ public class FluxWindowPredicateTest extends
 
 	@Test
 	public void predicateErrorUntilCutBefore() {
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
 		FluxWindowPredicate<Integer> windowUntilCutBefore =
 				new FluxWindowPredicate<>(sp1, Queues.small(), Queues.unbounded(), Queues.SMALL_BUFFER_SIZE,
 				i -> {
@@ -547,7 +644,7 @@ public class FluxWindowPredicateTest extends
 
 	@Test
 	public void normalWhile() {
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
 		FluxWindowPredicate<Integer> windowWhile = new FluxWindowPredicate<>(
 				sp1, Queues.small(), Queues.unbounded(), Queues.SMALL_BUFFER_SIZE,
 				i -> i % 3 != 0, Mode.WHILE);
@@ -578,7 +675,7 @@ public class FluxWindowPredicateTest extends
 
 	@Test
 	public void normalWhileDoesntInitiallyMatch() {
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
 		FluxWindowPredicate<Integer> windowWhile = new FluxWindowPredicate<>(
 				sp1, Queues.small(), Queues.unbounded(), Queues.SMALL_BUFFER_SIZE,
 				i -> i % 3 == 0, Mode.WHILE);
@@ -616,7 +713,7 @@ public class FluxWindowPredicateTest extends
 
 	@Test
 	public void normalWhileDoesntMatch() {
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
 		FluxWindowPredicate<Integer> windowWhile = new FluxWindowPredicate<>(
 				sp1, Queues.small(), Queues.unbounded(), Queues.SMALL_BUFFER_SIZE,
 				i -> i > 4, Mode.WHILE);
@@ -651,7 +748,7 @@ public class FluxWindowPredicateTest extends
 
 	@Test
 	public void mainErrorWhileIsPropagatedToBothWindowAndMain() {
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
 		FluxWindowPredicate<Integer> windowWhile = new FluxWindowPredicate<>(
 				sp1, Queues.small(), Queues.unbounded(), Queues.SMALL_BUFFER_SIZE,
 				i -> i % 3 == 0, Mode.WHILE);
@@ -698,7 +795,7 @@ public class FluxWindowPredicateTest extends
 
 	@Test
 	public void predicateErrorWhile() {
-		DirectProcessor<Integer> sp1 = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> sp1 = Processors.more().multicastNoBackpressure();
 		FluxWindowPredicate<Integer> windowWhile = new FluxWindowPredicate<>(
 				sp1, Queues.small(), Queues.unbounded(), Queues.SMALL_BUFFER_SIZE,
 				i -> {
@@ -960,6 +1057,15 @@ public class FluxWindowPredicateTest extends
 	}
 
 	@Test
+	public void scanOperator(){
+		Flux<Integer> parent = Flux.just(1);
+		FluxWindowPredicate<Integer> test = new FluxWindowPredicate<>(parent, Queues.empty(), Queues.empty(), 35, v -> true, Mode.UNTIL);
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
     public void scanMainSubscriber() {
         CoreSubscriber<Flux<Integer>> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
         FluxWindowPredicate.WindowPredicateMain<Integer> test = new FluxWindowPredicate.WindowPredicateMain<>(actual,
@@ -970,11 +1076,12 @@ public class FluxWindowPredicateTest extends
 
 		Assertions.assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
 		Assertions.assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
-		Assertions.assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(123);
 		test.requested = 35;
+		Assertions.assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(123);
 		Assertions.assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(35);
 		test.queue.offer(Flux.just(1).groupBy(i -> i).blockFirst());
 		Assertions.assertThat(test.scan(Scannable.Attr.BUFFERED)).isEqualTo(1);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		Assertions.assertThat(test.scan(Scannable.Attr.ERROR)).isNull();
 		test.error = new IllegalStateException("boom");
@@ -988,8 +1095,6 @@ public class FluxWindowPredicateTest extends
 		test.cancel();
 		Assertions.assertThat(test.scan(Scannable.Attr.CANCELLED)).isTrue();
     }
-
-
 
 	@Test
     public void scanOtherSubscriber() {
@@ -1008,6 +1113,7 @@ public class FluxWindowPredicateTest extends
 		Assertions.assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(35);
 		test.queue.offer(27);
 		Assertions.assertThat(test.scan(Scannable.Attr.BUFFERED)).isEqualTo(1);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		Assertions.assertThat(test.scan(Scannable.Attr.ERROR)).isNull();
 		test.error = new IllegalStateException("boom");

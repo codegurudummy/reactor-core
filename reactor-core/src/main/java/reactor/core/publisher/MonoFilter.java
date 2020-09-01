@@ -27,7 +27,7 @@ import reactor.core.Fuseable.ConditionalSubscriber;
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class MonoFilter<T> extends MonoOperator<T, T> {
+final class MonoFilter<T> extends InternalMonoOperator<T, T> {
 
 	final Predicate<? super T> predicate;
 
@@ -38,11 +38,17 @@ final class MonoFilter<T> extends MonoOperator<T, T> {
 
 	@Override
 	@SuppressWarnings("unchecked")
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		if (actual instanceof ConditionalSubscriber) {
-			source.subscribe(new FluxFilter.FilterConditionalSubscriber<>((ConditionalSubscriber<? super T>) actual, predicate));
-			return;
+			return new FluxFilter.FilterConditionalSubscriber<>((ConditionalSubscriber<? super T>) actual, predicate);
 		}
-		source.subscribe(new FluxFilter.FilterSubscriber<>(actual, predicate));
+		return new FluxFilter.FilterSubscriber<>(actual, predicate);
 	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
+	}
+
 }

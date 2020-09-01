@@ -18,6 +18,8 @@ package reactor.core.publisher;
 import java.util.Objects;
 
 import org.reactivestreams.Publisher;
+
+import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.Fuseable;
 import reactor.core.Scannable;
@@ -26,12 +28,24 @@ import reactor.util.annotation.Nullable;
 /**
  * @author Stephane Maldini
  */
-final class FluxSourceFuseable<I> extends Flux<I> implements Fuseable, SourceProducer<I> {
+final class FluxSourceFuseable<I> extends Flux<I> implements Fuseable, SourceProducer<I>,
+                                                             OptimizableOperator<I, I> {
 
 	final Publisher<? extends I> source;
 
+	@Nullable
+	final OptimizableOperator<?, I> optimizableOperator;
+
 	FluxSourceFuseable(Publisher<? extends I> source) {
 		this.source = Objects.requireNonNull(source);
+		if (source instanceof OptimizableOperator) {
+			@SuppressWarnings("unchecked")
+			OptimizableOperator<?, I> optimSource = (OptimizableOperator<?, I>) source;
+			this.optimizableOperator = optimSource;
+		}
+		else {
+			this.optimizableOperator = null;
+		}
 	}
 
 	/**
@@ -46,10 +60,26 @@ final class FluxSourceFuseable<I> extends Flux<I> implements Fuseable, SourcePro
 	}
 
 	@Override
+	public CoreSubscriber<? super I> subscribeOrReturn(CoreSubscriber<? super I> actual) {
+		return actual;
+	}
+
+	@Override
+	public final CorePublisher<? extends I> source() {
+		return this;
+	}
+
+	@Override
+	public final OptimizableOperator<?, ? extends I> nextOptimizableSource() {
+		return optimizableOperator;
+	}
+
+	@Override
 	@Nullable
 	public Object scanUnsafe(Scannable.Attr key) {
 		if (key == Scannable.Attr.PREFETCH) return getPrefetch();
 		if (key == Scannable.Attr.PARENT) return source;
+		if (key == Attr.RUN_STYLE) return Scannable.from(source).scanUnsafe(key);
 		return null;
 	}
 }
