@@ -28,6 +28,7 @@ import org.assertj.core.api.Assertions;
 import org.junit.Test;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+
 import reactor.core.Scannable;
 import reactor.test.StepVerifier;
 import reactor.test.publisher.TestPublisher;
@@ -47,7 +48,7 @@ public class MonoProcessorTest {
 		WeakReference<CompletableFuture<Date>> refFuture = new WeakReference<>(future);
 
 		Mono<Date> source = Mono.fromFuture(future);
-		Mono<String> data = source.map(Date::toString).log().cache().log();
+		Mono<String> data = source.map(Date::toString).as(MonoProcessor::new);
 
 		future.complete(date);
 		assertThat(data.block()).isEqualTo(date.toString());
@@ -76,7 +77,7 @@ public class MonoProcessorTest {
 		WeakReference<CompletableFuture<Date>> refFuture = new WeakReference<>(future);
 
 		Mono<Date> source = Mono.fromFuture(future);
-		Mono<String> data = source.map(Date::toString).cache();
+		Mono<String> data = source.map(Date::toString).as(MonoProcessor::new);
 
 		future.completeExceptionally(new IllegalStateException());
 
@@ -105,7 +106,7 @@ public class MonoProcessorTest {
 		WeakReference<CompletableFuture<Date>> refFuture = new WeakReference<>(future);
 
 		Mono<Date> source = Mono.fromFuture(future);
-		Mono<String> data = source.map(Date::toString).cache();
+		Mono<String> data = source.map(Date::toString).as(MonoProcessor::new);
 
 		future = null;
 		source = null;
@@ -131,6 +132,7 @@ public class MonoProcessorTest {
 		mp.block(Duration.ofMillis(1));
 	}
 
+	@SuppressWarnings("deprecation")
 	@Test
 	public void MonoProcessorRejectedDoOnSuccessOrError() {
 		MonoProcessor<String> mp = MonoProcessor.create();
@@ -170,6 +172,7 @@ public class MonoProcessorTest {
 		assertThat(mp.isError()).isTrue();
 	}
 
+	@SuppressWarnings("deprecation")
 	@Test
 	public void MonoProcessorSuccessDoOnSuccessOrError() {
 		MonoProcessor<String> mp = MonoProcessor.create();
@@ -594,7 +597,6 @@ public class MonoProcessorTest {
 		AtomicInteger subscriptionCount = new AtomicInteger();
 		Mono<String> coldToHot = Mono.just("foo")
 		                             .doOnSubscribe(sub -> subscriptionCount.incrementAndGet())
-		                             .cache()
 		                             .toProcessor() //this actually subscribes
 		                             .filter(s -> s.length() < 4);
 

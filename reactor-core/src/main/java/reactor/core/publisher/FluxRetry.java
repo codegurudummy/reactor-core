@@ -17,7 +17,7 @@ package reactor.core.publisher;
 
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
-import org.reactivestreams.Publisher;
+import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 
 /**
@@ -29,7 +29,7 @@ import reactor.core.CoreSubscriber;
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxRetry<T> extends FluxOperator<T, T> {
+final class FluxRetry<T> extends InternalFluxOperator<T, T> {
 
 	final long times;
 
@@ -42,7 +42,7 @@ final class FluxRetry<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		RetrySubscriber<T> parent = new RetrySubscriber<>(source, actual, times);
 
 		actual.onSubscribe(parent);
@@ -50,12 +50,13 @@ final class FluxRetry<T> extends FluxOperator<T, T> {
 		if (!parent.isCancelled()) {
 			parent.resubscribe();
 		}
+		return null;
 	}
 
 	static final class RetrySubscriber<T>
 			extends Operators.MultiSubscriptionSubscriber<T, T> {
 
-		final Publisher<? extends T> source;
+		final CorePublisher<? extends T> source;
 
 		long remaining;
 
@@ -66,7 +67,7 @@ final class FluxRetry<T> extends FluxOperator<T, T> {
 
 		long produced;
 
-		RetrySubscriber(Publisher<? extends T> source, CoreSubscriber<? super T> actual, long remaining) {
+		RetrySubscriber(CorePublisher<? extends T> source, CoreSubscriber<? super T> actual, long remaining) {
 			super(actual);
 			this.source = source;
 			this.remaining = remaining;

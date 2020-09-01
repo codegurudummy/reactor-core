@@ -21,26 +21,31 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.stream.Stream;
 
-
-import org.junit.After;
 import org.junit.Before;
-import org.junit.Test;
+import org.junit.function.ThrowingRunnable;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.TestFactory;
+import org.junit.jupiter.api.function.ThrowingConsumer;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+import reactor.ReactorTestExecutionListener;
 import reactor.core.Exceptions;
 import reactor.core.Fuseable;
 import reactor.core.Scannable;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Hooks;
 import reactor.core.publisher.Operators;
 import reactor.core.publisher.ParallelFlux;
 import reactor.core.publisher.ReplayProcessor;
 import reactor.core.publisher.UnicastProcessor;
 import reactor.test.StepVerifier;
 import reactor.util.annotation.Nullable;
-import reactor.util.concurrent.Queues;
+import reactor.util.function.Tuple2;
+import reactor.util.function.Tuples;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static reactor.core.Fuseable.*;
@@ -52,24 +57,19 @@ public abstract class BaseOperatorTest<I, PI extends Publisher<? extends I>, O, 
 
 	OperatorScenario<I, PI, O, PO> defaultScenario;
 
-	boolean defaultEmpty = false;
+	boolean defaultEmpty;
 
-	@After
-	public void afterScenariosRun(){
-		resetHooks();
-		defaultEmpty = false;
-	}
-
+	@BeforeEach
 	@Before
 	public final void initDefaultScenario() {
+		defaultEmpty = false;
 		defaultScenario = defaultScenarioOptions(new OperatorScenario<>(null, null));
 	}
 
-	@Test
-	public final void cancelOnSubscribe() {
+	@TestFactory
+	public final Stream<DynamicTest> cancelOnSubscribe() {
 		defaultEmpty = true;
-		forEachScenario(scenarios_operatorSuccess(), s -> {
-
+		return toDynamicTests(scenarios_operatorSuccess(), s -> {
 			OperatorScenario<I, PI, O, PO> scenario = s.duplicate()
 			                                            .receiverEmpty()
 			                                            .receiverDemand(0);
@@ -103,14 +103,12 @@ public abstract class BaseOperatorTest<I, PI extends Publisher<? extends I>, O, 
 			this.inputFusedSyncOutputFusedSyncCancel(scenario);
 
 			this.inputFusedSyncOutputFusedSyncConditionalCancel(scenario);
-
 		});
 	}
 
-	@Test
-	@SuppressWarnings("unchecked")
-	public final void assertPrePostState() {
-		forEachScenario(scenarios_touchAndAssertState(), scenario -> {
+	@TestFactory
+	public final Stream<DynamicTest> assertPrePostState() {
+		return toDynamicTests(scenarios_touchAndAssertState(), scenario -> {
 			this.inputHiddenOutputState(scenario);
 
 			this.inputHiddenOutputConditionalState(scenario);
@@ -121,9 +119,9 @@ public abstract class BaseOperatorTest<I, PI extends Publisher<? extends I>, O, 
 		});
 	}
 
-	@Test
-	public final void sequenceOfNextAndComplete() {
-		forEachScenario(scenarios_operatorSuccess(), scenario -> {
+	@TestFactory
+	public final Stream<DynamicTest> sequenceOfNextAndComplete() {
+		return toDynamicTests(scenarios_operatorSuccess(), scenario -> {
 			Consumer<StepVerifier.Step<O>> verifier = scenario.verifier();
 
 			if (verifier == null) {
@@ -157,15 +155,14 @@ public abstract class BaseOperatorTest<I, PI extends Publisher<? extends I>, O, 
 			verifier.accept(this.inputConditionalOutputConditional(scenario));
 			verifier.accept(this.inputFusedConditionalOutputConditional(scenario));
 			verifier.accept(this.inputFusedConditionalOutputConditionalTryNext(scenario));
-
 		});
 	}
 
-	@Test
-	public final void sequenceOfNextWithCallbackError() {
+	@TestFactory
+	public final Stream<DynamicTest> sequenceOfNextWithCallbackError() {
 		defaultEmpty = true;
 		defaultScenario.producerError(new RuntimeException("test"));
-		forEachScenario(scenarios_operatorError(), scenario -> {
+		return toDynamicTests(scenarios_operatorError(), scenario -> {
 			Consumer<StepVerifier.Step<O>> verifier = scenario.verifier();
 
 			String m = scenario.producerError.getMessage();
@@ -230,77 +227,104 @@ public abstract class BaseOperatorTest<I, PI extends Publisher<? extends I>, O, 
 		});
 	}
 
-	@Test
-	public final void errorOnSubscribe() {
+	@TestFactory
+	public final Stream<DynamicTest> errorOnSubscribe() {
 		defaultEmpty = true;
-		defaultScenario.producerError(new RuntimeException("test"));
-		forEachScenario(scenarios_errorFromUpstreamFailure(), s -> {
-			OperatorScenario<I, PI, O, PO> scenario = s.duplicate();
+		String exceptionMessage = "test";
 
-			Consumer<StepVerifier.Step<O>> verifier = scenario.verifier();
-
-			if (verifier == null) {
-				String m = exception().getMessage();
-				verifier = step -> {
-					try {
-						if (scenario.shouldHitDropErrorHookAfterTerminate() || scenario.shouldHitDropNextHookAfterTerminate()) {
-							StepVerifier.Assertions assertions =
-									scenario.applySteps(step)
-									        .expectErrorMessage(m)
-									        .verifyThenAssertThat();
-							if(scenario.shouldHitDropErrorHookAfterTerminate()){
-								assertions.hasDroppedErrorsSatisfying(c -> {
-									assertThat(c.stream().findFirst().get()).hasMessage(scenario.droppedError.getMessage());
-								});
-							}
-							if(scenario.shouldHitDropNextHookAfterTerminate()){
-								assertions.hasDropped(scenario.droppedItem);
-							}
-						}
-						else {
-							scenario.applySteps(step)
-							        .verifyErrorMessage(m);
-						}
-					}
-					catch (Exception e) {
-						assertThat(Exceptions.unwrap(e)).hasMessage(m);
-					}
-				};
+		Consumer<OperatorScenario<I, PI, O, PO>> prepareVerifier = scenario -> {
+			if (scenario.verifier() != null) {
+				return;
 			}
 
-			int fusion = scenario.fusionMode();
+			scenario.verifier = step -> {
+				StepVerifier.Assertions assertions =
+						scenario.applySteps(step)
+						        .expectErrorMessage(exceptionMessage)
+						        .verifyThenAssertThat();
 
-			verifier.accept(this.inputHiddenError(scenario));
-			verifier.accept(this.inputHiddenErrorOutputConditional(scenario));
-			verifier.accept(this.inputConditionalError(scenario));
-			verifier.accept(this.inputConditionalErrorOutputConditional(scenario));
+				if (scenario.shouldHitDropErrorHookAfterTerminate()) {
+					assertions.hasDroppedErrorsSatisfying(c -> {
+						assertThat(c.stream().findFirst().get()).hasMessage(scenario.droppedError.getMessage());
+					});
+				}
+				else {
+					assertions.hasNotDroppedErrors();
+				}
 
-			scenario.shouldHitDropErrorHookAfterTerminate(false)
-			        .shouldHitDropNextHookAfterTerminate(false);
+				if (scenario.shouldHitDropNextHookAfterTerminate()) {
+					assertions.hasDropped(scenario.droppedItem);
+				}
+				else {
+					assertions.hasNotDroppedElements();
+				}
+			};
+		};
 
-			verifier.accept(this.inputFusedError(scenario));
-			verifier.accept(this.inputFusedErrorOutputFusedConditional(scenario));
+		return scenarios_errorFromUpstreamFailure().stream().flatMap(originalScenario -> {
+			Stream<Tuple2<String, Function<OperatorScenario<I, PI, O, PO>, StepVerifier.Step<O>>>> steps = Stream.of(
+					Tuples.of("inputHiddenError", this::inputHiddenError),
+					Tuples.of("inputHiddenErrorOutputConditional", this::inputHiddenErrorOutputConditional),
+					Tuples.of("inputConditionalError", this::inputConditionalError),
+					Tuples.of("inputConditionalErrorOutputConditional", this::inputConditionalErrorOutputConditional),
+					Tuples.of("inputFusedError", s -> {
+						s.shouldHitDropErrorHookAfterTerminate(false);
+						s.shouldHitDropNextHookAfterTerminate(false);
+						return this.inputFusedError(s);
+					}),
+					Tuples.of("inputFusedErrorOutputFusedConditional", s -> {
+						s.shouldHitDropErrorHookAfterTerminate(false);
+						s.shouldHitDropNextHookAfterTerminate(false);
+						return this.inputFusedErrorOutputFusedConditional(s);
+					})
+			);
 
-			if (scenario.prefetch() != -1 || (fusion & Fuseable.SYNC) != 0) {
-				verifier.accept(this.inputFusedSyncErrorOutputFusedSync(scenario));
+			if (originalScenario.prefetch() != -1 || (originalScenario.fusionMode() & Fuseable.SYNC) != 0) {
+				steps = Stream.concat(steps, Stream.of(
+						Tuples.of("inputFusedSyncErrorOutputFusedSync", s -> {
+							s.shouldHitDropErrorHookAfterTerminate(false);
+							s.shouldHitDropNextHookAfterTerminate(false);
+							return this.inputFusedSyncErrorOutputFusedSync(s);
+						})
+				));
 			}
-			if (scenario.prefetch() != -1 || (fusion & Fuseable.ASYNC) != 0) {
-				verifier.accept(this.inputFusedAsyncErrorOutputFusedAsync(scenario));
+
+			if (originalScenario.prefetch() != -1 || (originalScenario.fusionMode() & Fuseable.ASYNC) != 0) {
+				steps = Stream.concat(steps, Stream.of(
+						Tuples.of("inputFusedAsyncErrorOutputFusedAsync", s -> {
+							s.shouldHitDropErrorHookAfterTerminate(false);
+							s.shouldHitDropNextHookAfterTerminate(false);
+							return this.inputFusedAsyncErrorOutputFusedAsync(s);
+						})
+				));
 			}
 
+			return steps.map(tuple -> {
+				String subScenarioName = tuple.getT1();
+				Function<OperatorScenario<I, PI, O, PO>, StepVerifier.Step<O>> stepFunction = tuple.getT2();
+
+				OperatorScenario<I, PI, O, PO> subScenario = originalScenario.duplicate();
+				subScenario.description = subScenario.description() + "#" + subScenarioName;
+				prepareVerifier.accept(subScenario);
+
+				return toDynamicTest(subScenario, () -> {
+					defaultScenario.producerError(new RuntimeException(exceptionMessage));
+					StepVerifier.Step<O> step = stepFunction.apply(subScenario);
+					subScenario.verifier().accept(step);
+				});
+			});
 		});
 	}
 
-	@Test
-	public final void sequenceOfNextAndCancel() {
-		forEachScenario(scenarios_operatorSuccess(), scenario -> {
-
+	@TestFactory
+	public final Stream<DynamicTest> sequenceOfNextAndCancel() {
+		return toDynamicTests(scenarios_operatorSuccess(), scenario -> {
 		});
 	}
 
-	@Test
-	public final void sequenceOfNextAndError() {
-		forEachScenario(scenarios_operatorSuccess(), scenario -> {
+	@TestFactory
+	public final Stream<DynamicTest> sequenceOfNextAndError() {
+		return toDynamicTests(scenarios_operatorSuccess(), scenario -> {
 		});
 	}
 
@@ -445,7 +469,7 @@ public abstract class BaseOperatorTest<I, PI extends Publisher<? extends I>, O, 
 				throw Exceptions.bubble(e);
 			}
 			finally {
-				resetHooks();
+				ReactorTestExecutionListener.reset();
 			}
 		}
 	}
@@ -951,14 +975,6 @@ public abstract class BaseOperatorTest<I, PI extends Publisher<? extends I>, O, 
 		         .forEach(this::touchInner);
 	}
 
-	final void resetHooks() {
-		Hooks.resetOnErrorDropped();
-		Hooks.resetOnNextDropped();
-		Hooks.resetOnEachOperator();
-		Hooks.resetOnOperatorError();
-		Hooks.resetOnLastOperator();
-	}
-
 	final  void testPublisherSource(OperatorScenario<I, PI, O, PO> scenario, TestPublisher<I> ts) {
 		fluxFuseableAsync(scenario).subscribe(ts::next, ts::error, ts::complete);
 	}
@@ -1075,6 +1091,26 @@ public abstract class BaseOperatorTest<I, PI extends Publisher<? extends I>, O, 
 			}
 		}
 		return f;
+	}
+
+	private Stream<DynamicTest> toDynamicTests(
+			List<? extends OperatorScenario<I, PI, O, PO>> scenarios,
+			ThrowingConsumer<OperatorScenario<I, PI, O, PO>> executable
+	) {
+		return scenarios.stream().map(scenario -> {
+			return toDynamicTest(scenario, () -> {
+				executable.accept(scenario);
+			});
+		});
+	}
+
+	private DynamicTest toDynamicTest(OperatorScenario<I, PI, O, PO> scenario, ThrowingRunnable runnable) {
+		return DynamicTest.dynamicTest(scenario.description(), () -> {
+			if (scenario.stack != null) {
+				System.out.println("\tat " + scenario.stack.getStackTrace()[2]);
+			}
+			runnable.run();
+		});
 	}
 
 }

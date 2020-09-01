@@ -21,11 +21,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
+
+import reactor.core.publisher.EmitterProcessor;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
@@ -49,20 +54,23 @@ public class VirtualTimeSchedulerTests {
 
 	@Test
 	public void allEnabled() {
-		Assert.assertFalse(Schedulers.newParallel("") instanceof VirtualTimeScheduler);
-		Assert.assertFalse(Schedulers.newElastic("") instanceof VirtualTimeScheduler);
-		Assert.assertFalse(Schedulers.newSingle("") instanceof VirtualTimeScheduler);
+		assertThat(Schedulers.newParallel("")).isNotInstanceOf(VirtualTimeScheduler.class);
+		assertThat(Schedulers.newElastic("")).isNotInstanceOf(VirtualTimeScheduler.class);
+		assertThat(Schedulers.newBoundedElastic(4, Integer.MAX_VALUE, "")).isNotInstanceOf(VirtualTimeScheduler.class);
+		assertThat(Schedulers.newSingle("")).isNotInstanceOf(VirtualTimeScheduler.class);
 
 		VirtualTimeScheduler.getOrSet();
 
-		Assert.assertTrue(Schedulers.newParallel("") instanceof VirtualTimeScheduler);
-		Assert.assertTrue(Schedulers.newElastic("") instanceof VirtualTimeScheduler);
-		Assert.assertTrue(Schedulers.newSingle("") instanceof VirtualTimeScheduler);
+		assertThat(Schedulers.newParallel("")).isInstanceOf(VirtualTimeScheduler.class);
+		assertThat(Schedulers.newElastic("")).isInstanceOf(VirtualTimeScheduler.class);
+		assertThat(Schedulers.newBoundedElastic(4, Integer.MAX_VALUE, "")).isInstanceOf(VirtualTimeScheduler.class);
+		assertThat(Schedulers.newSingle("")).isInstanceOf(VirtualTimeScheduler.class);
 
 		VirtualTimeScheduler t = VirtualTimeScheduler.get();
 
 		Assert.assertSame(Schedulers.newParallel(""), t);
 		Assert.assertSame(Schedulers.newElastic(""), t);
+		Assert.assertSame(Schedulers.newBoundedElastic(5, Integer.MAX_VALUE, ""), t); //same even though different parameter
 		Assert.assertSame(Schedulers.newSingle(""), t);
 	}
 
@@ -123,7 +131,7 @@ public class VirtualTimeSchedulerTests {
 
 	@Test
 	public void captureNowInScheduledTask() {
-		VirtualTimeScheduler vts = VirtualTimeScheduler.create();
+		VirtualTimeScheduler vts = VirtualTimeScheduler.create(true);
 		List<Long> singleExecutionsTimestamps = new ArrayList<>();
 		List<Long> periodicExecutionTimestamps = new ArrayList<>();
 
@@ -188,6 +196,10 @@ public class VirtualTimeSchedulerTests {
 				assertThat(vts.now(TimeUnit.MILLISECONDS))
 						.as("iteration " + i)
 						.isEqualTo(13_000 * i);
+
+				assertThat(vts.nanoTime)
+						.as("now() == nanoTime in iteration " + i)
+						.isEqualTo(vts.now(TimeUnit.NANOSECONDS));
 			}
 		}
 		finally {
@@ -221,7 +233,7 @@ public class VirtualTimeSchedulerTests {
 
 	@Test
 	public void racingAdvanceTimeOnVaryingQueue() {
-		VirtualTimeScheduler vts = VirtualTimeScheduler.create();
+		VirtualTimeScheduler vts = VirtualTimeScheduler.create(true);
 		AtomicInteger count = new AtomicInteger();
 		try {
 			for (int i = 1; i <= 100; i++) {
@@ -313,6 +325,19 @@ public class VirtualTimeSchedulerTests {
 		assertThat(vts.getScheduledTaskCount())
 			.as("second periodical task scheduled")
 			.isEqualTo(3);
+	}
+
+	@Test
+	public void getOrSetWithDefer() {
+		AtomicReference<VirtualTimeScheduler> vts1 = new AtomicReference<>();
+		AtomicReference<VirtualTimeScheduler> vts2 = new AtomicReference<>();
+		RaceTestUtils.race(
+				() -> vts1.set(VirtualTimeScheduler.getOrSet(true)),
+				() -> vts2.set(VirtualTimeScheduler.getOrSet(true))
+		);
+
+		assertThat(vts1.get().defer).isTrue();
+		assertThat(vts2.get()).isSameAs(vts1.get());
 	}
 
 	@SuppressWarnings("unchecked")
