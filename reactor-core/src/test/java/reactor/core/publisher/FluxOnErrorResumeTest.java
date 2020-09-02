@@ -18,11 +18,18 @@ package reactor.core.publisher;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
+import org.reactivestreams.Subscription;
+
 import reactor.core.Exceptions;
+import reactor.core.Fuseable;
+import reactor.core.Scannable;
+import reactor.test.MockUtils;
 import reactor.test.StepVerifier;
 import reactor.test.subscriber.AssertSubscriber;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static reactor.core.publisher.Flux.just;
 
 public class FluxOnErrorResumeTest {
 /*
@@ -155,7 +162,7 @@ public class FluxOnErrorResumeTest {
 
 	@Test
 	public void someFirst() {
-		EmitterProcessor<Integer> tp = EmitterProcessor.create();
+		FluxIdentityProcessor<Integer> tp = Processors.multicast();
 
 		AssertSubscriber<Integer> ts = AssertSubscriber.create();
 
@@ -176,7 +183,7 @@ public class FluxOnErrorResumeTest {
 
 	@Test
 	public void someFirstBackpressured() {
-		EmitterProcessor<Integer> tp = EmitterProcessor.create();
+		FluxIdentityProcessor<Integer> tp = Processors.multicast();
 
 		AssertSubscriber<Integer> ts = AssertSubscriber.create(10);
 
@@ -364,5 +371,28 @@ public class FluxOnErrorResumeTest {
 		StepVerifier.create(Flux.<Integer>error(new TestException())
 				.onErrorReturn(RuntimeException.class::isInstance, 1))
 				.verifyError(TestException.class);
+	}
+
+	@Test
+	public void scanOperator(){
+		Flux<Integer> parent = just(1);
+		FluxOnErrorResume<Integer> test = new FluxOnErrorResume<>(parent, (e) -> just(10));
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
+	public void scanSubscriber(){
+		@SuppressWarnings("unchecked")
+		Fuseable.ConditionalSubscriber<Integer> actual = Mockito.mock(MockUtils.TestScannableConditionalSubscriber.class);
+		FluxOnErrorResume.ResumeSubscriber<Integer> test = new FluxOnErrorResume.ResumeSubscriber<>(actual, (e) -> just(10));
+
+		Subscription parent = Operators.emptySubscription();
+		test.onSubscribe(parent);
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 	}
 }

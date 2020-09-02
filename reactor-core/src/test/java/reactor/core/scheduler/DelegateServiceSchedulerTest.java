@@ -20,8 +20,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.pivovarit.function.ThrowingRunnable;
 import org.junit.Test;
 
 import reactor.core.Exceptions;
@@ -49,9 +51,33 @@ public class DelegateServiceSchedulerTest extends AbstractSchedulerTest {
 		return false;
 	}
 
+	@Override
+	protected boolean shouldCheckSupportRestart() {
+		return false;
+	}
+
+	@Test
+	public void startAndDecorationImplicit() {
+		AtomicInteger decorationCount = new AtomicInteger();
+		Schedulers.setExecutorServiceDecorator("startAndDecorationImplicit", (s, srv) -> {
+			decorationCount.incrementAndGet();
+			return srv;
+		});
+		final Scheduler scheduler = afterTest.autoDispose(new DelegateServiceScheduler("startAndDecorationImplicitExecutorService", Executors.newSingleThreadExecutor()));
+		afterTest.autoDispose(() -> Schedulers.removeExecutorServiceDecorator("startAndDecorationImplicit"));
+
+		assertThat(decorationCount).as("before schedule").hasValue(0);
+		//first scheduled task implicitly starts the scheduler and thus creates the executor service
+		scheduler.schedule(ThrowingRunnable.unchecked(() -> Thread.sleep(100)));
+		assertThat(decorationCount).as("after schedule").hasValue(1);
+		//second scheduled task runs on a started scheduler and doesn't create further executors
+		scheduler.schedule(() -> {});
+		assertThat(decorationCount).as("after 2nd schedule").hasValue(1);
+	}
+
 	@Test
 	public void notScheduledRejects() {
-		Scheduler s = autoCleanup(Schedulers.fromExecutorService(Executors.newSingleThreadExecutor()));
+		Scheduler s = afterTest.autoDispose(Schedulers.fromExecutorService(Executors.newSingleThreadExecutor()));
 		assertThatExceptionOfType(RejectedExecutionException.class)
 				.isThrownBy(() -> s.schedule(() -> {}, 100, TimeUnit.MILLISECONDS))
 				.describedAs("direct delayed scheduling")
@@ -61,7 +87,7 @@ public class DelegateServiceSchedulerTest extends AbstractSchedulerTest {
 				.describedAs("direct periodic scheduling")
 				.isSameAs(Exceptions.failWithRejectedNotTimeCapable());
 
-		Worker w = autoCleanup(s.createWorker());
+		Worker w = afterTest.autoDispose(s.createWorker());
 		assertThatExceptionOfType(RejectedExecutionException.class)
 				.isThrownBy(() -> w.schedule(() -> {}, 100, TimeUnit.MILLISECONDS))
 				.describedAs("worker delayed scheduling")
@@ -74,7 +100,7 @@ public class DelegateServiceSchedulerTest extends AbstractSchedulerTest {
 
 	@Test
 	public void scheduledDoesntReject() {
-		Scheduler s = autoCleanup(Schedulers.fromExecutorService(Executors.newSingleThreadScheduledExecutor()));
+		Scheduler s = afterTest.autoDispose(Schedulers.fromExecutorService(Executors.newSingleThreadScheduledExecutor()));
 		assertThat(s.schedule(() -> {}, 100, TimeUnit.MILLISECONDS))
 				.describedAs("direct delayed scheduling")
 				.isNotNull();
@@ -82,7 +108,7 @@ public class DelegateServiceSchedulerTest extends AbstractSchedulerTest {
 				.describedAs("direct periodic scheduling")
 				.isNotNull();
 
-		Worker w = autoCleanup(s.createWorker());
+		Worker w = afterTest.autoDispose(s.createWorker());
 		assertThat(w.schedule(() -> {}, 100, TimeUnit.MILLISECONDS))
 				.describedAs("worker delayed scheduling")
 				.isNotNull();
@@ -94,7 +120,7 @@ public class DelegateServiceSchedulerTest extends AbstractSchedulerTest {
 	@Test
 	public void smokeTestDelay() {
 		for (int i = 0; i < 20; i++) {
-			Scheduler s = autoCleanup(Schedulers.fromExecutorService(Executors.newScheduledThreadPool(1)));
+			Scheduler s = afterTest.autoDispose(Schedulers.fromExecutorService(Executors.newScheduledThreadPool(1)));
 			AtomicLong start = new AtomicLong();
 			AtomicLong end = new AtomicLong();
 
@@ -121,7 +147,7 @@ public class DelegateServiceSchedulerTest extends AbstractSchedulerTest {
 
 	@Test
 	public void smokeTestInterval() {
-		Scheduler s = autoCleanup(scheduler());
+		Scheduler s = afterTest.autoDispose(scheduler());
 
 		StepVerifier.create(Flux.interval(Duration.ofMillis(100), Duration.ofMillis(200), s))
 		            .expectSubscription()
@@ -140,9 +166,9 @@ public class DelegateServiceSchedulerTest extends AbstractSchedulerTest {
 		final ExecutorService cachedExecutor = Executors.newCachedThreadPool();
 		final ExecutorService singleExecutor = Executors.newSingleThreadExecutor();
 
-		Scheduler fixedThreadPool = autoCleanup(Schedulers.fromExecutorService(fixedExecutor));
-		Scheduler cachedThreadPool = autoCleanup(Schedulers.fromExecutorService(cachedExecutor));
-		Scheduler singleThread = autoCleanup(Schedulers.fromExecutorService(singleExecutor));
+		Scheduler fixedThreadPool = afterTest.autoDispose(Schedulers.fromExecutorService(fixedExecutor));
+		Scheduler cachedThreadPool = afterTest.autoDispose(Schedulers.fromExecutorService(cachedExecutor));
+		Scheduler singleThread = afterTest.autoDispose(Schedulers.fromExecutorService(singleExecutor));
 
 		String fixedId = Integer.toHexString(System.identityHashCode(fixedExecutor));
 		String cachedId = Integer.toHexString(System.identityHashCode(cachedExecutor));
@@ -161,9 +187,9 @@ public class DelegateServiceSchedulerTest extends AbstractSchedulerTest {
 
 	@Test
 	public void scanNameExplicit() {
-		Scheduler fixedThreadPool = autoCleanup(Schedulers.fromExecutorService(Executors.newFixedThreadPool(3), "fixedThreadPool(3)"));
-		Scheduler cachedThreadPool = autoCleanup(Schedulers.fromExecutorService(Executors.newCachedThreadPool(), "cachedThreadPool"));
-		Scheduler singleThread = autoCleanup(Schedulers.fromExecutorService(Executors.newSingleThreadExecutor(), "singleThreadExecutor"));
+		Scheduler fixedThreadPool = afterTest.autoDispose(Schedulers.fromExecutorService(Executors.newFixedThreadPool(3), "fixedThreadPool(3)"));
+		Scheduler cachedThreadPool = afterTest.autoDispose(Schedulers.fromExecutorService(Executors.newCachedThreadPool(), "cachedThreadPool"));
+		Scheduler singleThread = afterTest.autoDispose(Schedulers.fromExecutorService(Executors.newSingleThreadExecutor(), "singleThreadExecutor"));
 
 		assertThat(Scannable.from(fixedThreadPool).scan(Scannable.Attr.NAME))
 				.as("fixedThreadPool")
@@ -178,7 +204,7 @@ public class DelegateServiceSchedulerTest extends AbstractSchedulerTest {
 
 	@Test
 	public void scanExecutorAttributes() {
-		Scheduler fixedThreadPool = autoCleanup(Schedulers.fromExecutorService(Executors.newFixedThreadPool(3)));
+		Scheduler fixedThreadPool = afterTest.autoDispose(Schedulers.fromExecutorService(Executors.newFixedThreadPool(3)));
 
 		assertThat(Scannable.from(fixedThreadPool).scan(Scannable.Attr.CAPACITY)).isEqualTo(3);
 		assertThat(Scannable.from(fixedThreadPool).scan(Scannable.Attr.BUFFERED)).isZero();

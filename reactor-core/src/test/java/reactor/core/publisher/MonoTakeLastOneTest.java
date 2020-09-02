@@ -16,14 +16,13 @@
 package reactor.core.publisher;
 
 import java.util.NoSuchElementException;
-import java.util.function.Predicate;
 
 import org.junit.Test;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Scannable;
 import reactor.test.StepVerifier;
-import reactor.util.function.Tuple3;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -129,13 +128,12 @@ public class MonoTakeLastOneTest {
 
 	@Test
 	public void defaultUsingZip() {
-
-		UnicastProcessor<String> processor1 = UnicastProcessor.create();
-		FluxSink<String> sink1 = processor1.sink();
-		UnicastProcessor<String> processor2 = UnicastProcessor.create();
-		FluxSink<String> sink2 = processor2.sink();
-		UnicastProcessor<String> processor3 = UnicastProcessor.create();
-		FluxSink<String> sink3 = processor3.sink();
+		Sinks.StandaloneFluxSink<String> sink1 = Sinks.unicast();
+		Flux<String> processor1 = sink1.asFlux();
+		Sinks.StandaloneFluxSink<String> sink2 = Sinks.unicast();
+		Flux<String> processor2 = sink2.asFlux();
+		Sinks.StandaloneFluxSink<String> sink3 = Sinks.unicast();
+		Flux<String> processor3 = sink3.asFlux();
 
 		StepVerifier.create(
 						Flux.zip(
@@ -156,6 +154,13 @@ public class MonoTakeLastOneTest {
 	}
 
 	@Test
+	public void scanOperator(){
+	    MonoTakeLastOne<Integer> test = new MonoTakeLastOne<>(Flux.just(1, 2, 3));
+
+	    assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
 	public void scanTakeLastOneSubscriber() {
 		CoreSubscriber<String>
 				actual = new LambdaMonoSubscriber<>(null, e -> {}, null, null);
@@ -168,6 +173,7 @@ public class MonoTakeLastOneTest {
 
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		//terminated is detected via state HAS_VALUE
 		assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();

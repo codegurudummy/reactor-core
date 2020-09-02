@@ -32,6 +32,7 @@ import reactor.test.StepVerifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@SuppressWarnings("deprecation")
 public class FluxProcessorTest {
 
 	@Test(expected = NullPointerException.class)
@@ -115,7 +116,7 @@ public class FluxProcessorTest {
 
 	@Test
 	public void testSubmitSession() throws Exception {
-		FluxProcessor<Integer, Integer> processor = EmitterProcessor.create();
+		FluxIdentityProcessor<Integer> processor = EmitterProcessor.create();
 		AtomicInteger count = new AtomicInteger();
 		CountDownLatch latch = new CountDownLatch(1);
 		Scheduler scheduler = Schedulers.parallel();
@@ -139,7 +140,7 @@ public class FluxProcessorTest {
 
 	@Test
 	public void testEmitter() throws Throwable {
-		FluxProcessor<Integer, Integer> processor = EmitterProcessor.create();
+		FluxIdentityProcessor<Integer> processor = EmitterProcessor.create();
 
 		int n = 100_000;
 		int subs = 4;
@@ -166,7 +167,7 @@ public class FluxProcessorTest {
 	}
 	@Test
 	public void testEmitter2() throws Throwable {
-		FluxProcessor<Integer, Integer> processor = EmitterProcessor.create();
+		FluxIdentityProcessor<Integer> processor = EmitterProcessor.create();
 
 		int n = 100_000;
 		int subs = 4;
@@ -195,8 +196,8 @@ public class FluxProcessorTest {
 
 	@Test
 	public void serializedConcurrent() {
-		Scheduler.Worker w1 = Schedulers.elastic().createWorker();
-		Scheduler.Worker w2 = Schedulers.elastic().createWorker();
+		Scheduler.Worker w1 = Schedulers.boundedElastic().createWorker();
+		Scheduler.Worker w2 = Schedulers.boundedElastic().createWorker();
 		CountDownLatch latch = new CountDownLatch(1);
 		CountDownLatch latch2 = new CountDownLatch(1);
 		AtomicReference<Thread> ref = new AtomicReference<>();

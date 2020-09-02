@@ -37,7 +37,7 @@ import reactor.util.annotation.Nullable;
  * <p>
  * <p>
  * Eager resource cleanup happens just before the source termination and exceptions
- * raised by the cleanup Consumer may override the terminal even. Non-eager
+ * raised by the cleanup Consumer may override the terminal event. Non-eager
  * cleanup will drop any exception.
  *
  * @param <T> the value type streamed
@@ -118,7 +118,8 @@ final class FluxUsing<T, S> extends Flux<T> implements Fuseable, SourceProducer<
 
 	@Override
 	public Object scanUnsafe(Attr key) {
-		return null; //no particular key to be represented, still useful in hooks
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return null;
 	}
 
 	static final class UsingSubscriber<T, S>
@@ -154,6 +155,7 @@ final class FluxUsing<T, S> extends Flux<T> implements Fuseable, SourceProducer<
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.TERMINATED || key == Attr.CANCELLED) return wip == 1;
 			if (key == Attr.PARENT) return s;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -303,6 +305,7 @@ final class FluxUsing<T, S> extends Flux<T> implements Fuseable, SourceProducer<
 			if (key == Attr.TERMINATED || key == Attr.CANCELLED)
 				return wip == 1;
 			if (key == Attr.PARENT) return s;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -460,6 +463,7 @@ final class FluxUsing<T, S> extends Flux<T> implements Fuseable, SourceProducer<
 			if (key == Attr.TERMINATED || key == Attr.CANCELLED)
 				return wip == 1;
 			if (key == Attr.PARENT) return s;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

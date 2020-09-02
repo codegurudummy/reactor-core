@@ -130,32 +130,32 @@ public class MonoHasElementsTest {
 	}
 
 	@Test
-	public void testHasElementUpstream() throws InterruptedException {
+	public void testHasElementUpstream() {
 		AtomicReference<Subscription> sub = new AtomicReference<>();
 
 		Mono.just("foo").hide()
 		    .hasElement()
-		    .subscribe(v -> {}, e -> {}, () -> {},
+		    .subscribeWith(new LambdaSubscriber<>(v -> {}, e -> {}, () -> {},
 				    s -> {
 					    sub.set(s);
 					    s.request(Long.MAX_VALUE);
-				    });
+				    }));
 
 		assertThat(sub.get()).isInstanceOf(MonoHasElement.HasElementSubscriber.class);
 		assertThat(Scannable.from(sub.get()).scan(Scannable.Attr.PARENT).getClass()).isEqualTo(FluxHide.HideSubscriber.class);
 	}
 
 	@Test
-	public void testHasElementsUpstream() throws InterruptedException {
+	public void testHasElementsUpstream() {
 		AtomicReference<Subscription> sub = new AtomicReference<>();
 
 		Flux.just("foo", "bar").hide()
 		    .hasElements()
-		    .subscribe(v -> {}, e -> {}, () -> {},
+		    .subscribeWith(new LambdaSubscriber<>(v -> {}, e -> {}, () -> {},
 				    s -> {
 					    sub.set(s);
 					    s.request(Long.MAX_VALUE);
-				    });
+				    }));
 
 		assertThat(sub.get()).isInstanceOf(MonoHasElements.HasElementsSubscriber.class);
 		Scannable.from(sub.get())
@@ -166,30 +166,44 @@ public class MonoHasElementsTest {
 	}
 
 	@Test
-	public void hasElementCancel() throws InterruptedException {
+	public void hasElementCancel() {
 		AtomicBoolean cancelled = new AtomicBoolean();
 
 		Mono.just("foo").hide()
 		    .doOnCancel(() -> cancelled.set(true))
 		    .log()
 		    .hasElement()
-		    .subscribe(v -> {}, e -> {}, () -> {},
-				    Subscription::cancel);
+		    .subscribeWith(new LambdaSubscriber<>(v -> {}, e -> {}, () -> {},
+				    Subscription::cancel));
 
 		assertThat(cancelled.get()).isTrue();
 	}
 
 	@Test
-	public void hasElementsCancel() throws InterruptedException {
+	public void hasElementsCancel() {
 		AtomicBoolean cancelled = new AtomicBoolean();
 
 		Flux.just("foo", "bar").hide()
 		    .doOnCancel(() -> cancelled.set(true))
 		    .hasElements()
-		    .subscribe(v -> {}, e -> {}, () -> {},
-				    Subscription::cancel);
+		    .subscribeWith(new LambdaSubscriber<>(v -> {}, e -> {}, () -> {},
+				    Subscription::cancel));
 
 		assertThat(cancelled.get()).isTrue();
+	}
+
+	@Test
+	public void scanOperatorHasElement(){
+		MonoHasElement<Integer> test = new MonoHasElement<>(Mono.just(1));
+
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
+	public void scanOperatorHasElements(){
+		MonoHasElements<Integer> test = new MonoHasElements<>(Flux.just(1, 2, 3));
+
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 	}
 
 	@Test
@@ -202,6 +216,7 @@ public class MonoHasElementsTest {
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
 		assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(Integer.MAX_VALUE);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
 		assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
@@ -247,6 +262,7 @@ public class MonoHasElementsTest {
 		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
 		assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(Integer.MAX_VALUE);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 
 		assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
 		assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();

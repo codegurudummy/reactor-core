@@ -47,9 +47,9 @@ import reactor.core.Fuseable;
  */
 final class MonoErrorSupplied<T> extends Mono<T> implements Fuseable.ScalarCallable, SourceProducer<T> {
 
-	final Supplier<Throwable> errorSupplier;
+	final Supplier<? extends Throwable> errorSupplier;
 
-	MonoErrorSupplied(Supplier<Throwable> errorSupplier) {
+	MonoErrorSupplied(Supplier<? extends Throwable> errorSupplier) {
 		this.errorSupplier = Objects.requireNonNull(errorSupplier, "errorSupplier");
 	}
 
@@ -68,7 +68,7 @@ final class MonoErrorSupplied<T> extends Mono<T> implements Fuseable.ScalarCalla
 	@Override
 	public void subscribe(CoreSubscriber<? super T> actual) {
 		Throwable error = Objects.requireNonNull(errorSupplier.get(), "the errorSupplier returned null");
-		Operators.error(actual, Operators.onOperatorError(error, actual.currentContext()));
+		Operators.error(actual, error);
 	}
 
 	@Override
@@ -82,6 +82,7 @@ final class MonoErrorSupplied<T> extends Mono<T> implements Fuseable.ScalarCalla
 
 	@Override
 	public Object scanUnsafe(Attr key) {
-		return null; //no particular key to be represented, still useful in hooks
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return null;
 	}
 }

@@ -28,6 +28,9 @@ import reactor.core.Scannable;
 import reactor.util.annotation.Nullable;
 import reactor.util.context.Context;
 
+import static reactor.core.Scannable.Attr.RUN_STYLE;
+import static reactor.core.Scannable.Attr.RunStyle.SYNC;
+
 /**
  * Combines values from a main Publisher with values from another
  * Publisher through a bi-function and emits the result.
@@ -44,7 +47,7 @@ import reactor.util.context.Context;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxWithLatestFrom<T, U, R> extends FluxOperator<T, R> {
+final class FluxWithLatestFrom<T, U, R> extends InternalFluxOperator<T, R> {
 
 	final Publisher<? extends U> other;
 
@@ -59,7 +62,7 @@ final class FluxWithLatestFrom<T, U, R> extends FluxOperator<T, R> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super R> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super R> actual) {
 		CoreSubscriber<R> serial = Operators.serialize(actual);
 
 		WithLatestFromSubscriber<T, U, R> main =
@@ -70,7 +73,13 @@ final class FluxWithLatestFrom<T, U, R> extends FluxOperator<T, R> {
 
 		other.subscribe(secondary);
 
-		source.subscribe(main);
+		return main;
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == RUN_STYLE) return SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class WithLatestFromSubscriber<T, U, R> implements InnerOperator<T, R> {
@@ -122,6 +131,7 @@ final class FluxWithLatestFrom<T, U, R> extends FluxOperator<T, R> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.CANCELLED) return main == Operators.cancelledSubscription();
 			if (key == Attr.PARENT) return main;
+			if (key == RUN_STYLE) return SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -276,6 +286,9 @@ final class FluxWithLatestFrom<T, U, R> extends FluxOperator<T, R> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.ACTUAL) {
 				return main;
+			}
+			if (key == RUN_STYLE) {
+			    return SYNC;
 			}
 			return null;
 		}

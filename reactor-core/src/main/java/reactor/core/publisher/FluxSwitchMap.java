@@ -44,7 +44,7 @@ import reactor.util.context.Context;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxSwitchMap<T, R> extends FluxOperator<T, R> {
+final class FluxSwitchMap<T, R> extends InternalFluxOperator<T, R> {
 
 	final Function<? super T, ? extends Publisher<? extends R>> mapper;
 
@@ -76,15 +76,21 @@ final class FluxSwitchMap<T, R> extends FluxOperator<T, R> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super R> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super R> actual) {
 		//for now switchMap doesn't support onErrorContinue, so the scalar version shouldn't either
 		if (FluxFlatMap.trySubscribeScalarMap(source, actual, mapper, false, false)) {
-			return;
+			return null;
 		}
 
-		source.subscribe(new SwitchMapMain<T, R>(actual,
+		return new SwitchMapMain<T, R>(actual,
 				mapper,
-				queueSupplier.get(), prefetch));
+				queueSupplier.get(), prefetch);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class SwitchMapMain<T, R> implements InnerOperator<T, R> {
@@ -175,6 +181,7 @@ final class FluxSwitchMap<T, R> extends FluxOperator<T, R> {
 			if (key == Attr.PREFETCH) return prefetch;
 			if (key == Attr.BUFFERED) return queue.size();
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return requested;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -470,6 +477,7 @@ final class FluxSwitchMap<T, R> extends FluxOperator<T, R> {
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.ACTUAL) return parent;
 			if (key == Attr.PREFETCH) return prefetch;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}

@@ -37,7 +37,7 @@ import reactor.util.context.Context;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class MonoFlatMap<T, R> extends MonoOperator<T, R> implements Fuseable {
+final class MonoFlatMap<T, R> extends InternalMonoOperator<T, R> implements Fuseable {
 
 	final Function<? super T, ? extends Mono<? extends R>> mapper;
 
@@ -48,16 +48,22 @@ final class MonoFlatMap<T, R> extends MonoOperator<T, R> implements Fuseable {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super R> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super R> actual) {
 		//for now Mono in general doesn't support onErrorContinue, so the scalar version shouldn't either
 		if (FluxFlatMap.trySubscribeScalarMap(source, actual, mapper, true, false)) {
-			return;
+			return null;
 		}
 
 		FlatMapMain<T, R> manager = new FlatMapMain<>(actual, mapper);
 		actual.onSubscribe(manager);
 
-		source.subscribe(manager);
+		return manager;
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class FlatMapMain<T, R> extends Operators.MonoSubscriber<T, R> {
@@ -93,6 +99,7 @@ final class MonoFlatMap<T, R> extends MonoOperator<T, R> implements Fuseable {
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.CANCELLED) return s == Operators.cancelledSubscription();
 			if (key == Attr.TERMINATED) return done;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return super.scanUnsafe(key);
 		}
@@ -220,6 +227,7 @@ final class MonoFlatMap<T, R> extends MonoOperator<T, R> implements Fuseable {
 			if (key == Attr.ACTUAL) return parent;
 			if (key == Attr.TERMINATED) return done;
 			if (key == Attr.CANCELLED) return s == Operators.cancelledSubscription();
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}

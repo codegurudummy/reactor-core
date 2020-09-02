@@ -32,7 +32,7 @@ import reactor.util.context.Context;
  * @param <U> the other source type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxDelaySubscription<T, U> extends FluxOperator<T, T>
+final class FluxDelaySubscription<T, U> extends InternalFluxOperator<T, T>
 		implements Consumer<FluxDelaySubscription.DelaySubscriptionOtherSubscriber<T, U>> {
 
 	final Publisher<U> other;
@@ -48,13 +48,20 @@ final class FluxDelaySubscription<T, U> extends FluxOperator<T, T>
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		other.subscribe(new DelaySubscriptionOtherSubscriber<>(actual, this));
+		return null;
 	}
 
 	@Override
 	public void accept(DelaySubscriptionOtherSubscriber<T, U> s) {
 		source.subscribe(new DelaySubscriptionMainSubscriber<>(s.actual, s));
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class DelaySubscriptionOtherSubscriber<T, U>
@@ -85,6 +92,7 @@ final class FluxDelaySubscription<T, U> extends FluxOperator<T, T>
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.ACTUAL) return actual;
 			if (key == Attr.TERMINATED) return done;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return super.scanUnsafe(key);
 		}
@@ -165,6 +173,7 @@ final class FluxDelaySubscription<T, U> extends FluxOperator<T, T>
 		@Nullable
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.ACTUAL) return actual;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}

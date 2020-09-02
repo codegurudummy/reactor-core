@@ -33,7 +33,7 @@ import reactor.util.annotation.Nullable;
  *
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxZipIterable<T, U, R> extends FluxOperator<T, R> {
+final class FluxZipIterable<T, U, R> extends InternalFluxOperator<T, R> {
 
 	final Iterable<? extends U> other;
 
@@ -48,34 +48,24 @@ final class FluxZipIterable<T, U, R> extends FluxOperator<T, R> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super R> actual) {
-		Iterator<? extends U> it;
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super R> actual) {
+		Iterator<? extends U> it = Objects.requireNonNull(other.iterator(),
+				"The other iterable produced a null iterator");
 
-		try {
-			it = Objects.requireNonNull(other.iterator(),
-					"The other iterable produced a null iterator");
-		}
-		catch (Throwable e) {
-			Operators.error(actual, Operators.onOperatorError(e, actual.currentContext()));
-			return;
-		}
-
-		boolean b;
-
-		try {
-			b = it.hasNext();
-		}
-		catch (Throwable e) {
-			Operators.error(actual, Operators.onOperatorError(e, actual.currentContext()));
-			return;
-		}
+		boolean b = it.hasNext();
 
 		if (!b) {
 			Operators.complete(actual);
-			return;
+			return null;
 		}
 
-		source.subscribe(new ZipSubscriber<>(actual, it, zipper));
+		return new ZipSubscriber<>(actual, it, zipper);
+	}
+
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
+		return super.scanUnsafe(key);
 	}
 
 	static final class ZipSubscriber<T, U, R>
@@ -104,6 +94,7 @@ final class FluxZipIterable<T, U, R> extends FluxOperator<T, R> {
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.TERMINATED) return done;
 			if (key == Attr.PARENT) return s;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

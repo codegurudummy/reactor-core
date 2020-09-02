@@ -17,11 +17,18 @@
 package reactor.core.publisher;
 
 import java.time.Duration;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Test;
+import org.reactivestreams.Subscription;
+import reactor.core.CoreSubscriber;
+import reactor.core.Scannable;
 import reactor.test.StepVerifier;
 import reactor.test.subscriber.AssertSubscriber;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class FluxRepeatTest {
 
@@ -163,5 +170,48 @@ public class FluxRepeatTest {
 		                        .repeat(2, bool::get))
 		            .expectNext(1, 2, 3, 4)
 		            .verifyComplete();
+	}
+
+	@Test
+	public void onLastAssemblyOnce() {
+		AtomicInteger onAssemblyCounter = new AtomicInteger();
+		String hookKey = UUID.randomUUID().toString();
+		try {
+			Hooks.onLastOperator(hookKey, publisher -> {
+				onAssemblyCounter.incrementAndGet();
+				return publisher;
+			});
+			Mono.just(1)
+			    .repeat(1)
+			    .blockLast();
+
+			assertThat(onAssemblyCounter).hasValue(1);
+		}
+		finally {
+			Hooks.resetOnLastOperator(hookKey);
+		}
+	}
+
+	@Test
+	public void scanOperator(){
+		Flux<Integer> parent = Flux.just(1);
+		FluxRepeat<Integer> test = new FluxRepeat<>(parent, 4);
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
+	@Test
+	public void scanSubscriber(){
+		Flux<Integer> source = Flux.just(1);
+		CoreSubscriber<Integer> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
+		FluxRepeat.RepeatSubscriber<Integer> test = new FluxRepeat.RepeatSubscriber<>(source, actual, 3);
+
+		Subscription parent = Operators.emptySubscription();
+		test.onSubscribe(parent);
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
 	}
 }
