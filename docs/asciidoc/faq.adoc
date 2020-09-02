@@ -1,10 +1,20 @@
 [[faq]]
 = FAQ, Best Practices, and "How do I...?"
 
+This section covers the following content:
+
+* <<faq.wrap-blocking>>
+* <<faq.chain>>
+* <<faq.monoThen>>
+* <<faq.retryWhen>>
+* <<faq.exponentialBackoff>>
+* <<faq.thread-affinity-publishon>>
+* <<faq.mdc>>
+
 [[faq.wrap-blocking]]
 == How Do I Wrap a Synchronous, Blocking Call?
 
-It's often the case that a source of information is synchronous and blocking.
+It is often the case that a source of information is synchronous and blocking.
 To deal with such sources in your Reactor applications, apply the following
 pattern:
 
@@ -14,17 +24,19 @@ pattern:
 Mono blockingWrapper = Mono.fromCallable(() -> { <1>
     return /* make a remote synchronous call */ <2>
 });
-blockingWrapper = blockingWrapper.subscribeOn(Schedulers.elastic()); <3>
+blockingWrapper = blockingWrapper.subscribeOn(Schedulers.boundedElastic()); <3>
 ----
 <1> Create a new `Mono` by using `fromCallable`.
 <2> Return the asynchronous, blocking resource.
-<3> Ensure each subscription will happen on a dedicated single-threaded worker
-from `Schedulers.elastic()`.
+<3> Ensure each subscription happens on a dedicated single-threaded worker
+from `Schedulers.boundedElastic()`.
 ====
 
-You should use a Mono because the source returns one value. You should use
-`Schedulers.elastic` because it creates a dedicated thread to wait for the
-blocking resource without tying up some other resource.
+You should use a `Mono`, because the source returns one value. You should use
+`Schedulers.boundedElastic`, because it creates a dedicated thread to wait for the
+blocking resource without impacting other non-blocking processing, while also ensuring
+that there is a limit to the amount of threads that can be created, and blocking tasks
+that can be enqueued and deferred during a spike.
 
 Note that `subscribeOn` does not subscribe to the `Mono`. It specifies what
 kind of `Scheduler` to use when a subscribe call happens.
@@ -37,69 +49,71 @@ operators you think should have been applied to it.
 
 Reactor operators are decorators. They return a different instance that wraps
 the source sequence and add behavior. That is why the preferred way of using
-operators is to *chain* the calls.
+operators is to _chain_ the calls.
 
 Compare the following two examples:
 
-====
+
 .without chaining (incorrect)
+====
 [source,java]
 ----
-Flux<String> flux = Flux.just("foo", "chain");
+Flux<String> flux = Flux.just("something", "chain");
 flux.map(secret -> secret.replaceAll(".", "*")); <1>
 flux.subscribe(next -> System.out.println("Received: " + next));
 ----
-<1> The mistake is here. The result isn't attached to the `flux` variable.
+<1> The mistake is here. The result is not attached to the `flux` variable.
 ====
 
-====
 .without chaining (correct)
+====
 [source,java]
 ----
-Flux<String> flux = Flux.just("foo", "chain");
+Flux<String> flux = Flux.just("something", "chain");
 flux = flux.map(secret -> secret.replaceAll(".", "*"));
 flux.subscribe(next -> System.out.println("Received: " + next));
 ----
 ====
 
-This sample is even better (because it's simpler):
+The following sample is even better (because it is simpler):
 
-====
 .with chaining (best)
+====
 [source,java]
 ----
 Flux<String> secrets = Flux
-  .just("foo", "chain")
+  .just("something", "chain")
   .map(secret -> secret.replaceAll(".", "*"))
   .subscribe(next -> System.out.println("Received: " + next));
 ----
 ====
 
-The first version will output:
+The first version outputs the following:
 
 ====
 [source]
 ----
-Received: foo
+Received: something
 Received: chain
 ----
 ====
 
-Whereas the two other versions will output the expected:
+The two other versions output the expected values, as follows:
 
 ====
 [source]
 ----
-Received: ***
+Received: *********
 Received: *****
 ----
 ====
 
 [[faq.monoThen]]
-== My `Mono` `zipWith`/`zipWhen` Is Never Called
+== My `Mono` `zipWith` or `zipWhen` is never called
+
+Consider the following example:
 
 ====
-.example
 [source,java]
 ----
 myMethod.process("a") // this method returns Mono<Void>
@@ -109,28 +123,29 @@ myMethod.process("a") // this method returns Mono<Void>
 ====
 
 If the source `Mono` is either `empty` or a `Mono<Void>` (a `Mono<Void>` is
-empty for all intents and purposes), some combinations will never be called.
+empty for all intents and purposes), some combinations are never called.
 
-This is the typical case for any transformer like the `zip` static method or
-`zipWith`/`zipWhen` operators, which by definition need an element from each
+This is the typical case for any transformer such as the `zip` static method or
+the `zipWith` `zipWhen` operators, which (by definition) need an element from each
 source to produce their output.
 
 Using data-suppressing operators on sources of `zip` is thus problematic.
 Examples of data-suppressing operators include `then()`, `thenEmpty(Publisher<Void>)`,
-`ignoreElements()` and `ignoreElement()`, `when(Publisher...)`.
+`ignoreElements()` and `ignoreElement()`, and `when(Publisher...)`.
 
-Similarly, operators that use a `Function<T,?>` to tune their behavior, like `flatMap`,
-do need at least one element to be emitted for the `Function` to have a chance
-to apply. Applying these on an empty (or `<Void>`) sequence will never produce an element.
+Similarly, operators that use a `Function<T,?>` to tune their behavior, such as `flatMap`,
+need at least one element to be emitted for the `Function` to have a chance
+to apply. Applying these on an empty (or `<Void>`) sequence nevers produce an element.
 
-You can use `.defaultIfEmpty(T)` and `.switchIfEmpty(Publisher<T>)` to respectively
-replace an *empty* sequence of `T` with a default value or a fallback `Publisher<T>`,
-which could help avoid some of these situations. Note that this doesn't apply to
+You can use `.defaultIfEmpty(T)` and `.switchIfEmpty(Publisher<T>)` to
+replace an empty sequence of `T` with a default value or a fallback `Publisher<T>` (respectively),
+which could help avoid some of these situations. Note that this does not apply to
 `Flux<Void>`/`Mono<Void>` sources, as you can only switch to another `Publisher<Void>`,
-which is still guaranteed to be empty. Here's an example of `defaultIfEmpty`:
+which is still guaranteed to be empty. The following example uses `defaultIfEmpty`:
 
-====
+
 .use `defaultIfEmpty` before `zipWhen`
+====
 [source,java]
 ----
 myMethod.emptySequenceForKey("a") // this method returns empty Mono<String>
@@ -142,49 +157,55 @@ myMethod.emptySequenceForKey("a") // this method returns empty Mono<String>
 
 [[faq.retryWhen]]
 == How to Use `retryWhen` to Emulate `retry(3)`?
-The `retryWhen` operator can be quite complex. Hopefully this snippet of code
+
+The `retryWhen` operator can be quite complex. Hopefully the following snippet of code
 can help you understand how it works by attempting to emulate a simpler
 `retry(3)`:
+
 include::snippetRetryWhenRetry.adoc[]
 
 [[faq.exponentialBackoff]]
-== How to Use `retryWhen` for Exponential Backoff?
+== How can I use `retryWhen` for Exponential Backoff?
+
 Exponential backoff produces retry attempts with a growing delay between each
-of the attempts, so as not to overload the source systems and risk an all out
-crash. The rationale is that if the source produces an error, it is already in
-an unstable state and not likely to immediately recover from it. So blindly
+of the attempts, so as not to overload the source systems and risk an all-out
+crash. The rationale is that, if the source produces an error, it is already in
+an unstable state and is not likely to immediately recover from it. So blindly
 retrying immediately is likely to produce yet another error and add to the
 instability.
 
-Since `3.2.0.RELEASE`, Reactor comes with such a retry baked in: `Flux.retryBackoff`.
+Since `3.3.4.RELEASE`, Reactor comes with a builder for such a retry, to be used with `Flux#retryWhen`: `Retry.backoff`.
 
-For the curious, here is how to implement an exponential backoff with `retryWhen`
-that delays retries and increase the delay between each attempt (pseudocode:
+The following example showcases a simple use of the builder, with hooks logging message right before
+and after the retry attempt delays.
+It delays retries and increases the delay between each attempt (pseudocode:
 delay = attempt number * 100 milliseconds):
 
 ====
 [source,java]
 ----
+AtomicInteger errorCount = new AtomicInteger();
 Flux<String> flux =
-Flux.<String>error(new IllegalArgumentException())
-    .retryWhen(companion -> companion
-        .doOnNext(s -> System.out.println(s + " at " + LocalTime.now())) // <1>
-        .zipWith(Flux.range(1, 4), (error, index) -> { // <2>
-          if (index < 4) return index;
-          else throw Exceptions.propagate(error);
-        })
-        .flatMap(index -> Mono.delay(Duration.ofMillis(index * 100))) // <3>
-        .doOnNext(s -> System.out.println("retried at " + LocalTime.now())) // <4>
-    );
+Flux.<String>error(new IllegalStateException("boom"))
+		.doOnError(e -> { // <1>
+			errorCount.incrementAndGet();
+			System.out.println(e + " at " + LocalTime.now());
+		})
+		.retryWhen(Retry
+				.backoff(3, Duration.ofMillis(100)).jitter(0d) // <2>
+				.doAfterRetry(rs -> System.out.println("retried at " + LocalTime.now())) // <3>
+				.onRetryExhaustedThrow((spec, rs) -> rs.failure()) // <4>
+		);
 ----
-<1> We log the time of errors.
-<2> We use the `retryWhen` + `zipWith` trick to propagate the error after 3
-retries.
-<3> Through `flatMap`, we cause a delay that depends on the attempt's index.
-<4> We also log the time at which the retry happens.
+<1> We will log the time of errors emitted by the source and count them.
+<2> We configure an exponential backoff retry with at most 3 attempts and no jitter.
+<3> We also log the time at which the retry happens.
+<4> By default an `Exceptions.retryExhausted` exception would be thrown, with the last `failure()` as a cause.
+Here we customize that to directly emit the cause as `onError`.
 ====
 
-When subscribed to, this fails and terminates after printing out:
+When subscribed to, this fails and terminates after printing out the following:
+
 ====
 ----
 java.lang.IllegalArgumentException at 18:02:29.338
@@ -195,26 +216,20 @@ java.lang.IllegalArgumentException at 18:02:29.663
 retried at 18:02:29.964 <3>
 java.lang.IllegalArgumentException at 18:02:29.964
 ----
-<1> first retry after about 100ms
-<2> second retry after about 200ms
-<3> third retry after about 300ms
+<1> First retry after about 100ms
+<2> Second retry after about 200ms
+<3> Third retry after about 300ms
 ====
 
-== How Do I Ensure Thread Affinity Using `publishOn()`?
+[[faq.thread-affinity-publishon]]
+== How Do I Ensure Thread Affinity when I Use `publishOn()`?
 
-As described in <<schedulers, Schedulers>>, `publishOn()` can be used to switch
+As described in <<schedulers,Schedulers>>, `publishOn()` can be used to switch
 execution contexts. The `publishOn` operator influences the threading context
-where the rest of the operators in the chain below it will execute, up to a new
+where the rest of the operators in the chain below it run, up to a new
 occurrence of `publishOn`. So the placement of `publishOn` is significant.
 
-For instance, in the example below, the `transform` function in `map()` is
-executed on a worker of `scheduler1` and the `processNext` method in
-`doOnNext()` is executed on a worker of `scheduler2`. Each **subscription** gets
-its own worker, so all elements pushed to the corresponding subscriber are published
-on the same `Thread`.
-
-Single threaded schedulers may be used to ensure thread affinity for different stages in the
-chain or for different subscribers.
+Consider the following example:
 
 ====
 [source,java]
@@ -228,6 +243,17 @@ processor.publishOn(scheduler1)
 ----
 ====
 
+The `transform` function in `map()` is
+run on a worker of `scheduler1`, and the `processNext` method in
+`doOnNext()` is run on a worker of `scheduler2`. Each subscription gets
+its own worker, so all elements pushed to the corresponding subscriber are published
+on the same `Thread`.
+
+You can use single-threaded schedulers to ensure thread affinity for different stages in the
+chain or for different subscribers.
+
+
+[[faq.mdc]]
 == What Is a Good Pattern for Contextual Logging? (MDC)
 Most logging frameworks allow contextual logging, letting users store variables that are reflected in the logging pattern, generally by way of a `Map` called the MDC ("Mapped Diagnostic Context").
 This is one of the most recurring use of `ThreadLocal` in Java, and as a consequence this pattern assumes that the code being logged is tied in a one-to-one relationship with a `Thread`.

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2017 Pivotal Software Inc, All Rights Reserved.
+ * Copyright (c) 2011-2019 Pivotal Software Inc, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
+import reactor.core.Scannable;
 import reactor.util.Logger;
 import reactor.util.Loggers;
 import reactor.util.annotation.Nullable;
@@ -63,7 +64,10 @@ import reactor.util.concurrent.WaitStrategy;
  *
  * @param <E> Type of dispatched signal
  * @author Stephane Maldini
+ * @deprecated Has been moved to io.projectreactor.addons:reactor-extra:3.3.0+ and will be removed in 3.4.0
  */
+@Deprecated
+@SuppressWarnings("deprecation")
 public final class WorkQueueProcessor<E> extends EventLoopProcessor<E> {
 
 	/**
@@ -74,16 +78,18 @@ public final class WorkQueueProcessor<E> extends EventLoopProcessor<E> {
 	 * {@code WorkQueueProcessor<String> processor = WorkQueueProcessor.<String>builder().build()}
 	 *
 	 * @param <T> Type of dispatched signal
+	 * @deprecated Has been moved to io.projectreactor.addons:reactor-extra:3.3.0+ and will be removed in 3.4.0
 	 */
+	@Deprecated
 	public final static class Builder<T> {
 
-		String name;
+		String          name;
 		ExecutorService executor;
 		ExecutorService requestTaskExecutor;
-		int bufferSize;
-		WaitStrategy waitStrategy;
-		boolean share;
-		boolean autoCancel;
+		int             bufferSize;
+		WaitStrategy    waitStrategy;
+		boolean         share;
+		boolean         autoCancel;
 
 		Builder() {
 			this.bufferSize = Queues.SMALL_BUFFER_SIZE;
@@ -184,7 +190,7 @@ public final class WorkQueueProcessor<E> extends EventLoopProcessor<E> {
 		 * of this builder.
 		 * @return a fresh processor
 		 */
-		public WorkQueueProcessor<T>  build() {
+		public WorkQueueProcessor<T> build() {
 			String name = this.name != null ? this.name : WorkQueueProcessor.class.getSimpleName();
 			WaitStrategy waitStrategy = this.waitStrategy != null ? this.waitStrategy : WaitStrategy.liteBlocking();
 			ThreadFactory threadFactory = this.executor != null ? null : new EventLoopFactory(name, autoCancel);
@@ -398,7 +404,7 @@ public final class WorkQueueProcessor<E> extends EventLoopProcessor<E> {
 	 * parallel coordination of an event.
 	 */
 	final static class WorkQueueInner<T>
-			implements Runnable, InnerProducer<T> {
+			implements Runnable, Subscription, Scannable {
 
 		final AtomicBoolean running = new AtomicBoolean(true);
 
@@ -690,17 +696,13 @@ public final class WorkQueueProcessor<E> extends EventLoopProcessor<E> {
 		@Nullable
 		public Object scanUnsafe(Attr key) {
 			if (key == Attr.PARENT ) return processor;
+			if (key == Attr.ACTUAL ) return subscriber;
 			if (key == Attr.PREFETCH) return Integer.MAX_VALUE;
 			if (key == Attr.TERMINATED ) return processor.isTerminated();
 			if (key == Attr.CANCELLED) return !running.get();
 			if (key == Attr.REQUESTED_FROM_DOWNSTREAM) return pendingRequest.getAsLong();
 
-			return InnerProducer.super.scanUnsafe(key);
-		}
-
-		@Override
-		public CoreSubscriber<? super T> actual() {
-			return subscriber;
+			return null;
 		}
 
 		@Override

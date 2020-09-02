@@ -777,7 +777,6 @@ public class FluxFlatMapTest {
 		})
 		                      .flatMap(Flux::just, 1), 0)
 		            .verifyErrorMessage("test");
-		Hooks.resetOnErrorDropped();
 		assertThat(set.get()).isTrue();
 	}
 
@@ -815,7 +814,6 @@ public class FluxFlatMapTest {
 		                        .flatMap(Flux::just, 1), 1)
 		            .expectNext(1)
 		            .verifyErrorMessage("test");
-		Hooks.resetOnErrorDropped();
 		assertThat(set.get()).isTrue();
 	}
 
@@ -830,7 +828,6 @@ public class FluxFlatMapTest {
 			s.onError(new Exception("test2"));
 		}).flatMap(Flux::just))
 		            .verifyErrorMessage("test");
-		Hooks.resetOnErrorDropped();
 	}
 
 	@Test

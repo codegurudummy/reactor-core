@@ -49,16 +49,16 @@ import reactor.core.Fuseable;
  */
 final class FluxErrorSupplied<T> extends Flux<T> implements Fuseable.ScalarCallable, SourceProducer<T> {
 
-	final Supplier<Throwable> errorSupplier;
+	final Supplier<? extends Throwable> errorSupplier;
 
-	FluxErrorSupplied(Supplier<Throwable> errorSupplier) {
+	FluxErrorSupplied(Supplier<? extends Throwable> errorSupplier) {
 		this.errorSupplier = Objects.requireNonNull(errorSupplier, "errorSupplier");
 	}
 
 	@Override
 	public void subscribe(CoreSubscriber<? super T> actual) {
 		Throwable error = Objects.requireNonNull(errorSupplier.get(), "errorSupplier produced a null Throwable");
-		Operators.error(actual, Operators.onOperatorError(error, actual.currentContext()));
+		Operators.error(actual, error);
 	}
 
 	@Override
