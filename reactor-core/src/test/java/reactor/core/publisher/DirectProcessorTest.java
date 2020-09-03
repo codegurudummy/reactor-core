@@ -18,6 +18,8 @@ package reactor.core.publisher;
 import org.junit.Assert;
 import org.junit.Test;
 import org.reactivestreams.Subscriber;
+
+import reactor.core.Exceptions;
 import reactor.core.Scannable;
 import reactor.test.StepVerifier;
 import reactor.test.subscriber.AssertSubscriber;
@@ -282,5 +284,46 @@ public class DirectProcessorTest {
 
 	    assertThat(processorContext.getOrDefault("key", "EMPTY")).isEqualTo("value1");
     }
+
+	@Test
+	public void tryEmitNextWithNoSubscriberFails() {
+		DirectProcessor<Integer> directProcessor = DirectProcessor.create();
+
+		assertThat(directProcessor.tryEmitNext(1)).isEqualTo(Sinks.Emission.FAIL_ZERO_SUBSCRIBER);
+		assertThat(directProcessor.tryEmitComplete()).isEqualTo(Sinks.Emission.OK);
+
+		StepVerifier.create(directProcessor)
+		            .verifyComplete();
+	}
+
+	@Test
+	public void tryEmitNextWithNoSubscriberFailsIfAllSubscribersCancelled() {
+		//in case of autoCancel, removing all subscribers results in TERMINATED rather than EMPTY
+		DirectProcessor<Integer> directProcessor = DirectProcessor.create();
+		AssertSubscriber<Integer> testSubscriber = AssertSubscriber.create();
+
+		directProcessor.subscribe(testSubscriber);
+
+		assertThat(directProcessor.tryEmitNext(1)).as("emit 1, with subscriber").isEqualTo(Sinks.Emission.OK);
+		assertThat(directProcessor.tryEmitNext(2)).as("emit 2, with subscriber").isEqualTo(Sinks.Emission.OK);
+		assertThat(directProcessor.tryEmitNext(3)).as("emit 3, with subscriber").isEqualTo(Sinks.Emission.OK);
+
+		testSubscriber.cancel();
+
+		assertThat(directProcessor.tryEmitNext(4)).as("emit 4, without subscriber").isEqualTo(Sinks.Emission.FAIL_ZERO_SUBSCRIBER);
+	}
+
+	@Test
+	public void emitNextWithNoSubscriberTriggersOnError() {
+		DirectProcessor<Integer> directProcessor = DirectProcessor.create();
+		directProcessor.emitNext(1);
+
+		StepVerifier.create(directProcessor)
+		            .expectErrorSatisfies(e -> assertThat(e)
+				            .isInstanceOf(IllegalStateException.class)
+				            .matches(Exceptions::isOverflow)
+				            .hasMessage("Backpressure overflow during Sinks.Many#emitNext"))
+		            .verify();
+	}
 
 }

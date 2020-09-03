@@ -290,8 +290,9 @@ public final class UnicastProcessor<T> extends FluxProcessor<T, T>
 	@Override
 	public void emitNext(T value) {
 		switch (tryEmitNext(value)) {
+			case FAIL_ZERO_SUBSCRIBER:
 			case FAIL_OVERFLOW:
-				Context ctx = actual.currentContext();
+				Context ctx = currentContext();
 				IllegalStateException overflow = Exceptions.failWithOverflow("Backpressure overflow during Sinks.Many#emitNext");
 				Throwable ex = Operators.onOperatorError(null, overflow, value, ctx);
 				if (onOverflow != null) {
@@ -327,7 +328,7 @@ public final class UnicastProcessor<T> extends FluxProcessor<T, T>
 		}
 
 		if (!queue.offer(t)) {
-			return Emission.FAIL_OVERFLOW;
+			return (once > 0) ? Emission.FAIL_OVERFLOW : Emission.FAIL_ZERO_SUBSCRIBER;
 		}
 		drain(t);
 		return Emission.OK;

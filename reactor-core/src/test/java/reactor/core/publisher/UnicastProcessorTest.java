@@ -279,4 +279,50 @@ public class UnicastProcessorTest {
 		            .then(() -> processor.emitNext("boom"))
 		            .verifyErrorMatches(Exceptions::isOverflow);
 	}
+
+	@Test
+	public void tryEmitNextWithNoSubscriberAndBoundedQueueFailsZeroSubscriber() {
+		UnicastProcessor<Integer> unicastProcessor = UnicastProcessor.create(Queues.<Integer>one().get());
+
+		assertThat(unicastProcessor.tryEmitNext(1)).isEqualTo(Sinks.Emission.OK);
+		assertThat(unicastProcessor.tryEmitNext(2)).isEqualTo(Sinks.Emission.FAIL_ZERO_SUBSCRIBER);
+
+		StepVerifier.create(unicastProcessor)
+		            .expectNext(1)
+		            .then(unicastProcessor::emitComplete)
+		            .verifyComplete();
+	}
+
+	@Test
+	public void tryEmitNextWithBoundedQueueAndNoRequestFailsWithOverflow() {
+		UnicastProcessor<Integer> unicastProcessor = UnicastProcessor.create(Queues.<Integer>one().get());
+
+		StepVerifier.create(unicastProcessor, 0) //important to make no initial request
+		            .expectSubscription()
+		            .then(() -> {
+			            assertThat(unicastProcessor.tryEmitNext(1)).isEqualTo(Sinks.Emission.OK);
+			            assertThat(unicastProcessor.tryEmitNext(2)).isEqualTo(Sinks.Emission.FAIL_OVERFLOW);
+			            assertThat(unicastProcessor.tryEmitComplete()).isEqualTo(Sinks.Emission.OK);
+		            })
+		            .thenRequest(1)
+		            .expectNext(1)
+		            .verifyComplete();
+	}
+
+	@Test
+	public void emitNextWithNoSubscriberAndBoundedQueueTriggersOnError() {
+		UnicastProcessor<Integer> unicastProcessor = UnicastProcessor.create(Queues.<Integer>one().get());
+		//fill the buffer
+		unicastProcessor.tryEmitNext(1);
+		//test proper
+		unicastProcessor.emitNext(2);
+
+		StepVerifier.create(unicastProcessor)
+		            .expectNext(1) //from the buffer
+		            .expectErrorSatisfies(e -> assertThat(e)
+				            .isInstanceOf(IllegalStateException.class)
+				            .matches(Exceptions::isOverflow)
+				            .hasMessage("Backpressure overflow during Sinks.Many#emitNext"))
+		            .verify();
+	}
 }

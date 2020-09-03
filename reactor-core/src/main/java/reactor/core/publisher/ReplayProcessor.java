@@ -530,6 +530,7 @@ public final class ReplayProcessor<T> extends FluxProcessor<T, T>
 			return Emission.FAIL_TERMINATED;
 		}
 
+		//note: ReplayProcessor can so far ALWAYS buffer the element, no FAIL_ZERO_SUBSCRIBER here
 		b.add(t);
 		for (FluxReplay.ReplaySubscription<T> rs : subscribers) {
 			b.replay(rs);

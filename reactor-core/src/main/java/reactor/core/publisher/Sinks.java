@@ -103,7 +103,12 @@ public final class Sinks {
 		/**
 		 * Has failed to emit the signal because the sink was previously interrupted by its consumer
 		 */
-		FAIL_CANCELLED;
+		FAIL_CANCELLED,
+		/**
+		 * Has failed to emit the signal because the sink has never been subscribed to has no capacity
+		 * to buffer the signal.
+		 */
+		FAIL_ZERO_SUBSCRIBER;
 
 		/**
 		 * Has successfully emitted the signal

@@ -20,7 +20,6 @@ import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
-import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 import org.reactivestreams.Subscriber;
@@ -271,6 +270,7 @@ public final class EmitterProcessor<T> extends FluxProcessor<T, T> implements Si
 	@Override
 	public void emitNext(T value) {
 		switch(tryEmitNext(value)) {
+			case FAIL_ZERO_SUBSCRIBER: //this only happens if the subscriber[] is EMPTY, and there's no buffering capacity
 			case FAIL_OVERFLOW:
 				Operators.onDiscard(value, currentContext());
 				//the emitError will onErrorDropped if already terminated
@@ -316,7 +316,7 @@ public final class EmitterProcessor<T> extends FluxProcessor<T, T> implements Si
 		}
 
 		if (!q.offer(t)) {
-			return Emission.FAIL_OVERFLOW;
+			return subscribers == EMPTY ? Emission.FAIL_ZERO_SUBSCRIBER : Emission.FAIL_OVERFLOW;
 		}
 		drain();
 		return Emission.OK;
