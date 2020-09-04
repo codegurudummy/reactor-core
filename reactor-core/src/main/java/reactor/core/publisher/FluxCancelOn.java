@@ -25,7 +25,7 @@ import reactor.core.CoreSubscriber;
 import reactor.core.scheduler.Scheduler;
 import reactor.util.annotation.Nullable;
 
-final class FluxCancelOn<T> extends FluxOperator<T, T> {
+final class FluxCancelOn<T> extends InternalFluxOperator<T, T> {
 
 	final Scheduler scheduler;
 
@@ -35,13 +35,14 @@ final class FluxCancelOn<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
-		source.subscribe(new CancelSubscriber<T>(actual, scheduler));
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
+		return new CancelSubscriber<T>(actual, scheduler);
 	}
 
 	@Override
 	public Object scanUnsafe(Attr key) {
 		if (key == Attr.RUN_ON) return scheduler;
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.ASYNC;
 
 		return super.scanUnsafe(key);
 	}
@@ -77,6 +78,7 @@ final class FluxCancelOn<T> extends FluxOperator<T, T> {
 			if (key == Attr.PARENT) return s;
 			if (key == Attr.CANCELLED) return cancelled == 1;
 			if (key == Attr.RUN_ON) return scheduler;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.ASYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}

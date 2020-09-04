@@ -42,7 +42,7 @@ import reactor.core.Scannable;
 /**
  * @author Stephane Maldini
  */
-final class FluxLiftFuseable<I, O> extends FluxOperator<I, O>
+final class FluxLiftFuseable<I, O> extends InternalFluxOperator<I, O>
 		implements Fuseable {
 
 	final BiFunction<Publisher, ? super CoreSubscriber<? super O>, ? extends CoreSubscriber<? super I>>
@@ -63,7 +63,13 @@ final class FluxLiftFuseable<I, O> extends FluxOperator<I, O>
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super O> actual) {
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) return Scannable.from(source).scanUnsafe(key);
+		return super.scanUnsafe(key);
+	}
+
+	@Override
+	public CoreSubscriber<? super I> subscribeOrReturn(CoreSubscriber<? super O> actual) {
 		CoreSubscriber<? super I> input =
 				lifter.apply(source, actual);
 
@@ -75,6 +81,6 @@ final class FluxLiftFuseable<I, O> extends FluxOperator<I, O>
 			input = new FluxHide.SuppressFuseableSubscriber<>(input);
 		}
 		//otherwise QS is not required or user already made a compatible conversion
-		source.subscribe(input);
+		return input;
 	}
 }

@@ -33,6 +33,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Scannable;
 import reactor.core.publisher.FluxConcatMap.ErrorMode;
@@ -81,7 +82,7 @@ public class FluxMergeSequentialTest {
 	@Test
 	public void normalFusedAsync() {
 		StepVerifier.create(Flux.range(1, 5)
-		                        .subscribeWith(UnicastProcessor.create())
+		                        .subscribeWith(Processors.unicast())
 		                        .flatMapSequential(t -> Flux.range(t, 2)))
 		            .expectNext(1, 2, 2, 3, 3, 4, 4, 5, 5, 6)
 		            .verifyComplete();
@@ -141,8 +142,8 @@ public class FluxMergeSequentialTest {
 
 	@Test
 	public void mainErrorsDelayEnd() {
-		DirectProcessor<Integer> main = DirectProcessor.create();
-		final DirectProcessor<Integer> inner = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> main = Processors.more().multicastNoBackpressure();
+		final FluxIdentityProcessor<Integer> inner = Processors.more().multicastNoBackpressure();
 
 		AssertSubscriber<Integer> ts = main.flatMapSequentialDelayError(t -> inner, 32, 32)
 		                                   .subscribeWith(AssertSubscriber.create());
@@ -167,8 +168,8 @@ public class FluxMergeSequentialTest {
 
 	@Test
 	public void mainErrorsImmediate() {
-		DirectProcessor<Integer> main = DirectProcessor.create();
-		final DirectProcessor<Integer> inner = DirectProcessor.create();
+		FluxIdentityProcessor<Integer> main = Processors.more().multicastNoBackpressure();
+		final FluxIdentityProcessor<Integer> inner = Processors.more().multicastNoBackpressure();
 
 		AssertSubscriber<Integer> ts = main.flatMapSequential(t -> inner)
 		                                   .subscribeWith(AssertSubscriber.create());
@@ -451,7 +452,7 @@ public class FluxMergeSequentialTest {
 	public void testAsynchronousRun() {
 		Flux.range(1, 2).flatMapSequential(t -> Flux.range(1, 1000)
 		                                            .subscribeOn(Schedulers.single())
-		).publishOn(Schedulers.elastic()).subscribe(ts);
+		).publishOn(Schedulers.boundedElastic()).subscribe(ts);
 
 		ts.await(Duration.ofSeconds(5));
 		ts.assertNoError();
@@ -460,7 +461,7 @@ public class FluxMergeSequentialTest {
 
 	@Test
 	public void testReentrantWork() {
-		final DirectProcessor<Integer> subject = DirectProcessor.create();
+		final FluxIdentityProcessor<Integer> subject = Processors.more().multicastNoBackpressure();
 
 		final AtomicBoolean once = new AtomicBoolean();
 
@@ -655,7 +656,7 @@ public class FluxMergeSequentialTest {
 
 	@Test
 	public void mergeSequentialLargeUnorderedEach100() {
-		Scheduler scheduler = Schedulers.elastic();
+		Scheduler scheduler = Schedulers.boundedElastic();
 		AtomicBoolean comparisonFailure = new AtomicBoolean();
 		long count = Flux.range(0, 500)
 		                 .flatMapSequential(i -> {
@@ -796,11 +797,20 @@ public class FluxMergeSequentialTest {
 		assertThat(cancelCounter).as("cancellation remaining").hasValue(0);
 	}
 
+	@Test
+	public void scanOperator(){
+		Flux<Integer> parent = Flux.range(1, 5);
+		FluxMergeSequential<Integer, Integer> test = new FluxMergeSequential<>(parent, t -> Flux.just(t), 3, 123, ErrorMode.END);
+
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
+	}
+
     @Test
     public void scanMain() {
         CoreSubscriber<Integer> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
         FluxMergeSequential.MergeSequentialMain<Integer, Integer> test =
-        		new FluxMergeSequential.MergeSequentialMain<Integer, Integer>(actual, i -> Mono.just(i),
+        		new FluxMergeSequential.MergeSequentialMain<>(actual, i -> Mono.just(i),
         				5, 123, ErrorMode.BOUNDARY, Queues.unbounded());
         Subscription parent = Operators.emptySubscription();
         test.onSubscribe(parent);
@@ -808,6 +818,7 @@ public class FluxMergeSequentialTest {
         assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
         assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
         assertThat(test.scan(Scannable.Attr.DELAY_ERROR)).isTrue();
+        assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
         test.requested = 35;
         assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(35);
         assertThat(test.scan(Scannable.Attr.PREFETCH)).isEqualTo(5);
@@ -835,6 +846,7 @@ public class FluxMergeSequentialTest {
         assertThat(inner.scan(Scannable.Attr.ACTUAL)).isSameAs(main);
         assertThat(inner.scan(Scannable.Attr.PARENT)).isSameAs(parent);
         assertThat(inner.scan(Scannable.Attr.PREFETCH)).isEqualTo(123);
+        assertThat(inner.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.SYNC);
         inner.queue = new ConcurrentLinkedQueue<>();
         inner.queue.add(1);
         assertThat(inner.scan(Scannable.Attr.BUFFERED)).isEqualTo(1);

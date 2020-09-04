@@ -20,6 +20,7 @@ import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Test;
 import org.reactivestreams.Subscription;
@@ -36,13 +37,13 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 public class MonoUsingWhenTest {
 
-
 	@Test
 	public void nullResourcePublisherRejected() {
 		assertThatNullPointerException()
 				.isThrownBy(() -> Mono.usingWhen(null,
 						tr -> Mono.empty(),
 						tr -> Mono.empty(),
+						(tr, err) -> Mono.empty(),
 						tr -> Mono.empty()))
 				.withMessage("resourceSupplier")
 				.withNoCause();
@@ -56,6 +57,7 @@ public class MonoUsingWhenTest {
 		Mono<String> test = Mono.usingWhen(Flux.empty().hide(),
 				tr -> Mono.just("unexpected"),
 				tr -> Mono.fromRunnable(() -> commitDone.set(true)),
+				(tr, err) -> Mono.fromRunnable(() -> rollbackDone.set(true)),
 				tr -> Mono.fromRunnable(() -> rollbackDone.set(true)));
 
 		StepVerifier.create(test)
@@ -73,6 +75,7 @@ public class MonoUsingWhenTest {
 		Mono<String> test = Mono.usingWhen(Flux.empty(),
 				tr -> Mono.just("unexpected"),
 				tr -> Mono.fromRunnable(() -> commitDone.set(true)),
+				(tr, err) -> Mono.fromRunnable(() -> rollbackDone.set(true)),
 				tr -> Mono.fromRunnable(() -> rollbackDone.set(true)));
 
 		StepVerifier.create(test)
@@ -90,6 +93,7 @@ public class MonoUsingWhenTest {
 		Mono<String> test = Mono.usingWhen(Flux.error(new IllegalStateException("boom")).hide(),
 				tr -> Mono.just("unexpected"),
 				tr -> Mono.fromRunnable(() -> commitDone.set(true)),
+				(tr, err) -> Mono.fromRunnable(() -> rollbackDone.set(true)),
 				tr -> Mono.fromRunnable(() -> rollbackDone.set(true)));
 
 		StepVerifier.create(test)
@@ -112,6 +116,7 @@ public class MonoUsingWhenTest {
 		Mono<String> test = Mono.usingWhen(Flux.error(new IllegalStateException("boom")),
 				tr -> Mono.just("unexpected"),
 				tr -> Mono.fromRunnable(() -> commitDone.set(true)),
+				(tr, err) -> Mono.fromRunnable(() -> rollbackDone.set(true)),
 				tr -> Mono.fromRunnable(() -> rollbackDone.set(true)));
 
 		StepVerifier.create(test)
@@ -137,6 +142,7 @@ public class MonoUsingWhenTest {
 		Mono<String> test = Mono.usingWhen(testPublisher,
 				Mono::just,
 				tr -> Mono.fromRunnable(() -> commitDone.set(true)),
+				(tr, err) -> Mono.fromRunnable(() -> rollbackDone.set(true)),
 				tr -> Mono.fromRunnable(() -> rollbackDone.set(true)));
 
 		StepVerifier.create(test)
@@ -163,6 +169,7 @@ public class MonoUsingWhenTest {
 		Mono<String> test = Mono.usingWhen(testPublisher,
 				Mono::just,
 				tr -> Mono.fromRunnable(() -> commitDone.set(true)),
+				(tr, err) -> Mono.fromRunnable(() -> rollbackDone.set(true)),
 				tr -> Mono.fromRunnable(() -> rollbackDone.set(true)));
 
 		StepVerifier.create(test)
@@ -190,6 +197,7 @@ public class MonoUsingWhenTest {
 		Mono<String> test = Mono.usingWhen(resourcePublisher,
 				Mono::just,
 				tr -> Mono.fromRunnable(() -> commitDone.set(true)),
+				(tr, err) -> Mono.fromRunnable(() -> rollbackDone.set(true)),
 				tr -> Mono.fromRunnable(() -> rollbackDone.set(true)));
 
 		StepVerifier.create(test)
@@ -216,6 +224,7 @@ public class MonoUsingWhenTest {
 		Mono<String> test = Mono.usingWhen(resourcePublisher,
 				Mono::just,
 				tr -> Mono.fromRunnable(() -> commitDone.set(true)),
+				(tr, err) -> Mono.fromRunnable(() -> rollbackDone.set(true)),
 				tr -> Mono.fromRunnable(() -> rollbackDone.set(true)));
 
 		StepVerifier.create(test)
@@ -244,7 +253,7 @@ public class MonoUsingWhenTest {
 		StepVerifier.create(Mono.usingWhen(resourcePublisher,
 				Mono::just,
 				tr -> Mono.fromRunnable(() -> commitDone.set(true)),
-				tr -> Mono.fromRunnable(() -> rollbackDone.set(true)),
+				(tr, err) -> Mono.fromRunnable(() -> rollbackDone.set(true)),
 				tr -> Mono.fromRunnable(() -> cancelDone.set(true))))
 		            .expectSubscription()
 		            .expectNoEvent(Duration.ofMillis(100))
@@ -271,7 +280,7 @@ public class MonoUsingWhenTest {
 		Mono<String> usingWhen = Mono.usingWhen(resourcePublisher,
 				Mono::just,
 				tr -> Mono.fromRunnable(() -> commitDone.set(true)),
-				tr -> Mono.fromRunnable(() -> rollbackDone.set(true)),
+				(tr, err) -> Mono.fromRunnable(() -> rollbackDone.set(true)),
 				tr -> Mono.fromRunnable(() -> cancelDone.set(true)));
 
 		StepVerifier.create(usingWhen)
@@ -293,7 +302,7 @@ public class MonoUsingWhenTest {
 		Disposable disposable = Mono.usingWhen(Mono.<String>never(),
 				Mono::just,
 				Flux::just,
-				Flux::just,
+				(res, err) -> Flux.just(res),
 				Flux::just)
 		                            .doFinally(f -> latch.countDown())
 		                            .subscribe();
@@ -316,12 +325,14 @@ public class MonoUsingWhenTest {
 					throw new UnsupportedOperationException("boom");
 				},
 				FluxUsingWhenTest.TestResource::commit,
-				FluxUsingWhenTest.TestResource::rollback);
+				FluxUsingWhenTest.TestResource::rollback,
+				FluxUsingWhenTest.TestResource::cancel);
 
 		StepVerifier.create(test)
 		            .verifyErrorSatisfies(e -> assertThat(e).hasMessage("boom"));
 
 		testResource.commitProbe.assertWasNotSubscribed();
+		testResource.cancelProbe.assertWasNotSubscribed();
 		testResource.rollbackProbe.assertWasSubscribed();
 	}
 
@@ -332,7 +343,8 @@ public class MonoUsingWhenTest {
 		Mono<String> test = Mono.usingWhen(Mono.just(testResource),
 				tr -> null,
 				FluxUsingWhenTest.TestResource::commit,
-				FluxUsingWhenTest.TestResource::rollback);
+				FluxUsingWhenTest.TestResource::rollback,
+				FluxUsingWhenTest.TestResource::cancel);
 
 		StepVerifier.create(test)
 		            .verifyErrorSatisfies(e -> assertThat(e)
@@ -340,6 +352,7 @@ public class MonoUsingWhenTest {
 				            .hasMessage("The resourceClosure function returned a null value"));
 
 		testResource.commitProbe.assertWasNotSubscribed();
+		testResource.cancelProbe.assertWasNotSubscribed();
 		testResource.rollbackProbe.assertWasSubscribed();
 	}
 
@@ -349,7 +362,7 @@ public class MonoUsingWhenTest {
 		                   .map(ctx -> ctx.get(String.class)),
 				Mono::just,
 				Mono::just,
-				Mono::just,
+				(res, err) -> Mono.just(res),
 				Mono::just)
 		    .subscriberContext(Context.of(String.class, "contextual"))
 		    .as(StepVerifier::create)
@@ -357,34 +370,61 @@ public class MonoUsingWhenTest {
 		    .verifyComplete();
 	}
 
-	// == scanUnsafe tests ==
+	@Test
+	public void errorCallbackReceivesCause() {
+		AtomicReference<Throwable> errorRef = new AtomicReference<>();
+		NullPointerException npe = new NullPointerException("original error");
+
+		Mono.usingWhen(Mono.just("ignored"), s -> Mono.error(npe), Mono::just,
+				(res, err) -> Mono.fromRunnable(() -> errorRef.set(err)),
+				Mono::just)
+		    .as(StepVerifier::create)
+		    .verifyErrorSatisfies(e -> assertThat(e).isSameAs(npe)
+		                                            .hasNoCause()
+		                                            .hasNoSuppressedExceptions());
+
+		assertThat(errorRef).hasValue(npe);
+	}
+
+	@Test
+	public void failureInApplyAsyncCompleteDiscardsValue() {
+		Mono.usingWhen(Mono.just("foo"),
+				resource -> Mono.just("resource " + resource),
+				resource -> { throw new IllegalStateException("failure in Function"); },
+				(resource, err) -> Mono.empty(),
+				resource -> Mono.empty())
+		    .as(StepVerifier::create)
+		    .expectErrorMessage("failure in Function")
+		    .verifyThenAssertThat()
+		    .hasDiscarded("resource foo");
+	}
+
+	@Test
+	public void onErrorAsyncCompleteDiscardsValue() {
+		Mono.usingWhen(Mono.just("foo"),
+				resource -> Mono.just("resource " + resource),
+				resource -> Mono.error(new IllegalStateException("erroring asyncComplete")),
+				(resource, err) -> Mono.empty(),
+				resource -> Mono.empty())
+		    .as(StepVerifier::create)
+		    .expectErrorSatisfies(e -> assertThat(e).isInstanceOf(RuntimeException.class)
+		                                            .hasMessage("Async resource cleanup failed after onComplete")
+		                                            .hasCause(new IllegalStateException("erroring asyncComplete")))
+		    .verifyThenAssertThat()
+		    .hasDiscarded("resource foo");
+	}
 
 	@Test
 	public void scanOperator() {
-		MonoUsingWhen<Object, Object> op = new MonoUsingWhen<>(Mono.empty(), Mono::just, Mono::just, Mono::just, Mono::just);
+		MonoUsingWhen<Object, Object> op = new MonoUsingWhen<>(Mono.empty(), Mono::just, Mono::just, (res, err) -> Mono.just(res), Mono::just);
 
-		assertThat(op.scanUnsafe(Attr.ACTUAL))
-				.isSameAs(op.scanUnsafe(Attr.ACTUAL_METADATA))
-				.isSameAs(op.scanUnsafe(Attr.BUFFERED))
-				.isSameAs(op.scanUnsafe(Attr.CAPACITY))
-				.isSameAs(op.scanUnsafe(Attr.CANCELLED))
-				.isSameAs(op.scanUnsafe(Attr.DELAY_ERROR))
-				.isSameAs(op.scanUnsafe(Attr.ERROR))
-				.isSameAs(op.scanUnsafe(Attr.LARGE_BUFFERED))
-				.isSameAs(op.scanUnsafe(Attr.NAME))
-				.isSameAs(op.scanUnsafe(Attr.PARENT))
-				.isSameAs(op.scanUnsafe(Attr.RUN_ON))
-				.isSameAs(op.scanUnsafe(Attr.PREFETCH))
-				.isSameAs(op.scanUnsafe(Attr.REQUESTED_FROM_DOWNSTREAM))
-				.isSameAs(op.scanUnsafe(Attr.TERMINATED))
-				.isSameAs(op.scanUnsafe(Attr.TAGS))
-				.isNull();
+		assertThat(op.scan(Attr.RUN_STYLE)).isEqualTo(Attr.RunStyle.SYNC);
 	}
 
 	@Test
 	public void scanResourceSubscriber() {
 		CoreSubscriber<Integer> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
-		ResourceSubscriber<String, Integer> op = new ResourceSubscriber<>(actual, s -> Mono.just(s.length()), Mono::just, Mono::just, Mono::just, true);
+		ResourceSubscriber<String, Integer> op = new ResourceSubscriber<>(actual, s -> Mono.just(s.length()), Mono::just, (res, err) -> Mono.just(res), Mono::just, true);
 		final Subscription parent = Operators.emptySubscription();
 		op.onSubscribe(parent);
 
@@ -396,6 +436,8 @@ public class MonoUsingWhenTest {
 		assertThat(op.scan(Attr.TERMINATED)).as("TERMINATED").isFalse();
 		op.resourceProvided = true;
 		assertThat(op.scan(Attr.TERMINATED)).as("TERMINATED resourceProvided").isTrue();
+
+		assertThat(op.scan(Attr.RUN_STYLE)).isEqualTo(Attr.RunStyle.SYNC);
 
 		assertThat(op.scanUnsafe(Attr.CANCELLED)).as("CANCELLED not supported").isNull();
 	}

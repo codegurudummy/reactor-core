@@ -30,12 +30,13 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
+import reactor.core.CorePublisher;
 import reactor.core.Exceptions;
 import reactor.core.Scannable;
 import reactor.core.scheduler.Schedulers;
 import reactor.util.annotation.Nullable;
+import reactor.util.context.Context;
 
 /**
  * An iterable that consumes a Publisher in a blocking fashion.
@@ -47,13 +48,13 @@ import reactor.util.annotation.Nullable;
  */
 final class BlockingIterable<T> implements Iterable<T>, Scannable {
 
-	final Publisher<? extends T> source;
+	final CorePublisher<? extends T> source;
 
 	final int batchSize;
 
 	final Supplier<Queue<T>> queueSupplier;
 
-	BlockingIterable(Publisher<? extends T> source,
+	BlockingIterable(CorePublisher<? extends T> source,
 			int batchSize,
 			Supplier<Queue<T>> queueSupplier) {
 		if (batchSize <= 0) {
@@ -69,6 +70,7 @@ final class BlockingIterable<T> implements Iterable<T>, Scannable {
 	public Object scanUnsafe(Attr key) {
 		if (key == Attr.PREFETCH) return Math.min(Integer.MAX_VALUE, batchSize); //FIXME should batchSize be forced to int?
 		if (key == Attr.PARENT) return source;
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 		return null;
 	}
@@ -146,6 +148,11 @@ final class BlockingIterable<T> implements Iterable<T>, Scannable {
 			this.limit = Operators.unboundedOrLimit(batchSize);
 			this.lock = new ReentrantLock();
 			this.condition = lock.newCondition();
+		}
+
+		@Override
+		public Context currentContext() {
+			return Context.empty();
 		}
 
 		@Override
@@ -270,6 +277,7 @@ final class BlockingIterable<T> implements Iterable<T>, Scannable {
 			if (key == Attr.CANCELLED) return s == Operators.cancelledSubscription();
 			if (key == Attr.PREFETCH) return batchSize;
 			if (key == Attr.ERROR) return error;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.SYNC;
 
 			return null;
 		}

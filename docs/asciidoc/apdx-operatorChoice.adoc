@@ -1,12 +1,13 @@
 [[which-operator]]
 = Which operator do I need?
-TIP: In this section, if an operator is specific to `Flux` or `Mono` it is
+
+TIP: In this section, if an operator is specific to `Flux` or `Mono`, it is
 prefixed accordingly. Common operators have no prefix. When a specific use case
 is covered by a combination of operators, it is presented as a method call, with
-leading dot and parameters in parentheses, like this: `.methodCall(parameter)`.
+leading dot and parameters in parentheses, as follows: `.methodCall(parameter)`.
 
 //TODO flux:  publishOn/subscribeOn/cancelOn
-//compose/transform, repeatWhen, sort, startWith
+//transformDeferred/transform, repeatWhen, sort, startWith
 //TODO Mono.sequenceEqual
 
 I want to deal with:
@@ -31,6 +32,7 @@ I want to deal with:
 
 [[which.create]]
 == Creating a New Sequence...
+
 * that emits a `T`, and I already have: `just`
 ** ...from an `Optional<T>`: `Mono#justOrEmpty(Optional<T>)`
 ** ...from a potentially `null` T: `Mono#justOrEmpty(T)`
@@ -59,6 +61,7 @@ I want to deal with:
 
 [[which.values]]
 == Transforming an Existing Sequence
+
 * I want to transform existing data:
 ** on a 1-to-1 basis (eg. strings to their length): `map`
 *** ...by just casting it: `cast`
@@ -131,18 +134,20 @@ I want to deal with:
 
 [[which.peeking]]
 == Peeking into a Sequence
+
 * Without modifying the final sequence, I want to:
-** get notified of / execute additional behavior footnote:[sometimes referred to as "side-effects"] on:
+** get notified of / execute additional behavior (sometimes referred to as "side-effects") on:
 *** emissions: `doOnNext`
-*** completion: `Flux#doOnComplete`, `Mono#doOnSuccess` (includes the result if any)
+*** completion: `Flux#doOnComplete`, `Mono#doOnSuccess` (includes the result, if any)
 *** error termination: `doOnError`
 *** cancellation: `doOnCancel`
 *** "start" of the sequence: `doFirst`
 **** this is tied to `Publisher#subscribe(Subscriber)`
-*** subscription (as in `Subscription` acknowledgment after `subscribe`): `doOnSubscribe`
-****(tied to `Subscriber#onSubscribe(Subscription)`)
+*** post-subscription : `doOnSubscribe`
+**** as in `Subscription` acknowledgment after `subscribe`
+**** this is tied to `Subscriber#onSubscribe(Subscription)`
 *** request: `doOnRequest`
-*** completion or error: `doOnTerminate` (Mono version includes the result if any)
+*** completion or error: `doOnTerminate` (Mono version includes the result, if any)
 **** but *after* it has been propagated downstream: `doAfterTerminate`
 *** any type of signal, represented as a `Signal`: `Flux#doOnEach`
 *** any terminating condition (complete, error, cancel): `doFinally`
@@ -157,6 +162,7 @@ I want to deal with:
 
 [[which.filtering]]
 == Filtering a Sequence
+
 * I want to filter a sequence:
 ** based on an arbitrary criteria: `filter`
 *** ...that is asynchronously computed: `filterWhen`
@@ -201,6 +207,7 @@ I want to deal with:
 
 [[which.errors]]
 == Handling Errors
+
 * I want to create an erroring sequence: `error`...
 ** ...to replace the completion of a successful `Flux`: `.concat(Flux.error(e))`
 ** ...to replace the *emission* of a successful `Mono`: `.then(Mono.error(e))`
@@ -220,11 +227,12 @@ I want to deal with:
 ** by falling back:
 *** to a value: `onErrorReturn`
 *** to a `Publisher` or `Mono`, possibly different ones depending on the error: `Flux#onErrorResume` and `Mono#onErrorResume`
-** by retrying: `retry`
+** by retrying...
+*** ...with a simple policy (max number of attempts): `retry()`, `retry(long)`
 *** ...triggered by a companion control Flux: `retryWhen`
-*** ... using a standard backoff strategy (exponential backoff with jitter): `retryBackoff`
+*** ...using a standard backoff strategy (exponential backoff with jitter): `retryWhen(Retry.backoff(...))` (see also other factory methods in `Retry`)
 
-* I want to deal with backpressure "errors"footnote:[request max from upstream and apply the strategy when downstream does not produce enough request]...
+* I want to deal with backpressure "errors" (request max from upstream and apply the strategy when downstream does not produce enough request)...
 ** by throwing a special `IllegalStateException`: `Flux#onBackpressureError`
 ** by dropping excess values: `Flux#onBackpressureDrop`
 *** ...except the last one seen: `Flux#onBackpressureLatest`
@@ -233,6 +241,7 @@ I want to deal with:
 
 [[which.time]]
 == Working with Time
+
 * I want to associate emissions with a timing (`Tuple2<Long, T>`) measured...
 ** since subscription: `elapsed`
 ** since the dawn of time (well, computer time): `timestamp`
@@ -249,6 +258,7 @@ I want to deal with:
 
 [[which.window]]
 == Splitting a `Flux`
+
 * I want to split a `Flux<T>` into a `Flux<Flux<T>>`, by a boundary criteria:
 ** of size: `window(int)`
 *** ...with overlapping or dropping windows: `window(int, int)`
@@ -278,6 +288,7 @@ TIP: Note that this returns a `Flux<GroupedFlux<K, T>>`, each inner `GroupedFlux
 
 [[which.blocking]]
 == Going Back to the Synchronous World
+
 Note: all of these methods except `Mono#toFuture` will throw an `UnsupportedOperatorException` if called from
 within a `Scheduler` marked as "non-blocking only" (by default `parallel()` and `single()`).
 
@@ -309,4 +320,3 @@ within a `Scheduler` marked as "non-blocking only" (by default `parallel()` and 
 ** caching latest elements seen within a `Duration` (Time-To-Live): `cache(Duration)`
 *** ...but retain no more than `n` elements: `cache(int, Duration)`
 ** but without immediately triggering the source: `Flux#replay` (returns a `ConnectableFlux`)
-

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2018 Pivotal Software Inc, All Rights Reserved.
+ * Copyright (c) 2011-Present Pivotal Software Inc, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,17 +36,18 @@ import reactor.util.context.Context;
 /**
  * @author Stephane Maldini
  */
-final class FluxBufferTimeout<T, C extends Collection<? super T>> extends FluxOperator<T,
-		C> {
+final class FluxBufferTimeout<T, C extends Collection<? super T>> extends InternalFluxOperator<T, C> {
 
 	final int            batchSize;
 	final Supplier<C>    bufferSupplier;
 	final Scheduler      timer;
 	final long           timespan;
+	final TimeUnit		 unit;
 
 	FluxBufferTimeout(Flux<T> source,
 			int maxSize,
 			long timespan,
+			TimeUnit unit,
 			Scheduler timer,
 			Supplier<C> bufferSupplier) {
 		super(source);
@@ -58,22 +59,27 @@ final class FluxBufferTimeout<T, C extends Collection<? super T>> extends FluxOp
 		}
 		this.timer = Objects.requireNonNull(timer, "Timer");
 		this.timespan = timespan;
+		this.unit = Objects.requireNonNull(unit, "unit");
 		this.batchSize = maxSize;
 		this.bufferSupplier = Objects.requireNonNull(bufferSupplier, "bufferSupplier");
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super C> actual) {
-		source.subscribe(new BufferTimeoutSubscriber<>(Operators.serialize(actual),
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super C> actual) {
+		return new BufferTimeoutSubscriber<>(
+				Operators.serialize(actual),
 				batchSize,
 				timespan,
+				unit,
 				timer.createWorker(),
-				bufferSupplier));
+				bufferSupplier
+		);
 	}
 
 	@Override
 	public Object scanUnsafe(Attr key) {
 		if (key == Attr.RUN_ON) return timer;
+		if (key == Attr.RUN_STYLE) return Attr.RunStyle.ASYNC;
 
 		return super.scanUnsafe(key);
 	}
@@ -82,7 +88,6 @@ final class FluxBufferTimeout<T, C extends Collection<? super T>> extends FluxOp
 			implements InnerOperator<T, C> {
 
 		final CoreSubscriber<? super C> actual;
-		final Context                   ctx;
 
 		final static int NOT_TERMINATED          = 0;
 		final static int TERMINATED_WITH_SUCCESS = 1;
@@ -91,6 +96,7 @@ final class FluxBufferTimeout<T, C extends Collection<? super T>> extends FluxOp
 
 		final int                        batchSize;
 		final long                       timespan;
+		final TimeUnit                   unit;
 		final Scheduler.Worker           timer;
 		final Runnable                   flushTask;
 
@@ -109,6 +115,12 @@ final class FluxBufferTimeout<T, C extends Collection<? super T>> extends FluxOp
 		static final AtomicLongFieldUpdater<BufferTimeoutSubscriber> REQUESTED =
 				AtomicLongFieldUpdater.newUpdater(BufferTimeoutSubscriber.class, "requested");
 
+		volatile long outstanding;
+
+		@SuppressWarnings("rawtypes")
+		static final AtomicLongFieldUpdater<BufferTimeoutSubscriber> OUTSTANDING =
+				AtomicLongFieldUpdater.newUpdater(BufferTimeoutSubscriber.class, "outstanding");
+
 		volatile int index = 0;
 
 		static final AtomicIntegerFieldUpdater<BufferTimeoutSubscriber> INDEX =
@@ -124,11 +136,12 @@ final class FluxBufferTimeout<T, C extends Collection<? super T>> extends FluxOp
 		BufferTimeoutSubscriber(CoreSubscriber<? super C> actual,
 				int maxSize,
 				long timespan,
+				TimeUnit unit,
 				Scheduler.Worker timer,
 				Supplier<C> bufferSupplier) {
 			this.actual = actual;
-			this.ctx = actual.currentContext();
 			this.timespan = timespan;
+			this.unit = unit;
 			this.timer = timer;
 			this.flushTask = () -> {
 				if (terminated == NOT_TERMINATED) {
@@ -156,6 +169,15 @@ final class FluxBufferTimeout<T, C extends Collection<? super T>> extends FluxOp
 
 		void nextCallback(T value) {
 			synchronized (this) {
+				if (OUTSTANDING.decrementAndGet(this) < 0)
+				{
+					actual.onError(Exceptions.failWithOverflow("Unrequested element received"));
+					Context ctx = actual.currentContext();
+					Operators.onDiscard(value, ctx);
+					Operators.onDiscardMultiple(values, ctx);
+					return;
+				}
+
 				C v = values;
 				if(v == null) {
 					v = Objects.requireNonNull(bufferSupplier.get(),
@@ -201,9 +223,10 @@ final class FluxBufferTimeout<T, C extends Collection<? super T>> extends FluxOp
 					}
 				}
 
+				cancel();
 				actual.onError(Exceptions.failWithOverflow(
 						"Could not emit buffer due to lack of requests"));
-				Operators.onDiscardMultiple(v, this.ctx);
+				Operators.onDiscardMultiple(v, this.actual.currentContext());
 			}
 		}
 
@@ -217,6 +240,7 @@ final class FluxBufferTimeout<T, C extends Collection<? super T>> extends FluxOp
 			if (key == Attr.CAPACITY) return batchSize;
 			if (key == Attr.BUFFERED) return batchSize - index;
 			if (key == Attr.RUN_ON) return timer;
+			if (key == Attr.RUN_STYLE) return Attr.RunStyle.ASYNC;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -233,12 +257,12 @@ final class FluxBufferTimeout<T, C extends Collection<? super T>> extends FluxOp
 
 			if (index == 1) {
 				try {
-					timespanRegistration = timer.schedule(flushTask, timespan, TimeUnit.MILLISECONDS);
+					timespanRegistration = timer.schedule(flushTask, timespan, unit);
 				}
 				catch (RejectedExecutionException ree) {
-					onError(Operators.onRejectedExecution(ree, subscription, null, value,
-							 this.ctx));
-					Operators.onDiscard(value, this.ctx);
+					Context ctx = actual.currentContext();
+					onError(Operators.onRejectedExecution(ree, subscription, null, value, ctx));
+					Operators.onDiscard(value, ctx);
 					return;
 				}
 			}
@@ -289,7 +313,8 @@ final class FluxBufferTimeout<T, C extends Collection<? super T>> extends FluxOp
 					requestMore(Long.MAX_VALUE);
 				}
 				else {
-					requestMore(Operators.multiplyCap(n, batchSize));
+					long requestLimit = Operators.multiplyCap(requested, batchSize);
+					requestMore(requestLimit - outstanding);
 				}
 			}
 		}
@@ -297,6 +322,7 @@ final class FluxBufferTimeout<T, C extends Collection<? super T>> extends FluxOp
 		final void requestMore(long n) {
 			Subscription s = this.subscription;
 			if (s != null) {
+				Operators.addCap(OUTSTANDING, this, n);
 				s.request(n);
 			}
 		}
@@ -318,10 +344,11 @@ final class FluxBufferTimeout<T, C extends Collection<? super T>> extends FluxOp
 		public void onError(Throwable throwable) {
 			if (TERMINATED.compareAndSet(this, NOT_TERMINATED, TERMINATED_WITH_ERROR)) {
 				timer.dispose();
+				Context ctx = actual.currentContext();
 				synchronized (this) {
 					C v = values;
 					if(v != null) {
-						Operators.onDiscardMultiple(v, this.ctx);
+						Operators.onDiscardMultiple(v, ctx);
 						v.clear();
 						values = null;
 					}
@@ -350,7 +377,7 @@ final class FluxBufferTimeout<T, C extends Collection<? super T>> extends FluxOp
 				}
 				C v = values;
 				if (v != null) {
-					Operators.onDiscardMultiple(v, this.ctx);
+					Operators.onDiscardMultiple(v, actual.currentContext());
 					v.clear();
 				}
 			}

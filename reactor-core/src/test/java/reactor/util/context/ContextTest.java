@@ -17,7 +17,10 @@
 package reactor.util.context;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.stream.Stream;
 
 import org.assertj.core.api.Condition;
 import org.junit.Test;
@@ -333,4 +336,275 @@ public class ContextTest {
 		assertThat(context.getOrDefault("k6", 0)).isEqualTo(6);
 	}
 
+	@Test
+	public void ofLinkedHashMap6() {
+		//Context.of(map) should always avoid being backed directly by the given map since we don't know
+		Map<String, Integer> map = new LinkedHashMap<>(6);
+		map.put("k1", 1);
+		map.put("k2", 2);
+		map.put("k3", 3);
+		map.put("k4", 4);
+		map.put("k5", 5);
+		map.put("k6", 6);
+		Context context = Context.of(map);
+
+		assertThat(context).isInstanceOf(ContextN.class);
+		assertThat(context.size()).as("size").isEqualTo(6);
+	}
+
+	@Test
+	public void ofMapWithNullKey() {
+		Map<Object, Object> map = new HashMap<>();
+		map.put("k1", 1);
+		map.put("k2", 2);
+		map.put("k3", 3);
+		map.put("k4", 4);
+		map.put("k5", 5);
+		map.put(null, "foo");
+
+		assertThatNullPointerException().isThrownBy(() -> Context.of(map))
+		                                .withMessage("null key found");
+	}
+
+	@Test
+	public void ofMapWithNullValue() {
+		Map<Object, Object> map = new HashMap<>();
+		map.put("k1", 1);
+		map.put("k2", 2);
+		map.put("k3", 3);
+		map.put("k4", 4);
+		map.put("k5", 5);
+		map.put("k6", null);
+
+		assertThatNullPointerException().isThrownBy(() -> Context.of(map))
+		                                .withMessage("null value for key k6");
+	}
+
+	@Test
+	public void ofContextViewNull() {
+		assertThatNullPointerException().isThrownBy(() -> Context.of((ContextView) null))
+		                                .withMessage("contextView");
+	}
+
+	@Test
+	public void ofContextViewThatIsAContextReturnsSame() {
+		ContextView cv = Context.of("A", "a", "B", "b");
+
+		assertThat(Context.of(cv)).isSameAs(cv);
+	}
+
+	@Test
+	public void ofContextViewThatIsntContextReturnsNewContext() {
+		ForeignContextView cv = new ForeignContextView("A", "a");
+		cv.directPut("B", "b");
+
+		assertThat(Context.of(cv)).isNotSameAs(cv)
+		                          .isExactlyInstanceOf(Context2.class);
+	}
+
+	// == tests for default methods ==
+
+	@Test
+	public void defaultPutAll() {
+		Map<Object, Object> leftMap = new HashMap<>();
+		leftMap.put(1, "A");
+		leftMap.put(10, "A10");
+		leftMap.put(11, "A11");
+		leftMap.put(12, "A12");
+		leftMap.put(13, "A13");
+		Map<Object, Object> rightMap = new HashMap<>();
+		rightMap.put(2, "B");
+		rightMap.put(3, "C");
+		rightMap.put(4, "D");
+		rightMap.put(5, "E");
+		ForeignContext left = new ForeignContext(leftMap);
+		ForeignContext right = new ForeignContext(rightMap);
+
+		Context combined = left.putAll(right);
+		assertThat(combined).isInstanceOf(ContextN.class);
+		ContextN combinedN = (ContextN) combined;
+
+		assertThat(combinedN)
+				.containsKeys(1, 2, 3, 4, 5, 10, 11, 12, 13)
+				.containsValues("A", "B", "C", "D", "E", "A10", "A11", "A12", "A13");
+	}
+
+	@Test
+	public void defaultPutAllOtherIsAbstractContext() {
+		Map<Object, Object> leftMap = new HashMap<>();
+		leftMap.put(1, "A");
+		leftMap.put(10, "A10");
+		leftMap.put(11, "A11");
+		leftMap.put(12, "A12");
+		leftMap.put(13, "A13");
+		Map<Object, Object> rightMap = new HashMap<>();
+		rightMap.put(2, "B");
+		rightMap.put(3, "C");
+		rightMap.put(4, "D");
+		rightMap.put(5, "E");
+		ForeignContext left = new ForeignContext(leftMap);
+		ContextN right = new ContextN(rightMap);
+		right.accept(6, "F");
+
+		Context combined = left.putAll(right);
+		assertThat(combined).isInstanceOf(ForeignContext.class);
+		ForeignContext combinedN = (ForeignContext) combined;
+
+		assertThat(combinedN.delegate)
+				.containsKeys(1, 2, 3, 4, 5, 6, 10, 11, 12, 13)
+				.containsValues("A", "B", "C", "D", "E", "F", "A10", "A11", "A12", "A13");
+	}
+
+	@Test
+	public void defaultPutAllWorksWithParallelStream() {
+		Map<Object, Object> leftMap = new HashMap<>();
+		leftMap.put(1, "A");
+		leftMap.put(10, "A10");
+		leftMap.put(11, "A11");
+		leftMap.put(12, "A12");
+		leftMap.put(13, "A13");
+		Map<Object, Object> rightMap = new HashMap<>();
+		rightMap.put(2, "B");
+		rightMap.put(3, "C");
+		rightMap.put(4, "D");
+		rightMap.put(5, "E");
+		ForeignContext left = new ForeignContext(leftMap) {
+			@Override
+			public Stream<Map.Entry<Object, Object>> stream() {
+				return super.stream().parallel();
+			}
+		};
+		ForeignContext right = new ForeignContext(rightMap) {
+			@Override
+			public Stream<Map.Entry<Object, Object>> stream() {
+				return super.stream().parallel();
+			}
+		};
+
+		//this test proved flaky in the past, due to the parallelization
+		for (int i = 0; i < 1000; i++) {
+			Context combined = left.putAll(right);
+			assertThat(combined).isInstanceOf(ContextN.class);
+			ContextN combinedN = (ContextN) combined;
+
+			assertThat(combinedN)
+					.containsKeys(1, 2, 3, 4, 5, 10, 11, 12, 13)
+					.containsValues("A", "B", "C", "D", "E", "A10", "A11", "A12", "A13");
+		}
+	}
+
+	@Test
+	public void defaultPutAllForeignSmallSize() {
+		Context initial = new ForeignContext(1, "A");
+		Context other = new ForeignContext(2, "B");
+
+		Context result = initial.putAll(other);
+
+		assertThat(result).isInstanceOf(Context2.class);
+		Context2 context2 = (Context2) result;
+
+		assertThat(context2.key1).as("key1").isEqualTo(1);
+		assertThat(context2.value1).as("value1").isEqualTo("A");
+		assertThat(context2.key2).as("key2").isEqualTo(2);
+		assertThat(context2.value2).as("value2").isEqualTo("B");
+	}
+
+	@Test
+	public void putAllForeignMiddleSize() {
+		ForeignContext initial = new ForeignContext(1, "value1")
+				.directPut(2, "value2")
+				.directPut(3, "value3")
+				.directPut(4, "value4");
+		ForeignContext other = new ForeignContext(1, "replaced")
+				.directPut(5, "value5")
+				.directPut(6, "value6");
+
+		Context result = initial.putAll(other);
+
+		assertThat(result).isInstanceOf(ContextN.class);
+		ContextN resultN = (ContextN) result;
+		assertThat(resultN)
+				.containsKeys(1, 2, 3, 4, 5)
+				.containsValues("replaced", "value2", "value3", "value4", "value5");
+	}
+
+	static class ForeignContext extends ForeignContextView implements Context {
+
+		ForeignContext(Object key, Object value) {
+			super(key, value);
+		}
+
+		ForeignContext(Map<Object, Object> data) {
+			super(data);
+		}
+
+		@Override
+		ForeignContext directPut(Object key, Object value) {
+			super.directPut(key, value);
+			return this;
+		}
+
+		@Override
+		public Context put(Object key, Object value) {
+			ForeignContext newContext = new ForeignContext(this.delegate);
+			newContext.delegate.put(key, value);
+			return newContext;
+		}
+
+		@Override
+		public Context delete(Object key) {
+			if (hasKey(key)) {
+				ForeignContext newContext = new ForeignContext(this.delegate);
+				newContext.delegate.remove(key);
+				return newContext;
+			}
+			return this;
+		}
+
+		@Override
+		public String toString() {
+			return "ForeignContext" + delegate.toString();
+		}
+	}
+
+	static class ForeignContextView implements ContextView {
+
+		final Map<Object, Object> delegate = new LinkedHashMap<>();
+
+		ForeignContextView(Object key, Object value) {
+			this.delegate.put(key, value);
+		}
+
+		ForeignContextView(Map<Object, Object> data) {
+			this.delegate.putAll(data);
+		}
+
+		ForeignContextView directPut(Object key, Object value) {
+			this.delegate.put(key, value);
+			return this;
+		}
+
+		@SuppressWarnings("unchecked")
+		public <T> T get(Object key) {
+			if (hasKey(key)) return (T) this.delegate.get(key);
+			throw new NoSuchElementException();
+		}
+
+		public boolean hasKey(Object key) {
+			return this.delegate.containsKey(key);
+		}
+
+		public int size() {
+			return delegate.size();
+		}
+
+		public Stream<Map.Entry<Object, Object>> stream() {
+			return delegate.entrySet().stream();
+		}
+
+		@Override
+		public String toString() {
+			return "ForeignContext" + delegate.toString();
+		}
+	}
 }

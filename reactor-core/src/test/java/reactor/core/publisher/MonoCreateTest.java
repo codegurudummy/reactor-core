@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.assertj.core.api.Assertions;
 import org.junit.Test;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Scannable;
 import reactor.core.scheduler.Schedulers;
@@ -316,11 +317,20 @@ public class MonoCreateTest {
 	}
 
 	@Test
+	public void scanOperator() {
+		MonoCreate<String> test = new MonoCreate<>(null);
+
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.ASYNC);
+		assertThat(test.scan(Scannable.Attr.ACTUAL)).isNull();
+	}
+
+	@Test
 	public void scanDefaultMonoSink() {
 		CoreSubscriber<String> actual = new LambdaMonoSubscriber<>(null, e -> {}, null, null);
 		MonoCreate.DefaultMonoSink<String> test = new MonoCreate.DefaultMonoSink<>(actual);
 
 		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		assertThat(test.scan(Scannable.Attr.RUN_STYLE)).isSameAs(Scannable.Attr.RunStyle.ASYNC);
 
 		assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
 		test.success();
@@ -347,6 +357,7 @@ public class MonoCreateTest {
 			Hooks.onNextDropped(collector::add);
 			AssertSubscriber<Object> assertSubscriber = new AssertSubscriber<>(Operators.enableOnDiscard(null, collector::add), 1);
 
+			@SuppressWarnings("unchecked")
 			MonoSink<Object>[] sinks = new MonoSink[1];
 
 			Mono.create(sink -> sinks[0] = sink)
@@ -399,5 +410,6 @@ public class MonoCreateTest {
 		            .expectNext(1L)
 		            .verifyComplete();
 	}
+
 }
 

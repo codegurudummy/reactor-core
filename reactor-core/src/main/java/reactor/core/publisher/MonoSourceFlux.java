@@ -17,6 +17,7 @@ package reactor.core.publisher;
 
 import org.reactivestreams.Publisher;
 import reactor.core.CoreSubscriber;
+import reactor.core.Scannable;
 
 /**
  * A connecting {@link Mono} Publisher (right-to-left from a composition chain
@@ -42,9 +43,15 @@ final class MonoSourceFlux<I> extends MonoFromFluxOperator<I, I> {
 	 * @param actual
 	 */
 	@Override
-	@SuppressWarnings("unchecked")
-	public void subscribe(CoreSubscriber<? super I> actual) {
-		source.subscribe(actual);
+	public CoreSubscriber<? super I> subscribeOrReturn(CoreSubscriber<? super I> actual) {
+		return actual;
 	}
 
+	@Override
+	public Object scanUnsafe(Attr key) {
+		if (key == Attr.RUN_STYLE) {
+			return Scannable.from(source).scanUnsafe(key);
+		}
+		return super.scanUnsafe(key);
+	}
 }
