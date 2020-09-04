@@ -49,7 +49,11 @@ import static reactor.util.retry.RetrySpec.*;
  */
 public abstract class Retry {
 
-	protected final ContextView retryContext;
+	public final ContextView retryContext;
+
+	public Retry() {
+		this(Context.empty());
+	}
 
 	protected Retry(ContextView retryContext) {
 		this.retryContext = retryContext;
@@ -68,8 +72,14 @@ public abstract class Retry {
 	 */
 	public abstract Publisher<?> generateCompanion(Flux<RetrySignal> retrySignals);
 
-
-	public ContextView retryContext() {return retryContext;}
+	/**
+	 * Return the user provided context that was set at construction time.
+	 *
+	 * @return the user provided context that will be accessible via {@link RetrySignal#retryContextView()}.
+	 */
+	public ContextView retryContext() {
+		return retryContext;
+	}
 
 
 	/**
@@ -106,7 +116,7 @@ public abstract class Retry {
 
 		/**
 		 * Return a read-only view of the user provided context, which may be used to store
-		 * objects to be reset/rollbacked before a retry.
+		 * objects to be reset/rollbacked or otherwise mutated before or after a retry.
 		 *
 		 * @return a read-only view of a user provided context.
 		 */

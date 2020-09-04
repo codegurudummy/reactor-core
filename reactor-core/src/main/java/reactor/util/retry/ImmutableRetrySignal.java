@@ -36,6 +36,7 @@ final class ImmutableRetrySignal implements Retry.RetrySignal {
 			Throwable failure) {
 		this(failureTotalIndex, failureSubsequentIndex, failure, Context.empty());
 	}
+
 	ImmutableRetrySignal(long failureTotalIndex, long failureSubsequentIndex,
 			Throwable failure, ContextView retryContext) {
 		this.failureTotalIndex = failureTotalIndex;

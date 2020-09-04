@@ -121,7 +121,6 @@ final class FluxRetryWhen<T> extends InternalFluxOperator<T, T> {
 			this.source = source;
 			this.otherArbiter = new Operators.DeferredSubscription();
 			this.context = actual.currentContext();
-
 			this.retryContext = retryContext;
 		}
 
