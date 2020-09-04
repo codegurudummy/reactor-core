@@ -22,31 +22,34 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Supplier;
-import java.util.stream.StreamSupport;
+import java.util.stream.Collectors;
 
-import org.assertj.core.api.Assertions;
 import org.junit.Assert;
 import org.junit.Test;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.Scannable;
 import reactor.core.scheduler.Schedulers;
+import reactor.test.MemoryUtils;
 import reactor.test.StepVerifier;
 import reactor.test.publisher.TestPublisher;
 import reactor.test.util.RaceTestUtils;
 
-import static org.hamcrest.Matchers.contains;
-import static org.hamcrest.Matchers.is;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
 
 public class FluxBufferPredicateTest {
 
@@ -231,6 +234,135 @@ public class FluxBufferPredicateTest {
 					.expectErrorMessage("predicate failure")
 					.verify();
 		assertFalse(sp1.hasDownstreams());
+	}
+
+	@Test
+	public void untilChangedNoRepetition() {
+		StepVerifier.create(Flux.range(0, 5)
+		                        .bufferUntilChanged())
+		            .expectSubscription()
+		            .expectNext(Collections.singletonList(0))
+		            .expectNext(Collections.singletonList(1))
+		            .expectNext(Collections.singletonList(2))
+		            .expectNext(Collections.singletonList(3))
+		            .expectNext(Collections.singletonList(4))
+		            .expectComplete()
+		            .verify();
+	}
+
+	@Test
+	public void untilChangedWithKeySelector() {
+		StepVerifier.create(Flux.range(0, 5)
+		                        .bufferUntilChanged(i -> i / 2))
+		            .expectSubscription()
+		            .expectNext(Arrays.asList(0, 1))
+		            .expectNext(Arrays.asList(2, 3))
+		            .expectNext(Collections.singletonList(4))
+		            .expectComplete()
+		            .verify();
+	}
+
+	@Test
+	public void untilChangedNoSharedState() {
+		List<List<Integer>> buffers = new CopyOnWriteArrayList<>();
+		List<Integer> list1 = Arrays.asList(1, 1, 1, 1);
+		List<Integer> list2 = Arrays.asList(3, 3, 2, 2, 2, 2, 2, 2, 2, 2);
+		AtomicBoolean first = new AtomicBoolean();
+
+		Flux<List<Integer>> source = Flux.defer(() -> {
+			if (first.compareAndSet(false, true)) {
+				return Flux.fromIterable(list1).delayElements(Duration.ofMillis(200));
+			}
+			first.set(false);
+			return Flux.fromIterable(list2).delayElements(Duration.ofMillis(50));
+		})
+				.bufferUntilChanged();
+
+		Mono.when(
+				source.map(buffers::add),
+				source.map(buffers::add)
+		).block();
+
+		List<Integer> flattened = buffers.stream().flatMap(List::stream).collect(Collectors.toList());
+		assertThat(flattened).containsExactly(3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1);
+	}
+
+	@Test
+	public void untilChangedSomeRepetition() {
+		StepVerifier.create(Flux.just(1, 1, 2, 2, 3, 3, 1)
+		                        .bufferUntilChanged())
+		            .expectSubscription()
+		            .expectNext(Arrays.asList(1, 1))
+		            .expectNext(Arrays.asList(2, 2))
+		            .expectNext(Arrays.asList(3, 3))
+		            .expectNext(Arrays.asList(1))
+		            .expectComplete()
+		            .verify();
+	}
+
+	@Test
+	public void untilChangedDisposesStateOnComplete() {
+		MemoryUtils.RetainedDetector retainedDetector = new MemoryUtils.RetainedDetector();
+		Flux<List<AtomicInteger>> test =
+				Flux.range(1, 100)
+				    .map(AtomicInteger::new) // wrap integer with object to test gc
+				    .map(retainedDetector::tracked)
+				    .bufferUntilChanged();
+
+		StepVerifier.create(test)
+		            .expectNextCount(100)
+		            .verifyComplete();
+
+		System.gc();
+
+		await()
+				.atMost(2, TimeUnit.SECONDS)
+				.untilAsserted(retainedDetector::assertAllFinalized);
+	}
+
+	@Test
+	public void untilChangedDisposesStateOnError() {
+		MemoryUtils.RetainedDetector retainedDetector = new MemoryUtils.RetainedDetector();
+		Flux<List<AtomicInteger>> test =
+				Flux.range(1, 100)
+				    .map(AtomicInteger::new) // wrap integer with object to test gc
+				    .map(retainedDetector::tracked)
+				    .concatWith(Mono.error(new Throwable("expected")))
+				    .bufferUntilChanged();
+
+
+		StepVerifier.create(test)
+		            .expectNextCount(99) // last buffer discarded onError
+		            .verifyErrorMessage("expected");
+
+		System.gc();
+
+		await()
+				.atMost(2, TimeUnit.SECONDS)
+				.untilAsserted(retainedDetector::assertAllFinalized);
+	}
+
+	@Test
+	public void untilChangedDisposesStateOnCancel() {
+		MemoryUtils.RetainedDetector retainedDetector = new MemoryUtils.RetainedDetector();
+		Flux<List<AtomicInteger>> test =
+				Flux.range(1, 100)
+				    .map(AtomicInteger::new) // wrap integer with object to test gc
+				    .map(retainedDetector::tracked)
+				    .concatWith(Mono.error(new Throwable("unexpected")))
+				    .bufferUntilChanged()
+				    .take(50);
+
+
+		StepVerifier.create(test)
+		            .expectNextCount(50)
+		            .verifyComplete();
+
+		System.gc();
+
+		await()
+				.atMost(2, TimeUnit.SECONDS)
+				.untilAsserted(retainedDetector::assertAllFinalized);
 	}
 
 	@Test
@@ -443,21 +575,21 @@ public class FluxBufferPredicateTest {
 				FluxBufferPredicate.Mode.WHILE);
 
 		StepVerifier.create(bufferWhile)
-		            .then(() -> assertThat(bufferCount.intValue(), is(1)))
+		            .then(() -> assertThat(bufferCount.intValue()).isOne())
 		            .then(() -> sp1.onNext(1))
 		            .then(() -> sp1.onNext(2))
 		            .then(() -> sp1.onNext(3))
-		            .then(() -> assertThat(bufferCount.intValue(), is(1)))
+		            .then(() -> assertThat(bufferCount.intValue()).isOne())
 		            .expectNoEvent(Duration.ofMillis(10))
 		            .then(() -> sp1.onNext(10))
 		            .then(() -> sp1.onNext(11))
 		            .then(sp1::onComplete)
 		            .expectNext(Arrays.asList(10, 11))
-		            .then(() -> assertThat(bufferCount.intValue(), is(1)))
+		            .then(() -> assertThat(bufferCount.intValue()).isOne())
 		            .expectComplete()
 		            .verify();
 
-		assertThat(bufferCount.intValue(), is(1));
+		assertThat(bufferCount.intValue()).isOne();
 	}
 
 	@Test
@@ -504,8 +636,8 @@ public class FluxBufferPredicateTest {
 
 			hence 9 request calls and request(12) total (2 extraneous due to last request(3))
 		 */
-		assertThat(requestCallCount.intValue(), is(9));
-		assertThat(totalRequest.longValue(), is(12L));
+		assertThat(requestCallCount.intValue()).isEqualTo(9);
+		assertThat(totalRequest.longValue()).isEqualTo(12L);
 	}
 
 	@Test
@@ -546,8 +678,8 @@ public class FluxBufferPredicateTest {
 			so 9 total upstream requests calls
 			and 11 total requested
 		 */
-		assertThat(requestCallCount.intValue(), is(9));
-		assertThat(totalRequest.longValue(), is(11L));
+		assertThat(requestCallCount.intValue()).isEqualTo(9);
+		assertThat(totalRequest.longValue()).isEqualTo(11L);
 	}
 
 	@Test
@@ -587,8 +719,8 @@ public class FluxBufferPredicateTest {
 			so 9 total upstream requests calls
 			and 11 total requested
 		 */
-		assertThat(requestCallCount.intValue(), is(9));
-		assertThat(totalRequest.longValue(), is(11L));
+		assertThat(requestCallCount.intValue()).isEqualTo(9);
+		assertThat(totalRequest.longValue()).isEqualTo(11L);
 	}
 
 	// the 3 race condition tests below essentially validate that racing request vs onNext
@@ -621,7 +753,7 @@ public class FluxBufferPredicateTest {
 		}
 		testPublisher.complete();
 
-		Assertions.assertThat(requested).as("total upstream request").hasValue(10 + 1);
+		assertThat(requested).as("total upstream request").hasValue(10 + 1);
 	}
 
 	@Test
@@ -652,7 +784,7 @@ public class FluxBufferPredicateTest {
 		}
 		testPublisher.complete();
 
-		Assertions.assertThat(requested).as("total upstream request").hasValue(10 + 1);
+		assertThat(requested).as("total upstream request").hasValue(10 + 1);
 	}
 
 	@Test
@@ -683,7 +815,7 @@ public class FluxBufferPredicateTest {
 		}
 		testPublisher.complete();
 
-		Assertions.assertThat(requested).as("total upstream request").hasValue(2 * 10 + 1);
+		assertThat(requested).as("total upstream request").hasValue(2 * 10 + 1);
 	}
 
 	@Test
@@ -714,8 +846,8 @@ public class FluxBufferPredicateTest {
 		            .expectComplete()
 		            .verify();
 
-		assertThat(requestCallCount.intValue(), is(1));
-		assertThat(totalRequest.longValue(), is(Long.MAX_VALUE)); //also unbounded
+		assertThat(requestCallCount.intValue()).isEqualTo(1);
+		assertThat(totalRequest.longValue()).isEqualTo(Long.MAX_VALUE); //also unbounded
 	}
 
 	@Test
@@ -733,15 +865,15 @@ public class FluxBufferPredicateTest {
 		            .expectSubscription()
 		            .expectNext(Arrays.asList(1, 2, 3))
 		            .expectNoEvent(Duration.ofSeconds(1))
-		            .then(() -> assertThat(requestCallCount.intValue(), is(3)))
+		            .then(() -> assertThat(requestCallCount.intValue()).isEqualTo(3))
 		            .thenRequest(Long.MAX_VALUE)
 		            .expectNext(Arrays.asList(4, 5, 6), Arrays.asList(7, 8, 9))
 		            .expectNext(Collections.singletonList(10))
 		            .expectComplete()
 		            .verify();
 
-		assertThat(requestCallCount.intValue(), is(4));
-		assertThat(totalRequest.longValue(), is(1003L)); //the switch to unbounded is translated to 1000
+		assertThat(requestCallCount.intValue()).isEqualTo(4);
+		assertThat(totalRequest.longValue()).isEqualTo(1003L); //the switch to unbounded is translated to 1000
 	}
 
 	@Test
@@ -769,8 +901,8 @@ public class FluxBufferPredicateTest {
 		            .verify();
 
 		//despite the 1 by 1 demand, only 1 fused request per buffer, 4 buffers
-		assertThat(requestCallCount.intValue(), is(4));
-		assertThat(totalRequest.longValue(), is(4L)); //ignores the main requests
+		assertThat(requestCallCount.intValue()).isEqualTo(4);
+		assertThat(totalRequest.longValue()).isEqualTo(4L); //ignores the main requests
 	}
 
 
@@ -784,9 +916,9 @@ public class FluxBufferPredicateTest {
 				.log();
 
 		StepVerifier.create(colors)
-		            .consumeNextWith(l1 -> Assert.assertThat(l1, contains("red", "green", "blue", "#")))
-		            .consumeNextWith(l2 -> Assert.assertThat(l2, contains("green", "green", "#")))
-		            .consumeNextWith(l3 -> Assert.assertThat(l3, contains("blue", "cyan")))
+		            .consumeNextWith(l1 -> assertThat(l1).containsExactly("red", "green", "blue", "#"))
+		            .consumeNextWith(l2 -> assertThat(l2).containsExactly("green", "green", "#"))
+		            .consumeNextWith(l3 -> assertThat(l3).containsExactly("blue", "cyan"))
 		            .expectComplete()
 		            .verify();
 	}
@@ -801,9 +933,9 @@ public class FluxBufferPredicateTest {
 				.log();
 
 		StepVerifier.create(colors)
-		            .consumeNextWith(l1 -> Assert.assertThat(l1, contains("red", "green", "blue", "#")))
-		            .consumeNextWith(l2 -> Assert.assertThat(l2, contains("green", "green", "#")))
-		            .consumeNextWith(l3 -> Assert.assertThat(l3, contains("blue", "cyan")))
+		            .consumeNextWith(l1 -> assertThat(l1).containsExactly("red", "green", "blue", "#"))
+		            .consumeNextWith(l2 -> assertThat(l2).containsExactly("green", "green", "#"))
+		            .consumeNextWith(l3 -> assertThat(l3).containsExactly("blue", "cyan"))
 		            .expectComplete()
 		            .verify();
 	}
@@ -819,9 +951,9 @@ public class FluxBufferPredicateTest {
 
 		StepVerifier.create(colors)
 		            .thenRequest(1)
-		            .consumeNextWith(l1 -> Assert.assertThat(l1, contains("red", "green", "blue")))
-		            .consumeNextWith(l2 -> Assert.assertThat(l2, contains("#", "green", "green")))
-		            .consumeNextWith(l3 -> Assert.assertThat(l3, contains("#", "blue", "cyan")))
+		            .consumeNextWith(l1 -> assertThat(l1).containsExactly("red", "green", "blue"))
+		            .consumeNextWith(l2 -> assertThat(l2).containsExactly("#", "green", "green"))
+		            .consumeNextWith(l3 -> assertThat(l3).containsExactly("#", "blue", "cyan"))
 		            .expectComplete()
 		            .verify();
 	}
@@ -836,9 +968,9 @@ public class FluxBufferPredicateTest {
 				.log();
 
 		StepVerifier.create(colors)
-		            .consumeNextWith(l1 -> Assert.assertThat(l1, contains("red", "green", "blue")))
-		            .consumeNextWith(l2 -> Assert.assertThat(l2, contains("green", "green")))
-		            .consumeNextWith(l3 -> Assert.assertThat(l3, contains("blue", "cyan")))
+		            .consumeNextWith(l1 -> assertThat(l1).containsExactly("red", "green", "blue"))
+		            .consumeNextWith(l2 -> assertThat(l2).containsExactly("green", "green"))
+		            .consumeNextWith(l3 -> assertThat(l3).containsExactly("blue", "cyan"))
 		            .expectComplete()
 		            .verify();
 	}
@@ -855,16 +987,16 @@ public class FluxBufferPredicateTest {
 		Subscription parent = Operators.emptySubscription();
 		test.onSubscribe(parent);
 
-		Assertions.assertThat(test.scan(Scannable.Attr.CAPACITY)).isEqualTo(2);
-		Assertions.assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(100L);
-		Assertions.assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
-		Assertions.assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
+		assertThat(test.scan(Scannable.Attr.CAPACITY)).isEqualTo(2);
+		assertThat(test.scan(Scannable.Attr.REQUESTED_FROM_DOWNSTREAM)).isEqualTo(100L);
+		assertThat(test.scan(Scannable.Attr.PARENT)).isSameAs(parent);
+		assertThat(test.scan(Scannable.Attr.ACTUAL)).isSameAs(actual);
 
-		Assertions.assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
+		assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
 
-		Assertions.assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
+		assertThat(test.scan(Scannable.Attr.TERMINATED)).isFalse();
 		test.onError(new IllegalStateException("boom"));
-		Assertions.assertThat(test.scan(Scannable.Attr.TERMINATED)).isTrue();
+		assertThat(test.scan(Scannable.Attr.TERMINATED)).isTrue();
 	}
 
 	@Test
@@ -877,9 +1009,9 @@ public class FluxBufferPredicateTest {
 				FluxBufferPredicate.Mode.WHILE
 		);
 
-		Assertions.assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
+		assertThat(test.scan(Scannable.Attr.CANCELLED)).isFalse();
 		test.cancel();
-		Assertions.assertThat(test.scan(Scannable.Attr.CANCELLED)).isTrue();
+		assertThat(test.scan(Scannable.Attr.CANCELLED)).isTrue();
 	}
 
 	@Test
@@ -979,18 +1111,18 @@ public class FluxBufferPredicateTest {
 		    })
 		    .subscribe((Subscriber<? super List<Integer>>) subscriber); //sync subscriber, no need to sleep/latch
 
-		Assertions.assertThat(buffers).hasSize(3)
+		assertThat(buffers).hasSize(3)
 		          .allMatch(b -> b.size() == 1, "size one");
 		//total requests: 3
-		Assertions.assertThat(buffers.stream().flatMapToInt(l -> l.stream().mapToInt(Integer::intValue)))
+		assertThat(buffers.stream().flatMapToInt(l -> l.stream().mapToInt(Integer::intValue)))
 		          .containsExactly(0,1,2);
 
-		Assertions.assertThat(errorOrComplete.get()).isNull();
+		assertThat(errorOrComplete.get()).isNull();
 
 		//request the rest
 		subscriber.requestUnbounded();
 
-		Assertions.assertThat(errorOrComplete.get()).isInstanceOf(IllegalArgumentException.class)
+		assertThat(errorOrComplete.get()).isInstanceOf(IllegalArgumentException.class)
 		          .hasMessage("Terminated with signal type onComplete");
 	}
 }

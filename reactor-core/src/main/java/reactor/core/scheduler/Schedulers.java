@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 import reactor.core.Disposable;
@@ -45,7 +46,7 @@ import reactor.util.annotation.Nullable;
 import static reactor.core.Exceptions.unwrap;
 
 /**
- * {@link Schedulers} provides various {@link Scheduler} factories useable by {@link
+ * {@link Schedulers} provides various {@link Scheduler} flavors usable by {@link
  * reactor.core.publisher.Flux#publishOn(Scheduler) publishOn} or {@link reactor.core.publisher.Mono#subscribeOn
  * subscribeOn} :
  * <p>
@@ -53,20 +54,20 @@ import static reactor.core.Exceptions.unwrap;
  *     <li>{@link #parallel()}: Optimized for fast {@link Runnable} non-blocking executions </li>
  *     <li>{@link #single}: Optimized for low-latency {@link Runnable} one-off executions </li>
  *     <li>{@link #elastic()}: Optimized for longer executions, an alternative for blocking tasks where the number of active tasks (and threads) can grow indefinitely</li>
+ *     <li>{@link #boundedElastic()}: Optimized for longer executions, an alternative for blocking tasks where the number of active tasks (and threads) is capped</li>
  *     <li>{@link #immediate}: to immediately run submitted {@link Runnable} instead of scheduling them (somewhat of a no-op or "null object" {@link Scheduler})</li>
  *     <li>{@link #fromExecutorService(ExecutorService)} to create new instances around {@link java.util.concurrent.Executors} </li>
  * </ul>
  * <p>
- * Factories prefixed with {@code new} return a new instance of their flavor of {@link Scheduler},
- * while other factories like {@link #elastic()} return a shared instance, that is the one
- * used by operators requiring that flavor as their default Scheduler.
+ * Factories prefixed with {@code new} (eg. {@link #newBoundedElastic(int, int, String)} return a new instance of their flavor of {@link Scheduler},
+ * while other factories like {@link #boundedElastic()} return a shared instance - which is the one used by operators requiring that flavor as their default Scheduler.
  *
  * @author Stephane Maldini
  */
 public abstract class Schedulers {
 
 	/**
-	 * Default pool size, initialized by system property `reactor.schedulers.defaultPoolSize`
+	 * Default pool size, initialized by system property {@code reactor.schedulers.defaultPoolSize}
 	 * and falls back to the number of processors available to the runtime on init.
 	 *
 	 * @see Runtime#availableProcessors()
@@ -75,6 +76,31 @@ public abstract class Schedulers {
 			Optional.ofNullable(System.getProperty("reactor.schedulers.defaultPoolSize"))
 					.map(Integer::parseInt)
 					.orElseGet(() -> Runtime.getRuntime().availableProcessors());
+
+	/**
+	 * Default maximum size for the global {@link #boundedElastic()} {@link Scheduler}, initialized
+	 * by system property {@code reactor.schedulers.defaultBoundedElasticSize} and falls back to 10 x number
+	 * of processors available to the runtime on init.
+	 *
+	 * @see Runtime#availableProcessors()
+	 * @see #boundedElastic()
+	 */
+	public static final int DEFAULT_BOUNDED_ELASTIC_SIZE =
+			Optional.ofNullable(System.getProperty("reactor.schedulers.defaultBoundedElasticSize"))
+					.map(Integer::parseInt)
+					.orElseGet(() -> 10 * Runtime.getRuntime().availableProcessors());
+
+	/**
+	 * Default maximum number of enqueued tasks PER THREAD for the global {@link #boundedElastic()} {@link Scheduler},
+	 * initialized by system property {@code reactor.schedulers.defaultBoundedElasticQueueSize} and falls back to
+	 * a bound of 100 000 tasks per backing thread.
+	 *
+	 * @see #boundedElastic()
+	 */
+	public static final int DEFAULT_BOUNDED_ELASTIC_QUEUESIZE =
+			Optional.ofNullable(System.getProperty("reactor.schedulers.defaultBoundedElasticQueueSize"))
+			        .map(Integer::parseInt)
+			        .orElse(100000);
 
 	static volatile BiConsumer<Thread, ? super Throwable> onHandleErrorHook;
 
@@ -154,11 +180,42 @@ public abstract class Schedulers {
 	 * <p>
 	 * This scheduler is not restartable.
 	 *
-	 * @return default instance of a {@link Scheduler} that hosts a fixed pool of single-threaded
-	 * ExecutorService-based workers and is suited for parallel work
+	 * @return default instance of a {@link Scheduler} that dynamically creates ExecutorService-based
+	 * Workers and caches the threads, reusing them once the Workers have been shut
+	 * down
 	 */
 	public static Scheduler elastic() {
 		return cache(CACHED_ELASTIC, ELASTIC, ELASTIC_SUPPLIER);
+	}
+
+	/**
+	 * {@link Scheduler} that dynamically creates a bounded number of ExecutorService-based
+	 * Workers, reusing them once the Workers have been shut down. The underlying daemon
+	 * threads can be evicted if idle for more than {@link BoundedElasticScheduler#DEFAULT_TTL_SECONDS 60} seconds.
+	 * <p>
+	 * The maximum number of created threads is bounded by a {@code cap} (by default
+	 * ten times the number of available CPU cores, see {@link #DEFAULT_BOUNDED_ELASTIC_SIZE}).
+	 * The maximum number of task submissions that can be enqueued and deferred on each of these
+	 * backing threads is bounded (by default 100K additional tasks, see
+	 * {@link #DEFAULT_BOUNDED_ELASTIC_QUEUESIZE}). Past that point, a {@link RejectedExecutionException}
+	 * is thrown.
+	 * <p>
+	 * By order of preference, threads backing a new {@link reactor.core.scheduler.Scheduler.Worker} are
+	 * picked from the idle pool, created anew or reused from the busy pool. In the later case, a best effort
+	 * attempt at picking the thread backing the least amount of workers is made.
+	 * <p>
+	 * Note that if a thread is backing a low amount of workers, but these workers submit a lot of pending tasks,
+	 * a second worker could end up being backed by the same thread and see tasks rejected.
+	 * The picking of the backing thread is also done once and for all at worker creation, so
+	 * tasks could be delayed due to two workers sharing the same backing thread and submitting long-running tasks,
+	 * despite another backing thread becoming idle in the meantime.
+	 *
+	 * @return a new {@link Scheduler} that dynamically create workers with an upper bound to
+	 * the number of backing threads and after that on the number of enqueued tasks,
+	 * that reuses threads and evict idle ones
+	 */
+	public static Scheduler boundedElastic() {
+		return cache(CACHED_BOUNDED_ELASTIC, BOUNDED_ELASTIC, BOUNDED_ELASTIC_SUPPLIER);
 	}
 
 	/**
@@ -166,7 +223,7 @@ public abstract class Schedulers {
 	 * workers and is suited for parallel work.
 	 *
 	 * @return default instance of a {@link Scheduler} that hosts a fixed pool of single-threaded
-	 * ExecutorService-based workers
+	 * ExecutorService-based workers and is suited for parallel work
 	 */
 	public static Scheduler parallel() {
 		return cache(CACHED_PARALLEL, PARALLEL, PARALLEL_SUPPLIER);
@@ -199,8 +256,9 @@ public abstract class Schedulers {
 	 *
 	 * @param name Thread prefix
 	 *
-	 * @return a new {@link Scheduler} that hosts a fixed pool of single-threaded
-	 * ExecutorService-based workers and is suited for parallel work
+	 * @return a new {@link Scheduler} that dynamically creates ExecutorService-based
+	 * Workers and caches the thread pools, reusing them once the Workers have been shut
+	 * down
 	 */
 	public static Scheduler newElastic(String name) {
 		return newElastic(name, ElasticScheduler.DEFAULT_TTL_SECONDS);
@@ -217,8 +275,9 @@ public abstract class Schedulers {
 	 * @param name Thread prefix
 	 * @param ttlSeconds Time-to-live for an idle {@link reactor.core.scheduler.Scheduler.Worker}
 	 *
-	 * @return a new {@link Scheduler} that hosts a fixed pool of single-threaded
-	 * ExecutorService-based workers and is suited for parallel work
+	 * @return a new {@link Scheduler} that dynamically creates ExecutorService-based
+	 * Workers and caches the thread pools, reusing them once the Workers have been shut
+	 * down
 	 */
 	public static Scheduler newElastic(String name, int ttlSeconds) {
 		return newElastic(name, ttlSeconds, false);
@@ -237,8 +296,9 @@ public abstract class Schedulers {
 	 * @param daemon false if the {@link Scheduler} requires an explicit {@link
 	 * Scheduler#dispose()} to exit the VM.
 	 *
-	 * @return a new {@link Scheduler} that hosts a fixed pool of single-threaded
-	 * ExecutorService-based workers and is suited for parallel work
+	 * @return a new {@link Scheduler} that dynamically creates ExecutorService-based
+	 * Workers and caches the thread pools, reusing them once the Workers have been shut
+	 * down
 	 */
 	public static Scheduler newElastic(String name, int ttlSeconds, boolean daemon) {
 		return newElastic(ttlSeconds,
@@ -259,10 +319,160 @@ public abstract class Schedulers {
 	 *
 	 * @return a new {@link Scheduler} that dynamically creates ExecutorService-based
 	 * Workers and caches the thread pools, reusing them once the Workers have been shut
-	 * down.
+	 * down
 	 */
 	public static Scheduler newElastic(int ttlSeconds, ThreadFactory threadFactory) {
 		return factory.newElastic(ttlSeconds, threadFactory);
+	}
+
+
+	/**
+	 * {@link Scheduler} that dynamically creates a bounded number of ExecutorService-based
+	 * Workers, reusing them once the Workers have been shut down. The underlying (user)
+	 * threads can be evicted if idle for more than {@link BoundedElasticScheduler#DEFAULT_TTL_SECONDS 60} seconds.
+	 * <p>
+	 * The maximum number of created threads is bounded by the provided {@code threadCap}.
+	 * The maximum number of task submissions that can be enqueued and deferred on each of these
+	 * backing threads is bounded by the provided {@code queuedTaskCap}. Past that point,
+	 * a {@link RejectedExecutionException} is thrown.
+	 * <p>
+	 * By order of preference, threads backing a new {@link reactor.core.scheduler.Scheduler.Worker} are
+	 * picked from the idle pool, created anew or reused from the busy pool. In the later case, a best effort
+	 * attempt at picking the thread backing the least amount of workers is made.
+	 * <p>
+	 * Note that if a thread is backing a low amount of workers, but these workers submit a lot of pending tasks,
+	 * a second worker could end up being backed by the same thread and see tasks rejected.
+	 * The picking of the backing thread is also done once and for all at worker creation, so
+	 * tasks could be delayed due to two workers sharing the same backing thread and submitting long-running tasks,
+	 * despite another backing thread becoming idle in the meantime.
+	 * <p>
+	 * This scheduler is restartable. Backing threads are user threads, so they will prevent the JVM
+	 * from exiting until their worker has been disposed AND they've been evicted by TTL, or the whole
+	 * scheduler has been {@link Scheduler#dispose() disposed}.
+	 *
+	 * @param threadCap maximum number of underlying threads to create
+	 * @param queuedTaskCap maximum number of tasks to enqueue when no more threads can be created. Can be {@link Integer#MAX_VALUE} for unbounded enqueueing.
+	 * @param name Thread prefix
+	 * @return a new {@link Scheduler} that dynamically create workers with an upper bound to
+	 * the number of backing threads and after that on the number of enqueued tasks,
+	 * that reuses threads and evict idle ones
+	 */
+	public static Scheduler newBoundedElastic(int threadCap, int queuedTaskCap, String name) {
+		return newBoundedElastic(threadCap, queuedTaskCap, name, BoundedElasticScheduler.DEFAULT_TTL_SECONDS, false);
+	}
+
+	/**
+	 * {@link Scheduler} that dynamically creates a bounded number of ExecutorService-based
+	 * Workers, reusing them once the Workers have been shut down. The underlying (user)
+	 * threads can be evicted if idle for more than the provided {@code ttlSeconds}.
+	 * <p>
+	 * The maximum number of created threads is bounded by the provided {@code threadCap}.
+	 * The maximum number of task submissions that can be enqueued and deferred on each of these
+	 * backing threads is bounded by the provided {@code queuedTaskCap}. Past that point,
+	 * a {@link RejectedExecutionException} is thrown.
+	 * <p>
+	 * By order of preference, threads backing a new {@link reactor.core.scheduler.Scheduler.Worker} are
+	 * picked from the idle pool, created anew or reused from the busy pool. In the later case, a best effort
+	 * attempt at picking the thread backing the least amount of workers is made.
+	 * <p>
+	 * Note that if a thread is backing a low amount of workers, but these workers submit a lot of pending tasks,
+	 * a second worker could end up being backed by the same thread and see tasks rejected.
+	 * The picking of the backing thread is also done once and for all at worker creation, so
+	 * tasks could be delayed due to two workers sharing the same backing thread and submitting long-running tasks,
+	 * despite another backing thread becoming idle in the meantime.
+	 * <p>
+	 * This scheduler is restartable. Backing threads are user threads, so they will prevent the JVM
+	 * from exiting until their worker has been disposed AND they've been evicted by TTL, or the whole
+	 * scheduler has been {@link Scheduler#dispose() disposed}.
+	 *
+	 * @param threadCap maximum number of underlying threads to create
+	 * @param queuedTaskCap maximum number of tasks to enqueue when no more threads can be created. Can be {@link Integer#MAX_VALUE} for unbounded enqueueing.
+	 * @param name Thread prefix
+	 * @param ttlSeconds Time-to-live for an idle {@link reactor.core.scheduler.Scheduler.Worker}
+	 * @return a new {@link Scheduler} that dynamically create workers with an upper bound to
+	 * the number of backing threads and after that on the number of enqueued tasks,
+	 * that reuses threads and evict idle ones
+	 */
+	public static Scheduler newBoundedElastic(int threadCap, int queuedTaskCap, String name, int ttlSeconds) {
+		return newBoundedElastic(threadCap, queuedTaskCap, name, ttlSeconds, false);
+	}
+
+	/**
+	 * {@link Scheduler} that dynamically creates a bounded number of ExecutorService-based
+	 * Workers, reusing them once the Workers have been shut down. The underlying (user or daemon)
+	 * threads can be evicted if idle for more than the provided {@code ttlSeconds}.
+	 * <p>
+	 * The maximum number of created threads is bounded by the provided {@code threadCap}.
+	 * The maximum number of task submissions that can be enqueued and deferred on each of these
+	 * backing threads is bounded by the provided {@code queuedTaskCap}. Past that point,
+	 * a {@link RejectedExecutionException} is thrown.
+	 * <p>
+	 * By order of preference, threads backing a new {@link reactor.core.scheduler.Scheduler.Worker} are
+	 * picked from the idle pool, created anew or reused from the busy pool. In the later case, a best effort
+	 * attempt at picking the thread backing the least amount of workers is made.
+	 * <p>
+	 * Note that if a thread is backing a low amount of workers, but these workers submit a lot of pending tasks,
+	 * a second worker could end up being backed by the same thread and see tasks rejected.
+	 * The picking of the backing thread is also done once and for all at worker creation, so
+	 * tasks could be delayed due to two workers sharing the same backing thread and submitting long-running tasks,
+	 * despite another backing thread becoming idle in the meantime.
+	 * <p>
+	 * This scheduler is restartable. Depending on the {@code daemon} parameter, backing threads can be
+	 * user threads or daemon threads. Note that user threads will prevent the JVM from exiting until their
+	 * worker has been disposed AND they've been evicted by TTL, or the whole scheduler has been
+	 * {@link Scheduler#dispose() disposed}.
+	 *
+	 * @param threadCap maximum number of underlying threads to create
+	 * @param queuedTaskCap maximum number of tasks to enqueue when no more threads can be created. Can be {@link Integer#MAX_VALUE} for unbounded enqueueing.
+	 * @param name Thread prefix
+	 * @param ttlSeconds Time-to-live for an idle {@link reactor.core.scheduler.Scheduler.Worker}
+	 * @param daemon are backing threads {@link Thread#setDaemon(boolean) daemon threads}
+	 * @return a new {@link Scheduler} that dynamically create workers with an upper bound to
+	 * the number of backing threads and after that on the number of enqueued tasks,
+	 * that reuses threads and evict idle ones
+	 */
+	public static Scheduler newBoundedElastic(int threadCap, int queuedTaskCap, String name, int ttlSeconds, boolean daemon) {
+		return newBoundedElastic(threadCap, queuedTaskCap,
+				new ReactorThreadFactory(name, ElasticScheduler.COUNTER, daemon, false,
+						Schedulers::defaultUncaughtException),
+				ttlSeconds);
+	}
+
+	/**
+	 * {@link Scheduler} that dynamically creates a bounded number of ExecutorService-based
+	 * Workers, reusing them once the Workers have been shut down. The underlying (user)
+	 * threads can be evicted if idle for more than the provided {@code ttlSeconds}.
+	 * <p>
+	 * The maximum number of created threads is bounded by the provided {@code threadCap}.
+	 * The maximum number of task submissions that can be enqueued and deferred on each of these
+	 * backing threads is bounded by the provided {@code queuedTaskCap}. Past that point,
+	 * a {@link RejectedExecutionException} is thrown.
+	 * <p>
+	 * By order of preference, threads backing a new {@link reactor.core.scheduler.Scheduler.Worker} are
+	 * picked from the idle pool, created anew or reused from the busy pool. In the later case, a best effort
+	 * attempt at picking the thread backing the least amount of workers is made.
+	 * <p>
+	 * Note that if a thread is backing a low amount of workers, but these workers submit a lot of pending tasks,
+	 * a second worker could end up being backed by the same thread and see tasks rejected.
+	 * The picking of the backing thread is also done once and for all at worker creation, so
+	 * tasks could be delayed due to two workers sharing the same backing thread and submitting long-running tasks,
+	 * despite another backing thread becoming idle in the meantime.
+	 * <p>
+	 * This scheduler is restartable. Backing threads are created by the provided {@link ThreadFactory},
+	 * which can decide whether to create user threads or daemon threads. Note that user threads
+	 * will prevent the JVM from exiting until their worker has been disposed AND they've been evicted by TTL,
+	 * or the whole scheduler has been {@link Scheduler#dispose() disposed}.
+	 *
+	 * @param threadCap maximum number of underlying threads to create
+	 * @param queuedTaskCap maximum number of tasks to enqueue when no more threads can be created. Can be {@link Integer#MAX_VALUE} for unbounded enqueueing.
+	 * @param threadFactory a {@link ThreadFactory} to use each thread initialization
+	 * @param ttlSeconds Time-to-live for an idle {@link reactor.core.scheduler.Scheduler.Worker}
+	 * @return a new {@link Scheduler} that dynamically create workers with an upper bound to
+	 * the number of backing threads and after that on the number of enqueued tasks,
+	 * that reuses threads and evict idle ones
+	 */
+	public static Scheduler newBoundedElastic(int threadCap, int queuedTaskCap, ThreadFactory threadFactory, int ttlSeconds) {
+		return factory.newBoundedElastic(threadCap, queuedTaskCap, threadFactory, ttlSeconds);
 	}
 
 	/**
@@ -469,9 +679,7 @@ public abstract class Schedulers {
 
 	/**
 	 * Set up an additional {@link ScheduledExecutorService} decorator for a given key
-	 * only if that key is not already present. Note that the {@link Factory}'s legacy
-	 * {@link Factory#decorateExecutorService(String, Supplier)} method will always be
-	 * invoked last after applying the decorators added via this method.
+	 * only if that key is not already present.
 	 * <p>
 	 * The decorator is a {@link BiFunction} taking the Scheduler and the backing
 	 * {@link ScheduledExecutorService} as second argument. It returns the
@@ -483,6 +691,7 @@ public abstract class Schedulers {
 	 * for this key.
 	 * @see #setExecutorServiceDecorator(String, BiFunction)
 	 * @see #removeExecutorServiceDecorator(String)
+	 * @see Schedulers#onScheduleHook(String, Function)
 	 */
 	public static boolean addExecutorServiceDecorator(String key, BiFunction<Scheduler, ScheduledExecutorService, ScheduledExecutorService> decorator) {
 		synchronized (DECORATORS) {
@@ -492,9 +701,7 @@ public abstract class Schedulers {
 
 	/**
 	 * Set up an additional {@link ScheduledExecutorService} decorator for a given key,
-	 * even if that key is already present. Note that the {@link Factory}'s legacy
-	 * {@link Factory#decorateExecutorService(String, Supplier)} method will always be
-	 * invoked last after applying the decorators added via this method.
+	 * even if that key is already present.
 	 * <p>
 	 * The decorator is a {@link BiFunction} taking the Scheduler and the backing
 	 * {@link ScheduledExecutorService} as second argument. It returns the
@@ -504,6 +711,7 @@ public abstract class Schedulers {
 	 * @param decorator the executor service decorator to add, if key not already present.
 	 * @see #addExecutorServiceDecorator(String, BiFunction)
 	 * @see #removeExecutorServiceDecorator(String)
+	 * @see Schedulers#onScheduleHook(String, Function)
 	 */
 	public static void setExecutorServiceDecorator(String key, BiFunction<Scheduler, ScheduledExecutorService, ScheduledExecutorService> decorator) {
 		synchronized (DECORATORS) {
@@ -513,9 +721,7 @@ public abstract class Schedulers {
 
 	/**
 	 * Remove an existing {@link ScheduledExecutorService} decorator if it has been set up
-	 * via {@link #addExecutorServiceDecorator(String, BiFunction)}. Note that the {@link Factory}'s
-	 * legacy {@link Factory#decorateExecutorService(String, Supplier)} method is always
-	 * applied last, even if all other decorators have been removed via this method.
+	 * via {@link #addExecutorServiceDecorator(String, BiFunction)}.
 	 * <p>
 	 * In case the decorator implements {@link Disposable}, it is also
 	 * {@link Disposable#dispose() disposed}.
@@ -560,27 +766,94 @@ public abstract class Schedulers {
 			}
 		}
 
-		final ScheduledExecutorService beforeFactory = original;
+		return original;
+	}
 
-		// Backward compatibility
-		final String schedulerType;
-		if (owner instanceof SingleScheduler) {
-			schedulerType = Schedulers.SINGLE;
+	/**
+	 * Add or replace a named scheduling {@link Function decorator}. With subsequent calls
+	 * to this method, the onScheduleHook hook can be a composite of several sub-hooks, each
+	 * with a different key.
+	 * <p>
+	 * The sub-hook is a {@link Function} taking the scheduled {@link Runnable}.
+	 * It returns the decorated {@link Runnable}.
+	 *
+	 * @param key the key under which to set up the onScheduleHook sub-hook
+	 * @param decorator the {@link Runnable} decorator to add (or replace, if key is already present)
+	 * @see #resetOnScheduleHook(String)
+	 * @see #resetOnScheduleHooks()
+	 */
+	public static void onScheduleHook(String key, Function<Runnable, Runnable> decorator) {
+		synchronized (onScheduleHooks) {
+			onScheduleHooks.put(key, decorator);
+			Function<Runnable, Runnable> newHook = null;
+			for (Function<Runnable, Runnable> function : onScheduleHooks.values()) {
+				if (newHook == null) {
+					newHook = function;
+				}
+				else {
+					newHook = newHook.andThen(function);
+				}
+			}
+			onScheduleHook = newHook;
 		}
-		else if (owner instanceof ParallelScheduler) {
-			schedulerType = Schedulers.PARALLEL;
+	}
+
+	/**
+	 * Reset a specific onScheduleHook {@link Function sub-hook} if it has been set up
+	 * via {@link #onScheduleHook(String, Function)}.
+	 *
+	 * @param key the key for onScheduleHook sub-hook to remove
+	 * @see #onScheduleHook(String, Function)
+	 * @see #resetOnScheduleHooks()
+	 */
+	public static void resetOnScheduleHook(String key) {
+		synchronized (onScheduleHooks) {
+			onScheduleHooks.remove(key);
+			if (onScheduleHooks.isEmpty()) {
+				onScheduleHook = Function.identity();
+			}
+			else {
+				Function<Runnable, Runnable> newHook = null;
+				for (Function<Runnable, Runnable> function : onScheduleHooks.values()) {
+					if (newHook == null) {
+						newHook = function;
+					}
+					else {
+						newHook = newHook.andThen(function);
+					}
+				}
+				onScheduleHook = newHook;
+			}
 		}
-		else if (owner instanceof ElasticScheduler) {
-			schedulerType = Schedulers.ELASTIC;
+	}
+
+	/**
+	 * Remove all onScheduleHook {@link Function sub-hooks}.
+	 *
+	 * @see #onScheduleHook(String, Function)
+	 * @see #resetOnScheduleHook(String)
+	 */
+	public static void resetOnScheduleHooks() {
+		synchronized (onScheduleHooks) {
+			onScheduleHooks.clear();
+			onScheduleHook = null;
 		}
-		else if (owner instanceof DelegateServiceScheduler) {
-			schedulerType = "ExecutorService";
+	}
+
+	/**
+	 * Applies the hooks registered with {@link Schedulers#onScheduleHook(String, Function)}.
+	 *
+	 * @param runnable a {@link Runnable} submitted to a {@link Scheduler}
+	 * @return decorated {@link Runnable} if any hook is registered, the original otherwise.
+	 */
+	public static Runnable onSchedule(Runnable runnable) {
+		Function<Runnable, Runnable> hook = onScheduleHook;
+		if (hook != null) {
+			return hook.apply(runnable);
 		}
 		else {
-			schedulerType = owner.getClass().getName();
+			return runnable;
 		}
-
-		return factory.decorateExecutorService(schedulerType, () -> beforeFactory);
 	}
 
 	/**
@@ -588,10 +861,12 @@ public abstract class Schedulers {
 	 */
 	public static void shutdownNow() {
 		CachedScheduler oldElastic = CACHED_ELASTIC.getAndSet(null);
+		CachedScheduler oldBoundedElastic = CACHED_BOUNDED_ELASTIC.getAndSet(null);
 		CachedScheduler oldParallel = CACHED_PARALLEL.getAndSet(null);
 		CachedScheduler oldSingle = CACHED_SINGLE.getAndSet(null);
 
 		if (oldElastic != null) oldElastic._dispose();
+		if (oldBoundedElastic != null) oldBoundedElastic._dispose();
 		if (oldParallel != null) oldParallel._dispose();
 		if (oldSingle != null) oldSingle._dispose();
 	}
@@ -630,26 +905,6 @@ public abstract class Schedulers {
 	public interface Factory {
 
 		/**
-		 * Override this method to decorate {@link ScheduledExecutorService} internally used by
-		 * Reactor's various {@link Scheduler} implementations, allowing to tune the
-		 * {@link ScheduledExecutorService} backing implementation.
-		 *
-		 * @param schedulerType a name hinting at the flavor of Scheduler being tuned.
-		 * @param actual the default backing implementation, provided lazily as a Supplier
-		 * so that you can bypass instantiation completely if you want to replace it.
-		 * @return the internal {@link ScheduledExecutorService} instance to use.
-		 * @deprecated use {@link Schedulers#addExecutorServiceDecorator(String, BiFunction)} and
-		 * {@link Schedulers#removeExecutorServiceDecorator(String)} instead, to compose
-		 * multiple decorators in addition to the one from the current
-		 * {@link Schedulers#setFactory(Factory) Factory}
-		 */
-		@Deprecated
-		default ScheduledExecutorService decorateExecutorService(String schedulerType,
-				Supplier<? extends ScheduledExecutorService> actual) {
-			return actual.get();
-		}
-
-		/**
 		 * {@link Scheduler} that dynamically creates Workers resources and caches
 		 * eventually, reusing them once the Workers have been shut down.
 		 * <p>
@@ -659,10 +914,29 @@ public abstract class Schedulers {
 		 * @param threadFactory a {@link ThreadFactory} to use
 		 *
 		 * @return a new {@link Scheduler} that dynamically creates Workers resources and
-		 * caches eventually, reusing them once the Workers have been shut down.
+		 * caches eventually, reusing them once the Workers have been shut down
 		 */
 		default Scheduler newElastic(int ttlSeconds, ThreadFactory threadFactory) {
 			return new ElasticScheduler(threadFactory, ttlSeconds);
+		}
+
+		/**
+		 * {@link Scheduler} that dynamically creates a bounded number of ExecutorService-based
+		 * Workers, reusing them once the Workers have been shut down. The underlying (user or daemon)
+		 * threads can be evicted if idle for more than {@code ttlSeconds}.
+		 * <p>
+		 * The maximum number of created thread pools is bounded by the provided {@code cap}.
+		 *
+		 * @param threadCap maximum number of underlying threads to create
+		 * @param queuedTaskCap maximum number of tasks to enqueue when no more threads can be created. Can be {@link Integer#MAX_VALUE} for unbounded enqueueing.
+		 * @param threadFactory a {@link ThreadFactory} to use each thread initialization
+		 * @param ttlSeconds Time-to-live for an idle {@link reactor.core.scheduler.Scheduler.Worker}
+		 *
+		 * @return a new {@link Scheduler} that dynamically create workers with an upper bound to
+		 * the number of backing threads, reuses threads and evict idle ones
+		 */
+		default Scheduler newBoundedElastic(int threadCap, int queuedTaskCap, ThreadFactory threadFactory, int ttlSeconds) {
+			return new BoundedElasticScheduler(threadCap, queuedTaskCap, threadFactory, ttlSeconds);
 		}
 
 		/**
@@ -696,6 +970,7 @@ public abstract class Schedulers {
 
 	// Internals
 	static final String ELASTIC               = "elastic"; // IO stuff
+	static final String BOUNDED_ELASTIC       = "boundedElastic"; // Blocking stuff with scale to zero
 	static final String PARALLEL              = "parallel"; //scale up common tasks
 	static final String SINGLE                = "single"; //non blocking tasks
 	static final String IMMEDIATE             = "immediate";
@@ -704,12 +979,17 @@ public abstract class Schedulers {
 
 
 	// Cached schedulers in atomic references:
-	static AtomicReference<CachedScheduler> CACHED_ELASTIC  = new AtomicReference<>();
-	static AtomicReference<CachedScheduler> CACHED_PARALLEL = new AtomicReference<>();
-	static AtomicReference<CachedScheduler> CACHED_SINGLE   = new AtomicReference<>();
+	static AtomicReference<CachedScheduler> CACHED_ELASTIC         = new AtomicReference<>();
+	static AtomicReference<CachedScheduler> CACHED_BOUNDED_ELASTIC = new AtomicReference<>();
+	static AtomicReference<CachedScheduler> CACHED_PARALLEL        = new AtomicReference<>();
+	static AtomicReference<CachedScheduler> CACHED_SINGLE          = new AtomicReference<>();
 
 	static final Supplier<Scheduler> ELASTIC_SUPPLIER =
 			() -> newElastic(ELASTIC, ElasticScheduler.DEFAULT_TTL_SECONDS, true);
+
+	static final Supplier<Scheduler> BOUNDED_ELASTIC_SUPPLIER =
+			() -> newBoundedElastic(DEFAULT_BOUNDED_ELASTIC_SIZE, DEFAULT_BOUNDED_ELASTIC_QUEUESIZE,
+					BOUNDED_ELASTIC, BoundedElasticScheduler.DEFAULT_TTL_SECONDS, true);
 
 	static final Supplier<Scheduler> PARALLEL_SUPPLIER =
 			() -> newParallel(PARALLEL, DEFAULT_POOL_SIZE, true);
@@ -722,6 +1002,11 @@ public abstract class Schedulers {
 			DECORATORS = new LinkedHashMap<>();
 
 	static volatile Factory factory = DEFAULT;
+
+	private static final LinkedHashMap<String, Function<Runnable, Runnable>> onScheduleHooks = new LinkedHashMap<>(1);
+
+	@Nullable
+	private static Function<Runnable, Runnable> onScheduleHook;
 
 	/**
 	 * Get a {@link CachedScheduler} out of the {@code reference} or create one using the
@@ -775,11 +1060,11 @@ public abstract class Schedulers {
 	static class CachedScheduler implements Scheduler, Supplier<Scheduler>, Scannable {
 
 		final Scheduler cached;
-		final String    key;
+		final String    stringRepresentation;
 
 		CachedScheduler(String key, Scheduler cached) {
 			this.cached = cached;
-			this.key = key;
+			this.stringRepresentation = "Schedulers." + key + "()";
 		}
 
 		@Override
@@ -826,11 +1111,12 @@ public abstract class Schedulers {
 
 		@Override
 		public String toString() {
-			return cached.toString();
+			return stringRepresentation;
 		}
 
 		@Override
 		public Object scanUnsafe(Attr key) {
+			if (Attr.NAME == key) return stringRepresentation;
 			return Scannable.from(cached).scanUnsafe(key);
 		}
 
@@ -852,9 +1138,11 @@ public abstract class Schedulers {
 
 	static Disposable directSchedule(ScheduledExecutorService exec,
 			Runnable task,
+			@Nullable Disposable parent,
 			long delay,
 			TimeUnit unit) {
-		SchedulerTask sr = new SchedulerTask(task);
+		task = onSchedule(task);
+		SchedulerTask sr = new SchedulerTask(task, parent);
 		Future<?> f;
 		if (delay <= 0L) {
 			f = exec.submit((Callable<?>) sr);
@@ -872,6 +1160,7 @@ public abstract class Schedulers {
 			long initialDelay,
 			long period,
 			TimeUnit unit) {
+		task = onSchedule(task);
 
 		if (period <= 0L) {
 			InstantPeriodicWorkerTask isr =
@@ -901,6 +1190,7 @@ public abstract class Schedulers {
 			Runnable task,
 			long delay,
 			TimeUnit unit) {
+		task = onSchedule(task);
 
 		WorkerTask sr = new WorkerTask(task, tasks);
 		if (!tasks.add(sr)) {
@@ -932,6 +1222,7 @@ public abstract class Schedulers {
 			long initialDelay,
 			long period,
 			TimeUnit unit) {
+		task = onSchedule(task);
 
 		if (period <= 0L) {
 			InstantPeriodicWorkerTask isr =
