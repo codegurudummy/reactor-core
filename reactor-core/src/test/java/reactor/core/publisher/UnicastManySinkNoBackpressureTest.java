@@ -16,6 +16,8 @@
 package reactor.core.publisher;
 
 import org.junit.jupiter.api.Test;
+
+import reactor.core.Exceptions;
 import reactor.core.publisher.Sinks.Emission;
 import reactor.test.StepVerifier;
 
@@ -26,7 +28,7 @@ class UnicastManySinkNoBackpressureTest {
 	@Test
 	void noSubscribers() {
 		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
-		assertThat(sink.tryEmitNext("hi")).isEqualTo(Emission.FAIL_OVERFLOW);
+		assertThat(sink.tryEmitNext("hi")).isEqualTo(Emission.FAIL_ZERO_SUBSCRIBER);
 	}
 
 	@Test
@@ -65,4 +67,66 @@ class UnicastManySinkNoBackpressureTest {
 
 		assertThat(sink.tryEmitNext("hi")).isEqualTo(Emission.FAIL_CANCELLED);
 	}
+
+	@Test
+	void completed() {
+		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
+		sink.asFlux().subscribe();
+		sink.emitComplete();
+
+		assertThat(sink.tryEmitNext("hi")).isEqualTo(Emission.FAIL_TERMINATED);
+	}
+
+	@Test
+	void errored() {
+		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
+		sink.asFlux().subscribe(v -> {}, e -> {});
+		sink.emitError(new IllegalArgumentException("boom"));
+
+		assertThat(sink.tryEmitNext("hi")).isEqualTo(Emission.FAIL_TERMINATED);
+	}
+
+	@Test
+	void completedBeforeSubscription() {
+		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
+
+		sink.tryEmitComplete();
+
+		sink.asFlux()
+		    .as(StepVerifier::create)
+		    .verifyComplete();
+
+		sink.asFlux()
+		    .as(StepVerifier::create)
+		    .verifyErrorSatisfies(e -> assertThat(e).hasMessage("Unicast Sinks.Many allows only a single Subscriber"));
+	}
+
+	@Test
+	void erroredBeforeSubscription() {
+		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
+
+		sink.tryEmitError(new IllegalArgumentException("boom"));
+
+		sink.asFlux()
+		    .as(StepVerifier::create)
+		    .verifyErrorMessage("boom");
+
+		sink.asFlux()
+		    .as(StepVerifier::create)
+		    .verifyErrorSatisfies(e -> assertThat(e).hasMessage("Unicast Sinks.Many allows only a single Subscriber"));
+	}
+
+	@Test
+	void beforeSubscriberEmitNextPropagatesBackpressureError() {
+		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
+
+		sink.emitNext("hi");
+
+		assertThat(sink.hasSubscriber()).isFalse();
+
+		StepVerifier.create(sink.asFlux())
+		            .verifyErrorMatches(Exceptions::isOverflow);
+	}
+
+
 }
