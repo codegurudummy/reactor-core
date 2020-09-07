@@ -149,6 +149,7 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 				Operators.produced(REQUESTED, this, 1);
 				return Emission.OK;
 			case TERMINATED:
+			case TERMINATED_BEFORE_SUBSCRIPTION:
 				return Emission.FAIL_TERMINATED;
 			case CANCELLED:
 				return Emission.FAIL_CANCELLED;
@@ -217,6 +218,7 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 				}
 				else return tryEmitComplete(); // recurse
 			case TERMINATED:
+			case TERMINATED_BEFORE_SUBSCRIPTION:
 				return Emission.FAIL_TERMINATED;
 			case CANCELLED:
 				return Emission.FAIL_CANCELLED;

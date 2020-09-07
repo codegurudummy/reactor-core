@@ -128,5 +128,31 @@ class UnicastManySinkNoBackpressureTest {
 		            .verifyErrorMatches(Exceptions::isOverflow);
 	}
 
+	@Test
+	void terminateEarlyThenTryComplete() {
+		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
+
+		assertThat(sink.tryEmitComplete()).as("early termination").isEqualTo(Emission.OK);
+
+		assertThat(sink.tryEmitComplete()).as("post termination").isEqualTo(Emission.FAIL_TERMINATED);
+	}
+
+	@Test
+	void terminateEarlyThenTryError() {
+		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
+
+		assertThat(sink.tryEmitComplete()).as("early termination").isEqualTo(Emission.OK);
+
+		assertThat(sink.tryEmitError(new IllegalArgumentException("boom"))).as("post termination").isEqualTo(Emission.FAIL_TERMINATED);
+	}
+
+	@Test
+	void terminateEarlyThenTryEmitNext() {
+		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
+
+		assertThat(sink.tryEmitComplete()).as("early termination").isEqualTo(Emission.OK);
+
+		assertThat(sink.tryEmitNext("hi")).as("post termination").isEqualTo(Emission.FAIL_TERMINATED);
+	}
 
 }
