@@ -70,25 +70,38 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 	public void subscribe(CoreSubscriber<? super T> actual) {
 		Objects.requireNonNull(actual, "subscribe");
 
-		//detect pre-subscribe termination
-		if (STATE.compareAndSet(this, State.TERMINATED_BEFORE_SUBSCRIPTION, State.TERMINATED)) {
-				if (this.error != null) {
-					Operators.error(actual, this.error);
-				}
-				else {
-					Operators.complete(actual);
-				}
-				return;
-		}
+		boolean casFails;
+		State s;
+		do {
+			s = state;
+			switch(s) {
+				case TERMINATED_BEFORE_SUBSCRIPTION:
+					casFails = !STATE.compareAndSet(this, s, State.TERMINATED);
+					break;
+				case INITIAL:
+					casFails = !STATE.compareAndSet(this, s, State.SUBSCRIBED);
+					break;
+				default:
+					casFails = false;
+			}
+		} while (casFails);
 
-		//alternatively, detect already subscribed state
-		if (!STATE.compareAndSet(this, State.INITIAL, State.SUBSCRIBED)) {
+		if (s == State.TERMINATED_BEFORE_SUBSCRIPTION) {
+			//detected pre-subscribe termination
+			if (this.error != null) {
+				Operators.error(actual, this.error);
+			}
+			else {
+				Operators.complete(actual);
+			}
+		}
+		else if (s == State.INITIAL) {
+			this.actual = actual;
+			actual.onSubscribe(this);
+		}
+		else {
 			Operators.reportThrowInSubscribe(actual, new IllegalStateException("Unicast Sinks.Many allows only a single Subscriber"));
-			return;
 		}
-
-		this.actual = actual;
-		actual.onSubscribe(this);
 	}
 
 	@Override
