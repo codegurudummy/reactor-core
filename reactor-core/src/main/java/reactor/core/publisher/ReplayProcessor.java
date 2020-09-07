@@ -544,6 +544,11 @@ public final class ReplayProcessor<T> extends FluxProcessor<T, T>
 	}
 
 	@Override
+	public boolean hasSubscriber() {
+		return subscribers.length > 0;
+	}
+
+	@Override
 	protected boolean isIdentityProcessor() {
 		return true;
 	}

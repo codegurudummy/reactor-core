@@ -84,6 +84,11 @@ public class SerializedManySinkTest {
 		final Sinks.Many<T> delegate = Sinks.many().multicast().onBackpressureError();
 
 		@Override
+		public boolean hasSubscriber() {
+			return delegate.hasSubscriber();
+		}
+
+		@Override
 		public Sinks.Emission tryEmitNext(T o) {
 			return Sinks.Emission.FAIL_OVERFLOW;
 		}

@@ -502,6 +502,8 @@ public final class Sinks {
 	 */
 	public interface Many<T> {
 
+		boolean hasSubscriber();
+
 		/**
 		 * Try emitting a non-null element, generating an {@link Subscriber#onNext(Object) onNext} signal.
 		 * The result of the attempt is represented as an {@link Emission}, which possibly indicates error cases.

@@ -248,6 +248,11 @@ public final class DirectProcessor<T> extends FluxProcessor<T, T> implements Sin
 	}
 
 	@Override
+	public boolean hasSubscriber() {
+		return subscribers.length > 0;
+	}
+
+	@Override
 	protected boolean isIdentityProcessor() {
 		return true;
 	}

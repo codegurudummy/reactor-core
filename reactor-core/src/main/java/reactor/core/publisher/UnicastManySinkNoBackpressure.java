@@ -196,4 +196,9 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 				throw new IllegalStateException();
 		}
 	}
+
+	@Override
+	public boolean hasSubscriber() {
+		return state == State.SUBSCRIBED;
+	}
 }

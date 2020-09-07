@@ -61,6 +61,11 @@ final class SerializedManySink<T> implements Many<T>, Scannable {
 		return sink.asFlux();
 	}
 
+	@Override
+	public boolean hasSubscriber() {
+		return sink.hasSubscriber();
+	}
+
 	Context currentContext() {
 		return contextHolder.currentContext();
 	}
