@@ -90,7 +90,7 @@ public class SerializedManySinkTest {
 
 		@Override
 		public Sinks.Emission tryEmitNext(T o) {
-			return Sinks.Emission.FAIL_OVERFLOW;
+			return delegate.hasSubscriber() ? Sinks.Emission.FAIL_OVERFLOW : Sinks.Emission.FAIL_ZERO_SUBSCRIBER;
 		}
 
 		@Override
