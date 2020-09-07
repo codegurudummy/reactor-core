@@ -209,14 +209,20 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 				if (STATE.compareAndSet(this, State.INITIAL, State.TERMINATED_BEFORE_SUBSCRIPTION)) {
 					return Emission.OK;
 				}
-				else return tryEmitComplete(); //recurse
+				else {
+					//recurse
+					return tryEmitComplete();
+				}
 			case SUBSCRIBED:
 				if (STATE.compareAndSet(this, State.SUBSCRIBED, State.TERMINATED)) {
 					actual.onComplete();
 					actual = null;
 					return Emission.OK;
 				}
-				else return tryEmitComplete(); // recurse
+				else {
+					// recurse
+					return tryEmitComplete();
+				}
 			case TERMINATED:
 			case TERMINATED_BEFORE_SUBSCRIPTION:
 				return Emission.FAIL_TERMINATED;
