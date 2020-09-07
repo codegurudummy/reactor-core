@@ -122,8 +122,6 @@ class UnicastManySinkNoBackpressureTest {
 
 		sink.emitNext("hi");
 
-		assertThat(sink.hasSubscriber()).isFalse();
-
 		StepVerifier.create(sink.asFlux())
 		            .verifyErrorMatches(Exceptions::isOverflow);
 	}

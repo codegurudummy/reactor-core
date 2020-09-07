@@ -639,8 +639,4 @@ public final class UnicastProcessor<T> extends FluxProcessor<T, T>
 		return hasDownstream;
 	}
 
-	@Override
-	public boolean hasSubscriber() {
-		return hasDownstream;
-	}
 }

@@ -328,11 +328,6 @@ public final class EmitterProcessor<T> extends FluxProcessor<T, T> implements Si
 	}
 
 	@Override
-	public boolean hasSubscriber() {
-		return subscribers.length > 0;
-	}
-
-	@Override
 	protected boolean isIdentityProcessor() {
 		return true;
 	}
