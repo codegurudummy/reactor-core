@@ -76,7 +76,7 @@ public class SerializedManySinkTest {
 
 		assertThat(sink.get().tryEmitNext("boom"))
 				.as("emission")
-				.isEqualTo(Sinks.Emission.FAIL_OVERFLOW);
+				.isEqualTo(Sinks.Emission.FAIL_ZERO_SUBSCRIBER);
 	}
 
 	static class EmptyMany<T> implements Sinks.Many<T> {
