@@ -70,9 +70,7 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 	public void subscribe(CoreSubscriber<? super T> actual) {
 		Objects.requireNonNull(actual, "subscribe");
 
-		State s;
-		for(;;) {
-			s = state;
+		for(State s = this.state; /* intentionally no exit condition */ ; s = this.state) {
 			switch(s) {
 				case TERMINATED_BEFORE_SUBSCRIPTION:
 					if (!STATE.compareAndSet(this, s, State.TERMINATED)) {
