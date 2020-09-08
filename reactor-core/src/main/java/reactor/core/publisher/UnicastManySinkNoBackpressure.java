@@ -184,7 +184,9 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 					this.error = t;
 					return Emission.OK;
 				}
-				else return tryEmitError(t);
+				else {
+					return tryEmitError(t);
+				}
 			case SUBSCRIBED:
 				if (STATE.compareAndSet(this, State.SUBSCRIBED, State.TERMINATED)) {
 					actual.onError(t);
